@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { readArticleSummary } from "@/lib/articleSummaryStream";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,7 @@ export default function ArticleDetailPage() {
     const [aiContent, setAiContent] = useState("");
     const [aiSources, setAiSources] = useState<SearchSource[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [summaryError, setSummaryError] = useState<string | null>(null);
     const [thoughtSteps, setThoughtSteps] = useState(0);
     const [liveSteps, setLiveSteps] = useState<string[]>([]);
     const [showThought, setShowThought] = useState(false);
@@ -137,6 +139,7 @@ export default function ArticleDetailPage() {
     // Streaming buffer for smooth text rendering
     const streamBufferRef = useRef("");
     const animFrameRef = useRef<number | null>(null);
+    const generationRef = useRef(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -174,7 +177,12 @@ export default function ArticleDetailPage() {
     // ── AI Summary Generation ────────────────────────────────────────────────
 
     const generateAISummary = useCallback(async (title: string, description?: string, articleUrl?: string) => {
+        abortRef.current?.abort();
+        if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+        const generation = ++generationRef.current;
         setIsGenerating(true);
+        setSummaryError(null);
         setAiContent("");
         setAiSources([]);
         setThoughtSteps(0);
@@ -183,9 +191,16 @@ export default function ArticleDetailPage() {
 
         const controller = new AbortController();
         abortRef.current = controller;
+        const isCurrent = () => generation === generationRef.current && !controller.signal.aborted;
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let streamFinished = false;
+        let completeContent = "";
 
-        // Smooth text drip loop
+        // Animate every character, then use the canonical full response. A timer
+        // must never discard a mutable buffer while React is batching updates.
         const drainBuffer = () => {
+            if (!isCurrent()) return;
+            animFrameRef.current = null;
             if (streamBufferRef.current.length > 0) {
                 const sliceEnd = Math.min(15, streamBufferRef.current.length);
                 const nextSpace = streamBufferRef.current.indexOf(" ", 10);
@@ -194,9 +209,13 @@ export default function ArticleDetailPage() {
                 streamBufferRef.current = streamBufferRef.current.slice(end);
                 setAiContent(prev => prev + slice);
             }
-            animFrameRef.current = requestAnimationFrame(drainBuffer);
+            if (streamFinished && !streamBufferRef.current.length) {
+                setAiContent(completeContent);
+                setIsGenerating(false);
+            } else if (streamBufferRef.current.length) {
+                animFrameRef.current = requestAnimationFrame(drainBuffer);
+            }
         };
-        animFrameRef.current = requestAnimationFrame(drainBuffer);
 
         try {
             const response = await fetch(`${API_BASE}/api/v1/discover/article/summarize`, {
@@ -210,60 +229,38 @@ export default function ArticleDetailPage() {
                 signal: controller.signal,
             });
 
-            if (!response.ok || !response.body) {
-                setIsGenerating(false);
-                return;
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const payload = line.slice(6).trim();
-                    if (payload === "[DONE]") continue;
-
-                    try {
-                        const evt = JSON.parse(payload);
-                        if (evt.type === "sources" && (evt.sources || evt.items)) {
-                            setAiSources(evt.sources || evt.items || []);
-                        } else if (evt.type === "token") {
-                            const tokenText = evt.content ?? evt.data ?? "";
-                            if (tokenText) {
-                                streamBufferRef.current += tokenText;
-                            }
-                        } else if (evt.type === "query_step" || evt.type === "thought" || evt.type === "status") {
-                            setThoughtSteps(prev => prev + 1);
-                            const stepContent = evt.content ?? evt.data ?? "";
-                            if (stepContent) {
-                                setLiveSteps(prev => [...prev, stepContent]);
-                            }
-                        }
-                    } catch { /* skip */ }
+            completeContent = await readArticleSummary(response, (evt) => {
+                if (!isCurrent()) return;
+                if (evt.type === "sources" && (evt.sources || evt.items)) {
+                    setAiSources((evt.sources || evt.items || []) as SearchSource[]);
+                } else if (evt.type === "token") {
+                    const tokenText = evt.content ?? evt.data ?? "";
+                    if (typeof tokenText === "string" && tokenText && !reducedMotion) {
+                        streamBufferRef.current += tokenText;
+                        if (animFrameRef.current === null) animFrameRef.current = requestAnimationFrame(drainBuffer);
+                    }
+                } else if (evt.type === "query_step" || evt.type === "thought" || evt.type === "status") {
+                    setThoughtSteps(prev => prev + 1);
+                    const stepContent = evt.content ?? evt.data ?? "";
+                    if (typeof stepContent === "string" && stepContent) setLiveSteps(prev => [...prev, stepContent]);
                 }
+            });
+            if (!isCurrent()) return;
+            streamFinished = true;
+            if (reducedMotion || !streamBufferRef.current.length) {
+                setAiContent(completeContent);
+                setIsGenerating(false);
+            } else if (animFrameRef.current === null) {
+                animFrameRef.current = requestAnimationFrame(drainBuffer);
             }
         } catch (e: unknown) {
-            if (e instanceof Error && e.name !== "AbortError") {
-                console.error("AI summary failed:", e);
-            }
-        } finally {
-            setTimeout(() => {
-                if (streamBufferRef.current.length > 0) {
-                    setAiContent(prev => prev + streamBufferRef.current);
-                    streamBufferRef.current = "";
-                }
-                if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-                setIsGenerating(false);
-            }, 500);
+            if (!isCurrent()) return;
+            if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
+            animFrameRef.current = null;
+            streamBufferRef.current = "";
+            setAiContent("");
+            setSummaryError(e instanceof Error ? e.message : "The summary could not be completed. Please retry.");
+            setIsGenerating(false);
         }
     }, []);
 
@@ -430,7 +427,7 @@ export default function ArticleDetailPage() {
                     )}
 
                     {/* ── AI Generated Summary ── */}
-                    {(aiContent || isGenerating) && (
+                    {(aiContent || isGenerating || summaryError) && (
                         <div className="article-ai-section">
                             {/* GPT-style animated thinking indicator */}
                             {(thoughtSteps > 0 || isGenerating) && (
@@ -444,7 +441,7 @@ export default function ArticleDetailPage() {
                                     ) : isGenerating && aiContent ? (
                                         <span className="article-thought-shimmer">Synthesizing the summary</span>
                                     ) : (
-                                        <span>Thought for {thoughtSteps} step{thoughtSteps !== 1 ? "s" : ""}</span>
+                                        <span>{summaryError ? "Summary unavailable" : `Thought for ${thoughtSteps} step${thoughtSteps !== 1 ? "s" : ""}`}</span>
                                     )}
                                     <ChevronDown
                                         size={13}
@@ -458,7 +455,15 @@ export default function ArticleDetailPage() {
 
                             {/* Streaming content */}
                             <div className="article-ai-content">
-                                {aiContent ? (
+                                {summaryError ? (
+                                    <div className="article-ai-error" role="alert">
+                                        <p>{summaryError}</p>
+                                        <div className="article-ai-error-actions">
+                                            <button onClick={() => generateAISummary(article.title, article.description, article.url)}>Retry summary</button>
+                                            <a href={article.url} target="_blank" rel="noopener noreferrer">Read original article</a>
+                                        </div>
+                                    </div>
+                                ) : aiContent ? (
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{

@@ -156,7 +156,10 @@ class LLMRuntime:
                         # Prefer the explicitly configured fallback. Only retry a
                         # short wait once, without SDK retries multiplying attempts.
                         if attempt == 0 and index == len(self.endpoints) - 1 and delay <= 2:
-                            await asyncio.sleep(delay)
+                            # Event-loop timers can wake slightly before monotonic
+                            # deadlines on Windows. A small margin avoids retrying
+                            # early or abandoning the one allowed short retry.
+                            await asyncio.sleep(delay + 0.05)
                             continue
                         quota_waits.append(delay)
                         break

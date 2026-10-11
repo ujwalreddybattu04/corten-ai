@@ -1547,11 +1547,34 @@
 
 /* AI content typography (Perplexity text styling) */
 .article-ai-content {
+    overflow-wrap: anywhere;
     font-size: 1rem;
     line-height: 1.8;
     color: #ffffff;
     letter-spacing: -0.005em;
 }
+
+.article-ai-error {
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 14px;
+    line-height: 1.6;
+}
+.article-ai-error p { margin: 0 0 12px; }
+.article-ai-error-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.article-ai-error-actions button {
+    padding: 7px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.article-ai-error-actions a { color: inherit; text-underline-offset: 3px; }
+.article-ai-error-actions button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
 .article-ai-h2 {
     font-size: 1.25rem;

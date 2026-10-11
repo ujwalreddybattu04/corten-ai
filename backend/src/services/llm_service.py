@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Dict, Any, List
 
 from src.config.settings import settings
 from src.services.llm_runtime import build_llm_client, LLMProviderError
+from src.services.article_summary import complete_summary, ArticleSummaryIncompleteError
 from src.services.agents.query_context import clean_history, company_alias
 from src.services.conversation_memory import answer_context, CONVERSATION_SYSTEM_PROMPT
 from src.services.thread_titles import fallback_title, validate_title
@@ -150,16 +151,17 @@ class GroqLLMService:
 
     async def stream_article_summary(self, title: str, article_text: str, search_results: List[Dict[str, Any]], description: str = "") -> AsyncGenerator[str, None]:
         """
-        Streams a narrative-style article summary using a dedicated journalist prompt.
-        Token-budgeted to stay within Groq free tier limits (~4500 input tokens).
+        Generate a complete medium summary before publishing any text to the UI.
+        A cut-off draft gets one shorter regeneration; it is never presented as final.
         """
         if not self.client:
             raise LLMProviderError("No AI provider is configured. Please contact the administrator.")
 
         # ── Token Budget ──────────────────────────────────────────────────
         # Groq model context is large enough; the real constraint is TPM.
-        # Give the LLM plenty of source material so the summary is complete.
-        INPUT_CHAR_BUDGET = 18000
+        if not (article_text.strip() or description.strip() or any(result.get("snippet", "").strip() for result in search_results)):
+            raise LLMProviderError("There is not enough article text to create a reliable summary. Please retry or read the original article.")
+        INPUT_CHAR_BUDGET = 12000
         system_prompt = ARTICLE_SUMMARY_SYSTEM_PROMPT
         remaining = INPUT_CHAR_BUDGET - len(system_prompt) - 200  # 200 for user message framing
 
@@ -179,12 +181,12 @@ class GroqLLMService:
             source_chars_used += len(entry)
 
         # Build the user message with article content
-        user_content = f"Write an in-depth summary of this story: \"{title}\"\n\n"
+        user_content = f"Summarize this story in 180–260 words and 3–4 short paragraphs: \"{title[:600]}\"\n\n"
         if article_text and article_budget > 0:
-            user_content += f"FULL ARTICLE TEXT:\n{article_text[:article_budget]}\n\n"
+            user_content += f"ARTICLE TEXT (may be an excerpt):\n{article_text[:article_budget]}\n\n"
         if description and not article_text:
             user_content += f"ARTICLE EXCERPT: {description[:800]}\n\n"
-        user_content += "Write a COMPLETE, compelling, flowing narrative summary. Tell the full story from beginning to end. Include a proper concluding paragraph — never stop mid-sentence or mid-thought."
+        user_content += "Cover the key facts and supported outcome in short paragraphs separated by blank lines. Include the supplied source citations. Finish the summary within the requested length with a complete final sentence."
 
         messages_payload = [
             {"role": "system", "content": system_prompt},
@@ -192,20 +194,33 @@ class GroqLLMService:
         ]
 
         try:
-            stream = await self.client.chat.completions.create(
-                messages=messages_payload,
-                model=self.default_model,
-                temperature=0.4,
-                max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
-                stream=True,
-                # No stop sequences — the prompt already forbids source lists,
-                # and stop words like "Sources" / "References" can appear in
-                # legitimate article prose, causing premature truncation.
-            )
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
+            for attempt in range(2):
+                messages = list(messages_payload)
+                if attempt:
+                    messages.append({"role": "user", "content": (
+                        "The previous attempt did not produce a usable complete summary. "
+                        "Write a fresh, shorter summary in 120–180 words and 2–3 paragraphs. "
+                        "Use the same evidence and end with a complete sentence."
+                    )})
+                completion = await self.client.chat.completions.create(
+                    messages=messages,
+                    model=self.default_model,
+                    temperature=0.2,
+                    max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+                    stream=False,
+                )
+                choice = completion.choices[0] if completion.choices else None
+                summary = complete_summary(
+                    choice.message.content if choice else None,
+                    getattr(choice, "finish_reason", None),
+                )
+                if summary:
+                    # The frontend animates the verified text; no rejected draft leaks.
+                    yield summary
+                    return
+                if getattr(choice, "finish_reason", None) not in (None, "stop", "length"):
+                    break
+            raise ArticleSummaryIncompleteError()
 
         except Exception as e:
             logger.exception(f"Groq API article summary streaming failed: {e}")

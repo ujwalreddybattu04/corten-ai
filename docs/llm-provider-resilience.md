@@ -61,6 +61,19 @@ retain their existing local fallback/empty-suggestion behavior.
 
 There is no automatic change to the configured answer or router model.
 
+## Complete Discover summaries
+
+Discover requests a medium summary of 180–260 words in short paragraphs. The
+backend checks the provider's finish reason, length and final sentence before
+publishing it. An incomplete draft gets one fresh, shorter regeneration using
+the same evidence. Rejected drafts are never appended to the final summary.
+Provider quota or rejection errors do not trigger another regeneration loop.
+
+The frontend retains the full response while animating it, including the final
+SSE line and split Unicode characters. An interrupted or unsuccessful response
+clears the partial text and offers **Retry summary** and **Read original article**.
+Readers who prefer reduced motion receive the complete summary immediately.
+
 ## Optional independent hosted fallback
 
 Gemini can be explicitly selected with these private environment settings:
