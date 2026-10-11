@@ -1,5 +1,9 @@
 # Pharma updates in Analyst Workspace
 
+> The workspace feed UI has been removed. This document describes the previous
+> integration and the standalone backend API, which remains available independently.
+> See [current workspace scope](chryselys-analyst-workspace.md).
+
 The **Pharma updates** tab uses live public records, separately from the forecast's sample data. Nothing in this feed automatically changes a forecast. **Use as evidence** selects the title and source URL in the evidence form; an analyst must explain the supported assumption and submit it.
 
 ## Sources and coverage

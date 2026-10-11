@@ -68,7 +68,7 @@ cd frontend
 npm ci
 npm run build -- --webpack
 npx tsc --noEmit
-node --test tests/forecasting.cjs tests/api-proxy.cjs
+node --test tests/auth-session.cjs tests/api-proxy.cjs
 ```
 
 ```bash

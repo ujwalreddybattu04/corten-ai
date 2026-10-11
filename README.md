@@ -34,7 +34,7 @@
 - **Discover** — Trending news with AI-powered article summaries and follow-up Q&A
 - **History Dashboard** — Full-screen Grok-style history modal with search, time grouping, and conversation preview
 - **Focus Modes** — Scope searches: All, Academic, YouTube, Reddit, Writing, Math
-- **Analyst Workspace** — Pharma updates, patient and volume forecasts, scenario comparisons, evidence and review-pack exports. Forecast projects currently use browser-local storage.
+- **Analyst Workspace** — Sidebar entry and empty workspace shell, ready for workflows based on Chryselys requirements.
 
 ## Hosting
 

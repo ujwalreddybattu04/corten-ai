@@ -1,5 +1,8 @@
 # Analyst Workspace: enterprise UX review
 
+> Historical review of the removed implementation. The workspace now contains
+> only its sidebar entry and page shell. See [current scope](chryselys-analyst-workspace.md).
+
 Reviewed on 9 October 2026 against the existing Corten interface and the local implementation. This is a product and usability review; it does not certify the platform for enterprise production use.
 
 ## Findings and changes

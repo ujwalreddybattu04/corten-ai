@@ -25,9 +25,8 @@ def self_answer(intent: str, clarification: str | None = None) -> str | None:
         enabled = [descriptions[name] for name in tool_registry.get_tool_names() if name in descriptions]
         tools = ", ".join(enabled) or "answering questions"
         return (f"I can help with {tools}, explanations, writing and multi-step research. "
-                "The Analyst Workspace supports historical and patient-based forecasts, scenario comparisons, "
-                "pharma updates and evidence review. External tools depend on their configured providers, "
-                "and forecasts need approved inputs and analyst review.")
+                "The Analyst Workspace is currently empty, with its features pending Chryselys requirements. "
+                "External tools depend on their configured providers.")
     if intent == "training":
         return (f"{settings.COMPANY_NAME} developed the {brand} application. That is different from "
                 "training the underlying language model, which is supplied through the configured AI provider. "

@@ -1,5 +1,8 @@
 # Analyst Workspace test report
 
+> Historical tests of the removed implementation. The workspace now contains
+> only its sidebar entry and page shell. See [current scope](chryselys-analyst-workspace.md).
+
 **Follow-up, 11 October 2026:** the app now supports dark mode only at the user's request. Light-theme styles and switching code have been removed. Light-theme checks below describe the earlier version reviewed before that change.
 
 Tested on **11 October 2026** using the running local application and an isolated Chromium browser profile. Test fixtures, simulated failures, and project resets affected the test profile only. The normal browser's saved forecasts and backend credentials were not changed.
