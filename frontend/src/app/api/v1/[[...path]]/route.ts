@@ -5,6 +5,10 @@ type RouteContext = { params: Promise<{ path?: string[] }> };
 const ACCESS = "corten_access";
 const REFRESH = "corten_refresh";
 const PERSIST = "corten_remember";
+// Render's internal request URL can be HTTP even when the public site uses HTTPS.
+function publicOrigin(request: Request) {
+    return new URL(process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || request.url).origin;
+}
 
 function cookie(request: Request, name: string) {
     const entry = (request.headers.get("cookie") || "").split(";").find(part => part.trim().startsWith(name + "="));
@@ -14,7 +18,7 @@ function cookie(request: Request, name: string) {
     } catch { return ""; }
 }
 function setCookie(headers: Headers, request: Request, name: string, value: string, maxAge?: number) {
-    headers.append("Set-Cookie", `${name}=${encodeURIComponent(value)}; Path=/api/v1; HttpOnly; SameSite=Lax${new URL(request.url).protocol === "https:" ? "; Secure" : ""}${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}`);
+    headers.append("Set-Cookie", `${name}=${encodeURIComponent(value)}; Path=/api/v1; HttpOnly; SameSite=Lax${publicOrigin(request).startsWith("https:") ? "; Secure" : ""}${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}`);
 }
 function clearSession(headers: Headers, request: Request) {
     for (const name of [ACCESS, REFRESH, PERSIST]) setCookie(headers, request, name, "", 0);
@@ -28,7 +32,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     const mutation = !["GET", "HEAD"].includes(request.method);
     const origin = request.headers.get("origin");
     const site = request.headers.get("sec-fetch-site");
-    if (mutation && ((origin && origin !== new URL(request.url).origin) || site === "cross-site" ||
+    if (mutation && ((origin && origin !== publicOrigin(request)) || site === "cross-site" ||
         (!origin && !request.headers.has("authorization") && (action || cookie(request, ACCESS) || cookie(request, REFRESH))))) {
         return Response.json({ detail: "Request origin is not allowed" }, { status: 403 });
     }

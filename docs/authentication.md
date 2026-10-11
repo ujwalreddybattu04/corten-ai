@@ -12,6 +12,10 @@ Secure on HTTPS. Browser API calls use the frontend origin. JWTs are removed fro
 login/register/refresh JSON responses and are never saved in localStorage.
 Cookie-authenticated writes require the frontend Origin. The proxy never forwards
 browser cookies to the backend.
+On Render, the public origin comes from `RENDER_EXTERNAL_URL`, rather than the
+internal HTTP request URL. Set `APP_ORIGIN` to the full HTTPS origin when using a
+custom domain or another reverse proxy. This setting controls CSRF validation and
+the Secure cookie flag; never derive trust from arbitrary forwarded-host headers.
 
 Session restoration calls the proxy's `/api/v1/auth/session`, which verifies
 existing cookies through `/api/v1/auth/me` and returns null immediately for guests;

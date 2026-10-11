@@ -13,10 +13,13 @@ instance._compile(compiled, source);
 const api = instance.exports;
 const originalFetch = global.fetch;
 const originalBackend = process.env.BACKEND_URL;
+const originalRenderUrl = process.env.RENDER_EXTERNAL_URL;
 after(() => {
   global.fetch = originalFetch;
   if (originalBackend === undefined) delete process.env.BACKEND_URL;
   else process.env.BACKEND_URL = originalBackend;
+  if (originalRenderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+  else process.env.RENDER_EXTERNAL_URL = originalRenderUrl;
 });
 const context = (parts) => ({ params: Promise.resolve({ path: parts }) });
 const request = (method, query = "", body) => {
@@ -161,4 +164,20 @@ test("guests restore immediately without waking backend; cookie sessions are ver
   req.nextUrl = new URL(req.url);
   assert.equal((await (await api.GET(req, context(["auth", "session"]))).json()).id, "verified-user");
   assert.equal(calls, 1);
+});
+
+test("Render public HTTPS origin permits browser sign-in and secures cookies behind internal HTTP", async () => {
+  process.env.RENDER_EXTERNAL_URL = "https://corten.example";
+  global.fetch = async () => Response.json({ user: { id: "a" }, access_token: "access", refresh_token: "refresh" });
+  const req = new Request("http://internal-container:10000/api/v1/auth/login", {
+    method: "POST", headers: { Origin: "https://corten.example", "Content-Type": "application/json" }, body: "{}",
+  });
+  req.nextUrl = new URL(req.url);
+  const response = await api.POST(req, context(["auth", "login"]));
+  assert.equal(response.status, 200);
+  assert.ok(response.headers.getSetCookie().every(cookie => cookie.includes("Secure")));
+  const crossSite = authRequest("login", {}, "", "https://attacker.example");
+  assert.equal((await api.POST(crossSite, context(["auth", "login"]))).status, 403);
+  if (originalRenderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+  else process.env.RENDER_EXTERNAL_URL = originalRenderUrl;
 });
