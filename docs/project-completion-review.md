@@ -24,7 +24,7 @@ The application works as a hosted preview. The defects below are repaired, but t
 
 - **142 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports and citations.
 - **57 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
-- **16 isolated browser checks** cover Spaces, account separation, headings, interrupted chat, image lightbox, report errors/completion and mobile layout. These use synthetic account/API responses.
+- **17 isolated browser checks** cover Spaces, account separation, headings, interrupted chat, image lightbox, report errors/completion/retry and mobile layout. These use synthetic account/API responses.
 - **18 Analyst Workspace browser checks** use real calculation/export endpoints: Average/Exit constraints, first-year behavior, the unchanged adoption example, UTF-16 CSV, Chinese/Greek/Cyrillic PDF labels, absolute values, single-year fallback, cancellation/replacement races, errors and 320–1440px layouts.
 - **14 API checks** cover readiness, guest protection, input bounds, downloads, company identity and conversation recall.
 - A real sourced report produced four sections and a five-page PDF, successfully downloaded and parsed. An earlier provider request was rejected; the application displayed an error without publishing an incomplete PDF. Provider output remains variable.

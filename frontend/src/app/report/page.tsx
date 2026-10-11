@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
     FileText, Download, Loader2, CheckCircle2, Circle,
-    Clock, BookOpen, X, ArrowLeft, AlertCircle,
+    Clock, BookOpen, X, ArrowLeft, AlertCircle, RotateCcw,
 } from "lucide-react";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -128,10 +128,15 @@ function ReportContent() {
 
                 {/* Error */}
                 {error && (
-                    <div className="rpt-error">
-                        <AlertCircle size={16} />
-                        <span>{error}</span>
-                    </div>
+                    <>
+                        <div className="rpt-error" role="alert">
+                            <AlertCircle size={16} />
+                            <span>{error}</span>
+                        </div>
+                        <button type="button" className="rpt-cancel-btn" onClick={() => void generateReport(topic, focus)}>
+                            <RotateCcw size={14} /> Retry report
+                        </button>
+                    </>
                 )}
 
                 {/* Result Card */}

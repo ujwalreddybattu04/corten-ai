@@ -1,6 +1,24 @@
 # Hosted verification — 11 October 2026
 
-## Deployment
+## Completion review release
+
+The core completion repairs were deployed and checked on `61cfc0c`. Both Render
+services reached `live`, and [both GitHub CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38151055017).
+Public signup with personal accounts remains the chosen rollout policy.
+
+- 14 hosted API checks passed; `/ready` confirmed both PostgreSQL and Redis available.
+- 10 real authentication checks passed: signup/login/profile, case-normalized duplicate email, wrong-password errors, token types, rotation/replay, logout, eight concurrent refresh requests, ownership, profile restrictions and account deactivation.
+- Exactly two synthetic audit accounts were deleted; no other accounts were touched. Temporary single-IP database access was removed and the original rules were verified.
+- 18 real hosted Analyst Workspace browser checks passed, including the unchanged adoption input, both modes, Unicode PDF output, CSV/JSON exports, errors/cancellation and mobile layouts.
+- Discover returned articles for six categories and a second-page request: seven successful feed checks.
+- A real report completed, downloaded and parsed as a four-page PDF with 15 research sources. Three model/chat checks passed for a generated Python answer, generated topic heading and previous-question recall without web search.
+- Nine summary animation/error/reduced-motion checks passed against the upgraded local production build. The additional report retry action passed the local browser review.
+
+See [the completion review](project-completion-review.md) for the current features,
+test commands and unresolved launch work. Records below describe earlier iterations;
+old forecast/scenario features were replaced by the CSV interpolation workspace.
+
+## Earlier deployment verification (historical)
 
 - Public repository: https://github.com/ujwalreddybattu04/corten-ai
 - Frontend: https://corten-ai-web.onrender.com
