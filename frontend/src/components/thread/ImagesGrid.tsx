@@ -106,10 +106,7 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
     const [closing, setClosing] = useState(false);
 
 
-    if (!images || images.length === 0) return null;
-
-    const allImages = images.filter(img => img.url);
-    if (allImages.length === 0) return null;
+    const allImages = (images || []).filter(img => img.url);
 
     const displayImages = mode === "strip"
         ? allImages.slice(0, 6)
@@ -147,6 +144,7 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
     }, [lightboxIndex, closeLightbox, navigate]);
 
     const lightboxImg = lightboxIndex !== null ? allImages[lightboxIndex] : null;
+    if (allImages.length === 0) return null;
 
     // ── STRIP MODE (Answer tab) ───────────────────────────────────────────────
     if (mode === "strip") {

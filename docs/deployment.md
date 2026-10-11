@@ -32,6 +32,7 @@ Free backend services cannot receive private service traffic, so the web service
 uses the backend's public HTTPS address. PostgreSQL and Redis accept only internal
 connections (`ipAllowList: []`). A successful API `/health` response confirms the
 process is running; verify login and a database operation to check persistence.
+The backend `/ready` checks both database and cache and returns 503 when either is unavailable.
 
 ## Verify the hosted app
 
@@ -40,9 +41,9 @@ process is running; verify login and a database operation to check persistence.
 - The frontend `/api/v1/pharma/updates?topic=oncology&days=7` returns the requested feed.
 - “Who developed you?” returns the Chryselys identity without a web search.
 - A factual current query produces a streamed answer with sources using the configured providers.
-- Sign up and sign in, then verify an authenticated profile or Spaces operation.
+- Sign up and sign in, then verify an authenticated profile. Spaces currently use account-isolated browser storage; their server endpoints return 501.
 - Generate a report and download its PDF through the frontend origin.
-- Create a forecast, change scenarios, export it, reload and verify browser-local recovery.
+- Upload a yearly CSV in Analyst Workspace, calculate Average/Exit values and verify CSV/JSON/PDF exports against the yearly constraints.
 
 ## Preview limits and company deployment
 
@@ -52,29 +53,30 @@ PostgreSQL expiration after 30 days. The free database has no backups. Free Redi
 state is lost on restart. Upgrade and configure backups before storing company data.
 Paid plans and any increased spending must be selected with an approved hosting budget.
 
-Forecast projects, evidence and review snapshots currently stay in browser local
-storage. The PostgreSQL database supports the existing account/conversation/Spaces
-backend; deploying it does not turn forecasts into a shared team database. Use exported
-review packs for the current workflow. Shared forecast storage, team permissions and
-server-side approval history remain future work.
+Chat history and Spaces currently stay in account-isolated browser storage. The
+Analyst Workspace processes uploaded yearly CSV data into monthly values and exports;
+it has no shared server project store. PostgreSQL supports accounts and the existing
+thread API, but deploying it does not implement personal cross-device synchronization.
+See the [current completion review](project-completion-review.md) for launch requirements.
 
 Reports are held on an ephemeral backend filesystem and can disappear on a service
 restart. For durable reports, integrate object storage before production use.
+Downloads expire after at most 24 hours and may become unavailable sooner after a restart.
 
 ## Local validation
 
 ```bash
 cd frontend
 npm ci
-npm run build -- --webpack
-npx tsc --noEmit
-node --test tests/auth-session.cjs tests/api-proxy.cjs
+npm test
+npm run lint
+npm run build
 ```
 
 ```bash
 cd backend
 python -m pip install -r requirements-test.txt
-python -m unittest tests.test_routing_policy tests.test_pharma_updates tests.test_deployment tests.test_interpolation -v
+python -m pytest tests -q
 ```
 
 Docker build contexts and Git ignore local `.env` files, virtual environments,

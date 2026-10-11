@@ -87,7 +87,7 @@ function SearchPageContent() {
         model,
         thoughtTime,
         appendQuery
-    } = useSearch(query, focusMode, threadId);
+    } = useSearch(query, focusMode, threadId, searchParams.get("space") || undefined);
 
     // --- EFFECT: When global sources update, update the active panel IF it was for the current query ---
     useEffect(() => {

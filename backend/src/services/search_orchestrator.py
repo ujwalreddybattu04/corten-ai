@@ -477,20 +477,11 @@ class SearchOrchestrator:
                 yield _sse("thought_time", {"time": round(thought_time, 1)})
                 yield _sse("status", {"content": "Composing a detailed answer"})
 
-                enriched_results = search_results.copy()
-                if previous_summary:
-                    enriched_results.insert(0, {
-                        "title": f"Previous AI Summary of: {title}",
-                        "url": url,
-                        "snippet": previous_summary[:3000],
-                        "domain": "previous-summary",
-                    })
-
                 async for chunk in groq_llm_service.stream_article_followup(
                     title=title,
                     followup=followup,
                     previous_summary=previous_summary,
-                    search_results=enriched_results,
+                    search_results=search_results,
                 ):
                     yield _sse("token", {"content": chunk})
 
@@ -530,6 +521,16 @@ class SearchOrchestrator:
             if isinstance(search_data, dict):
                 search_results = search_data.get("results", [])[:settings.MAX_SEARCH_RESULTS]
 
+            # Use the same ordered evidence for the UI and model citations.
+            # The original article used to be inserted only after sending sources,
+            # shifting every citation by one. Previous summaries are context, not sources.
+            if article_text:
+                from urllib.parse import urlsplit
+                search_results = [{
+                    "title": title, "url": url, "snippet": article_text[:2000],
+                    "domain": urlsplit(url).hostname or "original-article",
+                }] + [source for source in search_results if source.get("url") != url]
+
             yield _sse("thought", {"content": f"Cross-referencing {len(search_results)} sources"})
             frontend_sources = _format_sources(search_results)
             yield _sse("sources", {"sources": frontend_sources, "items": frontend_sources})
@@ -540,19 +541,10 @@ class SearchOrchestrator:
             yield _sse("thought_time", {"time": round(thought_time, 1)})
             yield _sse("status", {"content": "Synthesizing insights into a summary"})
 
-            enriched_results = search_results.copy()
-            if article_text:
-                enriched_results.insert(0, {
-                    "title": title,
-                    "url": url,
-                    "snippet": article_text[:2000],
-                    "domain": "original-article",
-                })
-
             async for chunk in groq_llm_service.stream_article_summary(
                 title=title,
                 article_text=article_text,
-                search_results=enriched_results,
+                search_results=search_results,
                 description=description,
             ):
                 yield _sse("token", {"content": chunk})

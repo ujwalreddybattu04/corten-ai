@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
-from jose import jwt
+import jwt
 from src.main import app
 from src.api.deps import get_db
 from src.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password

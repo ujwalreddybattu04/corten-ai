@@ -1,5 +1,7 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
+import { readArticleSummary } from "@/lib/articleSummaryStream";
+import { associateSpaceThread } from "@/lib/spaces";
 
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -86,7 +88,7 @@ export interface SearchState {
     toolsSelected: string[];
 }
 
-export function useSearch(initialQuery: string, focusMode: string = "all", existingThreadId?: string) {
+export function useSearch(initialQuery: string, focusMode: string = "all", existingThreadId?: string, spaceId?: string) {
     const [state, setState] = useState<SearchState>({
         threadId: existingThreadId || null,
         history: [],
@@ -218,6 +220,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 }
 
                 accountStorage.setItem("corten_threads", JSON.stringify(threads));
+                if (spaceId) associateSpaceThread(spaceId, currentThreadId);
                 // Generate only after the exact thread exists. This survives navigation/remounts.
                 scheduleThreadTitle(currentThreadId);
 
@@ -236,7 +239,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 console.error("[useSearch] Failed to persist thread:", e);
             }
         }
-    }, [state.isStreaming, state.isConnecting, state.error, state.answer, state.query, state.history, state.sources, state.images, state.researchSteps, state.thoughtTime]);
+    }, [state.isStreaming, state.isConnecting, state.error, state.answer, state.query, state.history, state.sources, state.images, state.researchSteps, state.thoughtTime, spaceId]);
 
     const runSearch = useCallback(async (q: string, focus: string, backendMessages?: ConversationMessage[], keepHistory?: SearchMessage[]) => {
         if (!q.trim()) return;
@@ -281,29 +284,8 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
 
             setState(prev => ({ ...prev, isConnecting: false }));
 
-            const reader = response.body!.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed || trimmed === "data: [DONE]") continue;
-
-                    if (!trimmed.startsWith("data:")) continue;
-
-                    try {
-                        const jsonPayload = trimmed.startsWith("data: ") ? trimmed.slice(6) : trimmed.slice(5);
-                        const json = JSON.parse(jsonPayload);
-
+            await readArticleSummary(response, (json: any) => {
+                if (controller.signal.aborted || abortRef.current !== controller) return;
                         if (json.type === "token") {
                             const chunk = json.content || "";
                             streamingBufferRef.current += chunk;
@@ -391,11 +373,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                         } else if (json.type === "error") {
                             setState(prev => ({ ...prev, error: json.message || "Search failed" }));
                         }
-                    } catch (e) {
-                        console.error("[useSearch] Failed to parse JSON line:", trimmed, e);
-                    }
-                }
-            }
+            }, "answer");
 
         } catch (err: unknown) {
             if (controller.signal.aborted || abortRef.current !== controller) return;

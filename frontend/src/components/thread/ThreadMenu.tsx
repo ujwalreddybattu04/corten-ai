@@ -1,5 +1,7 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
+import { associateSpaceThread } from "@/lib/spaces";
+import Link from "next/link";
 
 
 import { useState, useRef, useEffect } from "react";
@@ -44,11 +46,32 @@ export default function ThreadMenu({
     // Delete state
     const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-    // Space toast
+    const [spaceChoices, setSpaceChoices] = useState<Array<{ id: string; name: string }>>([]);
+    const [showSpacePicker, setShowSpacePicker] = useState(false);
+    const [spaceMessage, setSpaceMessage] = useState("");
     const [showSpaceToast, setShowSpaceToast] = useState(false);
 
     const menuRef = useRef<HTMLDivElement>(null);
     const renameInputRef = useRef<HTMLInputElement>(null);
+    const spacePickerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!showSpacePicker) return;
+        const dialog = spacePickerRef.current;
+        const previous = document.activeElement as HTMLElement | null;
+        dialog?.querySelector<HTMLElement>("button, a[href]")?.focus();
+        const keydown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") { event.preventDefault(); setShowSpacePicker(false); }
+            if (event.key !== "Tab") return;
+            const controls = dialog?.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]");
+            if (!controls?.length) return;
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        };
+        document.addEventListener("keydown", keydown);
+        return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
+    }, [showSpacePicker]);
 
     // Sync bookmark state from localStorage
     useEffect(() => {
@@ -101,7 +124,21 @@ export default function ThreadMenu({
 
     // ── ADD TO SPACE ──────────────────────────────────────────────────────────
     const handleAddToSpace = () => {
+        if (!threadId) return;
         setOpen(false);
+        try {
+            const saved = JSON.parse(accountStorage.getItem("corten_spaces") || "[]");
+            setSpaceChoices(Array.isArray(saved) ? saved.filter(s => typeof s.id === "string" && typeof s.name === "string") : []);
+        } catch { setSpaceChoices([]); }
+        setShowSpacePicker(true);
+    };
+
+    const addToSpace = (id: string) => {
+        if (!threadId) return;
+        let saved = false;
+        try { saved = associateSpaceThread(id, threadId); } catch { /* Storage may be unavailable. */ }
+        setSpaceMessage(saved ? "Thread saved to Space in this browser" : "Could not save the thread. Please retry.");
+        setShowSpacePicker(false);
         setShowSpaceToast(true);
         setTimeout(() => setShowSpaceToast(false), 3000);
     };
@@ -336,6 +373,7 @@ export default function ThreadMenu({
                                     className="tdm-item"
                                     role="menuitem"
                                     onClick={handleAddToSpace}
+                                    disabled={!threadId}
                                 >
                                     <FolderPlus size={14} strokeWidth={1.75} />
                                     <span>Add to Space</span>
@@ -501,6 +539,23 @@ export default function ThreadMenu({
                 )}
             </AnimatePresence>
 
+            {showSpacePicker && (
+                <div className="tdm-overlay" onClick={() => setShowSpacePicker(false)}>
+                    <div ref={spacePickerRef} className="tdm-modal" role="dialog" aria-modal="true" aria-labelledby="space-picker-title" onClick={e => e.stopPropagation()}>
+                        <h3 id="space-picker-title" className="tdm-modal-title">Add to Space</h3>
+                        <p className="tdm-modal-msg">Choose a Space saved in this browser.</p>
+                        <div className="tdm-space-list">{spaceChoices.length ? spaceChoices.map(space => (
+                            <button key={space.id} className="tdm-item" onClick={() => addToSpace(space.id)}>
+                                <FolderPlus size={14} /> {space.name}
+                            </button>
+                        )) : <p><Link href="/spaces">Create a Space</Link> before adding this thread.</p>}</div>
+                        <div className="tdm-modal-actions">
+                            <button autoFocus className="tdm-modal-btn tdm-modal-btn--cancel" onClick={() => setShowSpacePicker(false)}>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Add to Space Toast ─────────────────────────────────────── */}
             <AnimatePresence>
                 {showSpaceToast && (
@@ -512,7 +567,7 @@ export default function ThreadMenu({
                         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     >
                         <FolderPlus size={14} strokeWidth={1.75} />
-                        <span>Spaces coming soon</span>
+                        <span>{spaceMessage}</span>
                     </motion.div>
                 )}
             </AnimatePresence>

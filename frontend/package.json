@@ -4,17 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src",
+    "test": "node --test tests/*.cjs",
+    "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
     "framer-motion": "^12.35.0",
-    "katex": "^0.16.37",
+    "katex": "^0.19.0",
     "lucide-react": "^0.577.0",
-    "next": "^16.1.6",
+    "next": "16.4.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^9.0.0",
@@ -31,10 +33,10 @@
     "@types/node": "^20.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^15.0.0",
-    "jest": "^29.7.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.4.0",
     "prettier": "^3.2.0",
     "typescript": "^5.4.0"
-  }
+  },
+  "overrides": { "katex": "$katex" }
 }

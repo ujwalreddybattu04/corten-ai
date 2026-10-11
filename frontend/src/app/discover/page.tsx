@@ -266,9 +266,9 @@ function ArticleFooter({
                                 }
                                 {bookmarked ? "Bookmarked" : "Bookmark"}
                             </button>
-                            <button className="discover-dropdown-item" onClick={onAddToSpace}>
+                            <button className="discover-dropdown-item" disabled title="Article saving to Spaces is not available yet">
                                 <FolderPlus size={14} />
-                                Add to Space
+                                Save to Space (coming soon)
                             </button>
                             <button className={`discover-dropdown-item dislike ${disliked ? "active" : ""}`} onClick={onDislike}>
                                 <ThumbsDown size={14} />

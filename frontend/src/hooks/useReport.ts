@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { readReportStream } from "@/lib/reportStream";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,11 @@ export function useReport() {
     });
 
     const abortRef = useRef<AbortController | null>(null);
+    const generationRef = useRef(0);
+    useEffect(() => () => {
+        generationRef.current++;
+        abortRef.current?.abort();
+    }, []);
     const stepIdCounter = useRef(0);
 
     const addStep = useCallback((step: string, detail: string, status: "complete" | "active" = "active") => {
@@ -92,7 +98,10 @@ export function useReport() {
     const generateReport = useCallback(async (topic: string, focusMode: string = "all") => {
         // Abort any in-flight request
         if (abortRef.current) abortRef.current.abort();
-        abortRef.current = new AbortController();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const generation = ++generationRef.current;
+        const isCurrent = () => generation === generationRef.current && !controller.signal.aborted;
 
         stepIdCounter.current = 0;
 
@@ -112,59 +121,31 @@ export function useReport() {
         });
 
         try {
-            const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
-            const response = await fetch(`${backendUrl}/api/v1/report/stream`, {
+            const response = await fetch("/api/v1/report/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ topic, focus_mode: focusMode }),
-                signal: abortRef.current.signal,
+                signal: controller.signal,
             });
 
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
-            }
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error("No response body");
-
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-
-                // Parse SSE lines
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-
-                for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const raw = line.slice(6).trim();
-                    if (!raw) continue;
-
-                    try {
-                        const json = JSON.parse(raw);
-                        handleEvent(json, addStep, setState);
-                    } catch {
-                        // Skip malformed JSON
-                    }
-                }
-            }
-        } catch (err: any) {
-            if (err.name === "AbortError") return;
+            await readReportStream(response, event => {
+                if (isCurrent()) handleEvent(event, addStep, setState);
+            });
+            if (isCurrent()) setState(prev => ({ ...prev, isGenerating: false }));
+        } catch (err: unknown) {
+            if (!isCurrent()) return;
             setState(prev => ({
                 ...prev,
                 isGenerating: false,
-                error: err.message || "Report generation failed",
+                result: null,
+                error: err instanceof Error ? err.message : "Report generation failed",
             }));
         }
     }, [addStep]);
 
     const cancelReport = useCallback(() => {
         if (abortRef.current) {
+            generationRef.current++;
             abortRef.current.abort();
             setState(prev => ({ ...prev, isGenerating: false, statusMessage: "Cancelled" }));
         }
@@ -258,7 +239,6 @@ function handleEvent(
         case "report_complete":
             setState(prev => ({
                 ...prev,
-                isGenerating: false,
                 statusMessage: "Report complete!",
                 result: {
                     downloadUrl: json.download_url,

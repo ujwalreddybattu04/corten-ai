@@ -6,7 +6,7 @@ asyncpg>=0.29.0
 alembic>=1.13.0
 pydantic>=2.6.0
 pydantic-settings>=2.1.0
-python-jose[cryptography]>=3.3.0
+PyJWT==2.15.1
 passlib[bcrypt]>=1.7.4
 # Passlib 1.7 needs bcrypt's legacy version metadata and backend self-tests.
 bcrypt==4.0.1

@@ -232,7 +232,7 @@ export default function SpacesPage() {
                                                 <div className="sp-space-card-meta">
                                                     <span className="sp-space-card-date">{formatDate(space.createdAt)}</span>
                                                     <span className="sp-space-card-badge">
-                                                        {space.isPrivate ? <><Lock size={10} /> Private</> : <><Globe size={10} /> Public</>}
+                                                        <Lock size={10} /> This browser
                                                     </span>
                                                 </div>
                                                 <div className="sp-space-card-stats">
@@ -323,7 +323,7 @@ function SpaceFormModal({
     const [description, setDescription] = useState(initial?.description || "");
     const [icon, setIcon] = useState(initial?.icon || "bookmark");
     const [color, setColor] = useState(initial?.color || SPACE_COLORS[0]);
-    const [isPrivate, setIsPrivate] = useState(initial?.isPrivate ?? true);
+    const isPrivate = true;
 
     const canSave = name.trim().length > 0;
 
@@ -419,17 +419,10 @@ function SpaceFormModal({
                             <button
                                 type="button"
                                 className={`sp-spaces-privacy-btn ${isPrivate ? "active" : ""}`}
-                                onClick={() => setIsPrivate(true)}
                             >
                                 <Lock size={13} /> Private
                             </button>
-                            <button
-                                type="button"
-                                className={`sp-spaces-privacy-btn ${!isPrivate ? "active" : ""}`}
-                                onClick={() => setIsPrivate(false)}
-                            >
-                                <Globe size={13} /> Public
-                            </button>
+                            <span>Saved in this browser. Team sharing is not available yet.</span>
                         </div>
                     </div>
 

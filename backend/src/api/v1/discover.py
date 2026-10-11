@@ -5,7 +5,7 @@ Discover endpoints — trending news, market data, and weather.
 import asyncio
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.services.discover_service import (
     get_news_articles,
@@ -19,11 +19,11 @@ router = APIRouter()
 
 
 class ArticleSummaryRequest(BaseModel):
-    title: str
-    url: str
-    description: str = ""
-    followup: str = ""
-    previous_summary: str = ""
+    title: str = Field(min_length=1, max_length=1000)
+    url: str = Field(max_length=2048)
+    description: str = Field(default="", max_length=10000)
+    followup: str = Field(default="", max_length=16000)
+    previous_summary: str = Field(default="", max_length=20000)
 
 
 @router.post("/article/summarize")

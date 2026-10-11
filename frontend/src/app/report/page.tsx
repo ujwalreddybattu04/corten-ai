@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useReport, ReportSection, ReportStep } from "@/hooks/useReport";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -20,7 +21,6 @@ function ReportContent() {
     const searchParams = useSearchParams();
     const topic = searchParams.get("topic") || "";
     const focus = searchParams.get("focus") || "all";
-    const hasStarted = useRef(false);
 
     const {
         isGenerating,
@@ -40,11 +40,10 @@ function ReportContent() {
 
     // Auto-start on mount
     useEffect(() => {
-        if (topic && !hasStarted.current) {
-            hasStarted.current = true;
-            generateReport(topic, focus);
-        }
-    }, [topic, focus, generateReport]);
+        if (!topic) return;
+        void generateReport(topic, focus);
+        return cancelReport;
+    }, [topic, focus, generateReport, cancelReport]);
 
     const previewRef = useRef<HTMLDivElement>(null);
     const stepsEndRef = useRef<HTMLDivElement>(null);
@@ -68,8 +67,7 @@ function ReportContent() {
 
     const handleDownload = () => {
         if (!result) return;
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
-        window.open(`${backendUrl}${result.downloadUrl}`, "_blank");
+        window.open(result.downloadUrl, "_blank", "noopener,noreferrer");
     };
 
     return (
@@ -78,9 +76,9 @@ function ReportContent() {
             <div className="rpt-left">
                 {/* Header */}
                 <div className="rpt-left-header">
-                    <a href="/" className="rpt-back-btn">
-                        <ArrowLeft size={16} />
-                    </a>
+                <Link href="/" className="rpt-back-btn">
+                    <ArrowLeft size={16} />
+                </Link>
                     <div className="rpt-header-info">
                         <div className="rpt-header-badge">
                             <FileText size={14} />

@@ -11,9 +11,10 @@ export interface ArticleSummaryEvent {
 export async function readArticleSummary(
     response: Response,
     onEvent: (event: ArticleSummaryEvent) => void,
+    label: string = "summary",
 ): Promise<string> {
     if (!response.ok || !response.body) {
-        throw new Error("The summary service is temporarily unavailable. Please try again.");
+        throw new Error(`The ${label} service is temporarily unavailable. Please try again.`);
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -28,7 +29,7 @@ export async function readArticleSummary(
         try { event = JSON.parse(payload); } catch { return; }
         if (!event || typeof event.type !== "string") return;
         if (event.type === "error") {
-            throw new Error(event.message || "The summary could not be completed. Please retry.");
+            throw new Error(event.message || `The ${label} could not be completed. Please retry.`);
         }
         if (event.type === "token") {
             const token = event.content ?? event.data;
@@ -48,7 +49,7 @@ export async function readArticleSummary(
             if (completed) break;
         }
         if (!completed || !content.trim()) {
-            throw new Error("The summary connection ended before completion. Please retry.");
+            throw new Error(`The ${label} connection ended before completion. Please retry.`);
         }
         return content;
     } finally {

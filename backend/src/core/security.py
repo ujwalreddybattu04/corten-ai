@@ -4,7 +4,8 @@ Security utilities — JWT token creation and verification, password hashing.
 
 from datetime import datetime, timedelta, timezone
 import uuid
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
 from passlib.context import CryptContext
 from src.config.settings import settings
 
@@ -44,11 +45,11 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
 def decode_token(token: str, expected_type: str = "access") -> dict | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience="corten", issuer="corten-api",
-                             options={"require_exp": True, "require_iat": True, "require_sub": True, "require_aud": True, "require_iss": True})
+                             options={"require": ["exp", "iat", "sub", "aud", "iss", "sid", "type"] + (["jti"] if expected_type == "refresh" else [])})
         if payload.get("type") != expected_type:
             return None
         for claim in ("sub", "sid") + (("jti",) if expected_type == "refresh" else ()):
             uuid.UUID(payload[claim])
         return payload
-    except (JWTError, ValueError, TypeError, KeyError, AttributeError):
+    except (JWTError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return None

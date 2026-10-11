@@ -1,4 +1,5 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -104,7 +105,7 @@ export default function SpaceDetailPage() {
     // Load space + threads
     useEffect(() => {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = accountStorage.getItem(STORAGE_KEY);
             if (!raw) { setNotFound(true); return; }
             const spaces: LocalSpace[] = JSON.parse(raw);
             setAllSpaces(spaces);
@@ -119,7 +120,7 @@ export default function SpaceDetailPage() {
             setDescValue(found.description);
             setInstructionsValue(found.instructions);
 
-            const threadsRaw = localStorage.getItem(STORAGE_KEYS.THREADS);
+            const threadsRaw = accountStorage.getItem(STORAGE_KEYS.THREADS);
             if (threadsRaw) {
                 const allThreads: ThreadItem[] = JSON.parse(threadsRaw);
                 const spaceThreads = allThreads.filter(t => found.threadIds.includes(t.id));
@@ -132,7 +133,7 @@ export default function SpaceDetailPage() {
         const newSpaces = allSpaces.map(s => s.id === updated.id ? updated : s);
         setAllSpaces(newSpaces);
         setSpace(updated);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newSpaces));
+        accountStorage.setItem(STORAGE_KEY, JSON.stringify(newSpaces));
     }, [allSpaces]);
 
     const saveName = () => {
@@ -253,7 +254,7 @@ export default function SpaceDetailPage() {
                             )}
                         </div>
                         <div className="sd-identity-badge">
-                            {space.isPrivate ? <><Lock size={11} /> Private</> : <><Globe size={11} /> Public</>}
+                            <Lock size={11} /> This browser
                         </div>
                     </div>
 
@@ -266,7 +267,7 @@ export default function SpaceDetailPage() {
                         <input
                             type="text"
                             className="sd-search-input"
-                            placeholder={`Search within ${space.name}...`}
+                            placeholder={`Ask a question and save it to ${space.name}...`}
                             value={query}
                             onChange={e => setQuery(e.target.value)}
                             onFocus={() => setSearchFocused(true)}
@@ -348,7 +349,7 @@ export default function SpaceDetailPage() {
                                 <LinkIcon size={14} />
                                 <span>Pinned Links</span>
                             </div>
-                            <p className="sd-card-desc">Websites included in every search</p>
+                            <p className="sd-card-desc">Saved reference links for this space</p>
 
                             {space.links.length > 0 && (
                                 <div className="sd-links">
@@ -397,16 +398,16 @@ export default function SpaceDetailPage() {
                         <div className="sd-card">
                             <div className="sd-card-header">
                                 <ScrollText size={14} />
-                                <span>Custom Instructions</span>
+                                <span>Workspace notes</span>
                             </div>
-                            <p className="sd-card-desc">Rules applied to every query in this space</p>
+                            <p className="sd-card-desc">Personal notes for reference while you work</p>
 
                             {showInstructions ? (
                                 <div className="sd-instr-edit">
                                     <textarea
                                         autoFocus
                                         className="sd-instr-textarea"
-                                        placeholder="e.g., 'Always cite academic papers', 'Focus on Python examples'..."
+                                        placeholder="Add research goals, assumptions, or review notes..."
                                         value={instructionsValue}
                                         onChange={e => setInstructionsValue(e.target.value)}
                                         rows={4}
@@ -424,7 +425,7 @@ export default function SpaceDetailPage() {
                             ) : (
                                 <button className="sd-add-btn" onClick={() => setShowInstructions(true)}>
                                     <Plus size={13} />
-                                    <span>Add instructions</span>
+                                    <span>Add notes</span>
                                 </button>
                             )}
                         </div>

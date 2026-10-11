@@ -3010,6 +3010,12 @@ input:focus-visible {
     line-height: 1.3;
 }
 
+.tdm-space-list {
+    max-height: min(360px, 50dvh);
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+}
+
 .tdm-modal-msg {
     font-size: 0.8375rem;
     color: rgba(255, 255, 255, 0.52);

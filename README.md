@@ -30,13 +30,16 @@
 - **Streaming Responses** — Token-by-token answer streaming via Server-Sent Events with real-time thinking indicators
 - **Deep Research Agent** — Multi-step research for complex queries with sub-question decomposition
 - **Threaded Conversations** — Follow-up questions with full context retention
-- **Spaces** — Organize threads into workspaces by topic, project, or team with custom icons and colors
+- **Spaces** — Organize browser-saved threads by topic or project with custom icons and colors. Team sharing and server synchronization remain pending.
+- **Research Reports** — Generate a concise sourced PDF from a verified AI draft, with clear errors when evidence or generation is unavailable.
 - **Discover** — Trending news with AI-powered article summaries and follow-up Q&A
 - **History Dashboard** — Full-screen Grok-style history modal with search, time grouping, and conversation preview
 - **Focus Modes** — Scope searches: All, Academic, YouTube, Reddit, Writing, Math
 - **Analyst Workspace** — Yearly-to-monthly CSV interpolation with Average/Exit modes, verified yearly targets, raw-value review, and CSV/JSON/PDF exports. See [Chryselys requirements and methods](docs/chryselys-analyst-workspace.md).
 
 ## Hosting
+
+See the [completion review and remaining rollout work](docs/project-completion-review.md) before treating this preview as a production deployment.
 
 [Live app](https://corten-ai-web.onrender.com) · [Analyst Workspace](https://corten-ai-web.onrender.com/analyst-workspace) · [Backend health](https://corten-ai-api.onrender.com/health)
 

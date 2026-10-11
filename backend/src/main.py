@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config.settings import settings
 from src.api.v1.router import api_router
@@ -47,6 +48,12 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "healthy", "service": f"{settings.BRAND_NAME.lower()}-ai"}
+
+@app.get("/ready", tags=["Health"])
+async def readiness_check():
+    from src.core.readiness import readiness
+    result = await readiness()
+    return JSONResponse(result, status_code=200 if result["status"] == "ready" else 503, headers={"Cache-Control": "no-store"})
 
 if __name__ == "__main__":
     import uvicorn

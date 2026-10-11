@@ -16,7 +16,8 @@ FROM base AS builder
 # Keep browser requests on the frontend origin. BACKEND_URL is set at runtime.
 ARG NEXT_PUBLIC_API_URL=""
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-RUN npm run build -- --webpack
+RUN npm run build \
+    && npm prune --omit=dev --ignore-scripts
 
 FROM node:22-alpine AS production
 WORKDIR /app

@@ -3,7 +3,7 @@ Report Generation API — stream report creation and download PDFs.
 """
 
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 from typing import Optional
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 class ReportRequest(BaseModel):
-    topic: str
+    topic: str = Field(min_length=1, max_length=16000)
     focus_mode: str = "all"
 
 
@@ -52,5 +52,5 @@ async def download_report(report_id: str):
         path=filepath,
         media_type="application/pdf",
         filename=f"corten_report_{report_id}.pdf",
-        headers={"Content-Disposition": f'attachment; filename="corten_report_{report_id}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="corten_report_{report_id}.pdf"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )

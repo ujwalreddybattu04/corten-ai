@@ -1,4 +1,5 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
 
 import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -162,7 +163,7 @@ export default function TemplatesPage() {
 
     const handleUseTemplate = useCallback((tpl: SpaceTemplate) => {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = accountStorage.getItem(STORAGE_KEY);
             const spaces: LocalSpace[] = raw ? JSON.parse(raw) : [];
             const newSpace: LocalSpace = {
                 id: generateId(),
@@ -177,7 +178,7 @@ export default function TemplatesPage() {
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify([newSpace, ...spaces]));
+            accountStorage.setItem(STORAGE_KEY, JSON.stringify([newSpace, ...spaces]));
             router.push(`/spaces/${newSpace.id}`);
         } catch { /* ignore */ }
     }, [router]);
@@ -197,7 +198,7 @@ export default function TemplatesPage() {
             <div className="tpl-hero">
                 <div className="tpl-hero-inner">
                     <h1 className="tpl-title">Templates</h1>
-                    <p className="tpl-subtitle">Get started quickly with pre-configured spaces. Each template comes with custom instructions tailored for a specific use case.</p>
+                    <p className="tpl-subtitle">Start with a topic template and suggested workspace notes. Spaces are saved in this browser.</p>
 
                     <div className="tpl-tabs">
                         {CATEGORIES.map(cat => (
