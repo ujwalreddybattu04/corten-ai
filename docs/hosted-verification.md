@@ -159,3 +159,21 @@ generation, migration, privacy and fallback behavior.
 Browser race checks use synthetic conversation content and controlled stream/title
 responses, alongside the live provider title and live conversation-note checks.
 This is functional validation, not concurrent load testing or shared-team persistence.
+# Authentication verification — 11 October 2026
+
+Email signup/login and server-verified cookie sessions were tested on the hosted
+app. Critical fixes include rejecting refresh tokens as access credentials,
+atomic refresh rotation with replay detection, immediate logout revocation,
+private-thread ownership, disabled-account checks, browser account data separation,
+and recoverable interrupted logout. Render's public HTTPS origin is used for CSRF
+checks and Secure cookies.
+
+All 89 backend tests (plus 104 subtests), 44 frontend tests, ten live API checks,
+seven local browser checks, and fifteen hosted browser checks passed. Production
+builds and TypeScript checks passed. Local PostgreSQL and Redis are currently
+unavailable; local email authentication requires those services.
+
+Email verification/recovery, SSO/MFA, company membership rules, and centralized
+team storage remain prerequisites for using real company data. See
+[authentication.md](authentication.md) for the session design and complete findings.
+

@@ -19,15 +19,16 @@ the Secure cookie flag; never derive trust from arbitrary forwarded-host headers
 
 Session restoration calls the proxy's `/api/v1/auth/session`, which verifies
 existing cookies through `/api/v1/auth/me` and returns null immediately for guests;
-a cached profile cannot authenticate
-a user. A 401 triggers one refresh and one retry. Concurrent requests share a
+a cached profile cannot authenticate a user. A 401 triggers one refresh and one
+retry. Concurrent requests share a
 refresh promise, and browsers supporting Web Locks coordinate rotation across
 tabs. Logout and account changes synchronize across tabs.
 An interrupted logout hides private views, persists a pending-logout marker, and
 retries on reconnect or explicitly; it cannot silently restore the old session.
 If the proxy cannot confirm backend revocation, it clears the access cookie and
 retains only the HttpOnly refresh credential needed for a real revocation retry.
-Remember me creates persistent cookies; otherwise cookies last for the browser session. Sessions have
+Remember me creates persistent cookies; otherwise cookies last for the browser
+session. Sessions have
 an absolute seven-day maximum; refreshing cannot extend that maximum.
 
 Access and refresh JWTs have distinct types, issuer, audience, expiry, issue time,
@@ -86,3 +87,23 @@ refresh, logout revocation, disabled/deleted accounts, malformed/expired tokens,
 duplicate email casing, long-password collisions, storage outages, rate limiting,
 private-thread ownership, CSRF, cookie flags, session persistence, refresh retries,
 safe redirects, browser data separation, and truthful unsupported endpoints.
+
+Verified on 11 October 2026:
+
+- 89 backend tests and 104 subtests passed, including 12 authentication tests.
+- 44 frontend tests passed; TypeScript and production builds passed.
+- Seven local browser checks passed, including truthful errors with local
+  PostgreSQL and Redis unavailable.
+- Ten hosted API checks passed against real PostgreSQL and Redis. These included
+  eight concurrent refresh requests, another account attempting private-thread
+  reads/writes, public-share revocation, and account deactivation.
+- Fifteen hosted browser checks passed: actual signup/login, wrong passwords,
+  automatic expiry recovery, coordinated refresh from two tabs, cross-tab logout,
+  remember me, local redirects, separate account histories, signing out of a
+  stored conversation without resubmitting its query, interrupted logout
+  across reload with successful retry, mobile layout, and no runtime exceptions.
+
+Synthetic audit records were used for database checks. Temporary database access
+was limited to the audit client's IP and the original rules were restored and
+verified. The application backend runs commit `00467d1`; frontend authentication
+and outage recovery run commit `7cd1030`.
