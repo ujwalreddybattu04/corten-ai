@@ -126,7 +126,18 @@ canceled/out-of-order requests and responsive layouts from 320 to 1440 pixels.
 The production frontend build passed. Both modes also completed a 100-year,
 1,200-month absolute-value timeline with all yearly constraints verified.
 
-The subsequent interface review passed 41 frontend tests and 29 local browser
+The subsequent interface review passed 45 frontend tests and 30 local browser
 checks, covering real uploads/downloads, animation progression and completion,
 reduced motion, exact tooltip values, keyboard and touch input, cancellation,
 error recovery, Unicode PDF text and layouts from 320 to 1440 pixels.
+The original 29 interface checks also passed on the hosted deployment.
+
+Hosted testing also observed an idle backend restart: the first upload failed,
+and a direct request took approximately 43 seconds before succeeding. Upload
+validation now retries HTTP 502/503/504 at most twice, after 2 and 4 seconds,
+with unchanged file bytes and encoding. Replacing a file or leaving the page
+cancels retry delays. Validation errors and calculation/export requests are not
+automatically retried. Persistent unavailability gives a clear retry message.
+These retries handle temporary failures; free hosting can still delay a request
+while a stopped backend starts. Use always-on hosting for predictable team use;
+see [Render's free-service limits](https://render.com/docs/free#spinning-down-on-idle).

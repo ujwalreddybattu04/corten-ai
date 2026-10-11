@@ -9,6 +9,10 @@ module.exports = function loadTs(source, cache = new Map()) {
     instance.paths = Module._nodeModulePaths(path.dirname(source));
     const originalRequire = instance.require.bind(instance);
     instance.require = name => {
+        if (name.startsWith("@/")) {
+            const candidate = path.resolve(__dirname, "../src", name.slice(2)) + ".ts";
+            if (fs.existsSync(candidate)) return loadTs(candidate, cache);
+        }
         if (name.startsWith("./") || name.startsWith("../")) {
             const candidate = path.resolve(path.dirname(source), name) + ".ts";
             if (fs.existsSync(candidate)) return loadTs(candidate, cache);
