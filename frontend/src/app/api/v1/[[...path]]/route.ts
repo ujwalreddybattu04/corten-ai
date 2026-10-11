@@ -52,7 +52,9 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     if (!headers.has("authorization") && cookie(request, REFRESH)) headers.set("authorization", "Bearer expired-session");
     const responseHeaders = new Headers({ "Cache-Control": "no-store", "Vary": "Cookie, Authorization" });
     const logout = action === "logout" && request.method === "POST";
-    if (logout) clearSession(responseHeaders, request);
+    // Keep only the HttpOnly refresh credential if revocation fails, so retry can
+    // actually revoke the server session. The client hides private views meanwhile.
+    if (logout) setCookie(responseHeaders, request, ACCESS, "", 0);
     try {
         let body: BodyInit | undefined = mutation ? await request.arrayBuffer() : undefined;
         let remember = cookie(request, PERSIST) === "1";
@@ -67,7 +69,10 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
             } else {
                 const refresh = cookie(request, REFRESH);
                 if (refresh) data.refresh_token = refresh;
-                if (logout && !data.refresh_token) return new Response(null, { status: 204, headers: responseHeaders });
+                if (logout && !data.refresh_token) {
+                    clearSession(responseHeaders, request);
+                    return new Response(null, { status: 204, headers: responseHeaders });
+                }
                 if (!data.refresh_token) {
                     clearSession(responseHeaders, request);
                     return Response.json({ detail: "No active session" }, { status: 401, headers: responseHeaders });
@@ -95,6 +100,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
             return Response.json(data, { status: upstream.status, headers: responseHeaders });
         }
         if (action === "refresh" && upstream.status === 401) clearSession(responseHeaders, request);
+        if (logout && upstream.ok) clearSession(responseHeaders, request);
         return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
     } catch {
         return Response.json({ detail: "Backend unavailable. Please try again shortly." }, { status: 502, headers: responseHeaders });

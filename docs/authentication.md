@@ -25,6 +25,8 @@ refresh promise, and browsers supporting Web Locks coordinate rotation across
 tabs. Logout and account changes synchronize across tabs.
 An interrupted logout hides private views, persists a pending-logout marker, and
 retries on reconnect or explicitly; it cannot silently restore the old session.
+If the proxy cannot confirm backend revocation, it clears the access cookie and
+retains only the HttpOnly refresh credential needed for a real revocation retry.
 Remember me creates persistent cookies; otherwise cookies last for the browser session. Sessions have
 an absolute seven-day maximum; refreshing cannot extend that maximum.
 

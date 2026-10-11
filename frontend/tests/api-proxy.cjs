@@ -133,11 +133,19 @@ test("cross-origin and origin-less cookie writes are rejected before reaching th
   }
 });
 
-test("logout clears cookies even if server revocation is temporarily unavailable", async () => {
+test("failed logout clears access but retains HttpOnly refresh for a real revocation retry", async () => {
   global.fetch = async () => { throw new Error("connection failure"); };
   const response = await api.POST(authRequest("logout", {}, "corten_refresh=token"), context(["auth", "logout"]));
   assert.equal(response.status, 502);
   assert.ok(response.headers.getSetCookie().every(cookie => cookie.includes("Max-Age=0")));
+  assert.ok(response.headers.getSetCookie().every(cookie => cookie.startsWith("corten_access=")));
+  global.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).refresh_token, "token");
+    return new Response(null, { status: 204 });
+  };
+  const retry = await api.POST(authRequest("logout", {}, "corten_refresh=token"), context(["auth", "logout"]));
+  assert.equal(retry.status, 204);
+  assert.ok(["corten_access", "corten_refresh", "corten_remember"].every(name => retry.headers.getSetCookie().some(cookie => cookie.startsWith(name + "=") && cookie.includes("Max-Age=0"))));
 });
 
 test("expired refresh clears cookies and does not expose credentials", async () => {
