@@ -1,0 +1,80 @@
+# Free preview deployment. Read docs/deployment.md before using real company data.
+services:
+  - type: web
+    name: corten-ai-web
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: corten-ai-api
+          envVarKey: PUBLIC_API_URL
+
+  - type: web
+    name: corten-ai-api
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PUBLIC_API_URL
+        fromService:
+          type: web
+          name: corten-ai-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: DATABASE_URL
+        fromDatabase:
+          name: corten-ai-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: corten-ai-cache
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DEFAULT_MODEL
+        value: openai/gpt-oss-20b
+      - key: ROUTER_MODEL
+        value: openai/gpt-oss-20b
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: GUARDIAN_API_KEY
+        sync: false
+      - key: OPENFDA_API_KEY
+        sync: false
+
+  - type: keyvalue
+    name: corten-ai-cache
+    plan: free
+    region: singapore
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+databases:
+  - name: corten-ai-db
+    plan: free
+    region: singapore
+    postgresMajorVersion: "17"
+    databaseName: corten_ai
+    user: corten
+    ipAllowList: []

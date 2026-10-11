@@ -1,0 +1,610 @@
+/* =============================================================================
+   Corten AI — Sidebar  (Production-Grade v3)
+   ============================================================================= */
+
+/* ── SIDEBAR SHELL ── */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: #0a0a0a;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    z-index: var(--z-sidebar, 100);
+    transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1),
+        transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 300ms ease;
+    will-change: width, transform;
+    overflow: hidden;
+}
+
+/* ── BRAND ── */
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 20px 28px 20px;
+    flex-shrink: 0;
+}
+
+.sidebar-brand-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sidebar-brand-icon svg {
+    width: 18px;
+    height: 18px;
+    color: #fff;
+}
+
+.sidebar-brand-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity 120ms ease;
+}
+
+/* ── NAV ── */
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px;
+    flex-shrink: 0;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.9);
+    /* Ultra-Bright Nav Labels */
+    font-size: 13.5px;
+    font-weight: 400;
+    text-decoration: none;
+    position: relative;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    white-space: nowrap;
+    transition: color 150ms ease, background 150ms ease;
+}
+
+.sidebar-link:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-link.active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.sidebar-link.active::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 16px;
+    background: #fff;
+    border-radius: 0 2px 2px 0;
+}
+
+.sidebar-link-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 1;
+    /* Industrial Brightness - Max pop */
+}
+
+.sidebar-link.active .sidebar-link-icon {
+    opacity: 1;
+}
+
+.sidebar-link-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.sidebar-link-label {
+    white-space: nowrap;
+    flex-shrink: 0;
+    opacity: 1;
+    transition: opacity 200ms ease, width 300ms ease, margin 300ms ease;
+    display: inline-block;
+}
+
+/* ── DIVIDER ── */
+.sidebar-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.12);
+    margin: 12px 16px;
+    flex-shrink: 0;
+}
+
+/* ── NEW THREAD ── */
+.sidebar-new-thread {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    margin: 0 8px;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.9);
+    /* Match Nav Labels */
+    font-size: 13.5px;
+    font-weight: 400;
+    cursor: pointer;
+    border: none;
+    background: none;
+    text-align: left;
+    white-space: nowrap;
+    width: calc(100% - 16px);
+    transition: color 150ms ease, background 150ms ease;
+}
+
+.sidebar-new-thread:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-new-thread-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 1;
+    /* Industrial Brightness - Max pop */
+}
+
+/* ── SIDEBAR HISTORY (Grok-style) ── */
+.sidebar-history {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 4px 0 0;
+    opacity: 1;
+    transition: opacity 200ms ease;
+}
+
+.sidebar-history-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: color 150ms ease;
+}
+
+.sidebar-history-toggle:hover {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.sidebar-history-label {
+    white-space: nowrap;
+}
+
+.sidebar-history-chevron {
+    transition: transform 200ms ease;
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
+.sidebar-history-toggle.open .sidebar-history-chevron {
+    transform: rotate(180deg);
+}
+
+.sidebar-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 8px 8px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.sidebar-history-list::-webkit-scrollbar {
+    width: 3px;
+}
+.sidebar-history-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-history-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.sidebar-history-empty {
+    padding: 12px 12px;
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 12.5px;
+}
+
+.sidebar-history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-history-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.sidebar-history-item.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.sidebar-history-pin {
+    flex-shrink: 0;
+    color: rgba(255, 255, 255, 0.5);
+    width: 11px;
+    height: 11px;
+}
+
+.sidebar-history-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+
+.sidebar-history-see-all {
+    display: block;
+    padding: 8px 12px 4px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.4);
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: color 150ms ease;
+}
+
+.sidebar-history-see-all:hover {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+/* ── FOOTER & COLLAPSE ── */
+.sidebar-footer {
+    padding: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.sidebar-collapse-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.9);
+    /* Match industrial brightness */
+    font-size: 13.5px;
+    font-weight: 400;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    white-space: nowrap;
+    transition: color 150ms ease, background 150ms ease;
+}
+
+.sidebar-collapse-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.collapse-icon-container {
+    flex-shrink: 0;
+    transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-collapse-btn.collapsed-state .collapse-icon-container {
+    transform: rotate(180deg);
+}
+
+/* ═══════════════════════════════════
+   COLLAPSED STATE
+   ═══════════════════════════════════ */
+
+/* 1. Fade labels AND remove them from layout */
+.sidebar.collapsed .sidebar-brand-name,
+.sidebar.collapsed .sidebar-link-label {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    flex: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: absolute;
+    visibility: hidden;
+    /* ← CRITICAL: kills any ghost artifacts */
+}
+
+/* 2. Hide history section but keep as spacer */
+.sidebar.collapsed .sidebar-history {
+    opacity: 0;
+    flex: 1;
+    pointer-events: none;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+}
+
+/* 3. Hide active bar */
+.sidebar.collapsed .sidebar-link.active::before {
+    opacity: 0;
+}
+
+/* 4. Center brand icon — kill gap so no phantom space from hidden name */
+.sidebar.collapsed .sidebar-brand {
+    justify-content: center;
+    padding: 20px 0 28px;
+    gap: 0;
+    /* ← CRITICAL: kills phantom gap between icon and hidden name */
+}
+
+/* 5. Center nav items */
+.sidebar.collapsed .sidebar-nav {
+    align-items: center;
+    padding: 0 0;
+}
+
+/* 6. Center footer items */
+.sidebar.collapsed .sidebar-footer {
+    align-items: center;
+    padding: 8px 0;
+}
+
+/* 7. Each item becomes a centered icon button */
+.sidebar.collapsed .sidebar-link,
+.sidebar.collapsed .sidebar-collapse-btn {
+    justify-content: center;
+    padding: 10px 0;
+    width: 100%;
+    margin: 0;
+    gap: 0;
+}
+
+/* 8. New thread centered */
+.sidebar.collapsed .sidebar-new-thread {
+    justify-content: center;
+    padding: 10px 0;
+    width: 100%;
+    margin: 0;
+    gap: 0;
+}
+
+/* 9. Divider stays visible */
+.sidebar.collapsed .sidebar-divider {
+    margin: 8px 12px;
+}
+
+/* ── MOBILE ── */
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+        width: 280px !important;
+        max-width: 85vw;
+        /* Industry standard for readable drawers */
+        box-shadow: 4px 0 40px rgba(0, 0, 0, 0.7);
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        z-index: 99;
+        animation: fadeIn 0.25s ease;
+    }
+
+    .mobile-menu-toggle {
+        position: fixed;
+        top: 10px;
+        /* Tighter for mobile */
+        left: 10px;
+        z-index: 1000;
+        /* Must stay above everything */
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 10, 0.8);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+        /* Perplexity style round toggle */
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    .mobile-close-btn {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        padding: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        display: flex;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+    }
+
+    .sidebar-collapse-btn {
+        display: none !important;
+    }
+}
+
+@media (min-width: 769px) {
+
+    .mobile-menu-toggle,
+    .mobile-close-btn,
+    .sidebar-backdrop {
+        display: none !important;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Modal Content */
+.modal-content {
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    padding: 24px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 0 12px 0;
+}
+
+.modal-msg {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.5;
+    margin-bottom: 24px;
+}
+
+.modal-submsg {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.4);
+    display: block;
+    margin-top: 8px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.modal-btn {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.modal-btn--cancel {
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+}
+
+.modal-btn--cancel:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.modal-btn--delete {
+    background: #e53935;
+    color: #fff;
+}
+
+.modal-btn--delete:hover {
+    background: #d32f2f;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(229, 57, 53, 0.3);
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}

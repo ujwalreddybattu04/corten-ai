@@ -1,0 +1,102 @@
+/* Global Private Mode Toggle (Grok Style) */
+
+.global-private-toggle {
+    position: fixed;
+    top: 24px;
+    right: 32px;
+    z-index: 1000;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 100px;
+
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 15, 15, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.875rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.global-private-toggle svg {
+    opacity: 0.7;
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.global-private-toggle:hover {
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(30, 30, 30, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+/* --- Active (Incognito) State --- */
+.global-private-toggle.active {
+    color: #ffffff;
+    /* Industrial White */
+    background: rgba(255, 255, 255, 0.1);
+    /* Sleek backdrop */
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1), inset 0 0 12px rgba(255, 255, 255, 0.05);
+}
+
+.global-private-toggle.active svg {
+    opacity: 1;
+    transform: scale(1.05);
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .global-private-toggle {
+        top: 16px;
+        right: 16px;
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+}
+
+/* ── Group Chat icon button on home page ── */
+.group-chat-home-btn {
+    position: fixed;
+    top: 20px;
+    right: 140px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 15, 15, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: rgba(255, 255, 255, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.group-chat-home-btn:hover {
+    color: #a78bfa;
+    background: rgba(139, 92, 246, 0.12);
+    border-color: rgba(139, 92, 246, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.2);
+}
+@media (max-width: 768px) {
+    .group-chat-home-btn {
+        top: 12px;
+        right: 110px;
+        width: 36px;
+        height: 36px;
+    }
+}

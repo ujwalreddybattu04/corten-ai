@@ -1,0 +1,61 @@
+/* Favicon & Fallback Badge Styling (Industrial Grade) */
+
+.favicon-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.favicon-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 1px;
+    /* Subtle inset for logos */
+}
+
+.favicon-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+
+    color: white;
+    font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+
+    box-shadow:
+        inset 0 0 10px rgba(255, 255, 255, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+
+    user-select: none;
+    line-height: 1;
+}
+
+/* Subtle pulse for research mode */
+.rp-source-favicon .favicon-fallback {
+    animation: favicon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes favicon-pulse {
+    0% {
+        opacity: 0.85;
+        transform: scale(0.98);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0.85;
+        transform: scale(0.98);
+    }
+}

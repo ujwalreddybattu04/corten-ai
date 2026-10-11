@@ -1,0 +1,426 @@
+/* ============================================================================
+   Code Runner — ChatGPT-style split panel
+   ============================================================================ */
+
+/* ── Overlay ─────────────────────────────────────────────────────────────── */
+.cr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: #0d0d0d;
+  display: flex;
+  flex-direction: column;
+  animation: cr-fade-in 0.18s ease both;
+  font-family: var(--font-sans, "Plus Jakarta Sans", sans-serif);
+  /* Prevent GPU compositing blur on text */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translateZ(0);
+}
+
+@keyframes cr-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.cr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 16px;
+  background: #111111;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.cr-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cr-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cr-hide-code-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.cr-hide-code-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.cr-hide-code-btn svg {
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.cr-console-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-right: 4px;
+}
+
+.cr-header-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 2px;
+}
+
+/* ── Icon buttons ─────────────────────────────────────────────────────────── */
+.cr-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.cr-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+}
+.cr-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cr-close-btn {
+  color: rgba(255, 255, 255, 0.4);
+}
+.cr-close-btn:hover {
+  background: rgba(255, 80, 80, 0.12) !important;
+  color: #ff6b6b !important;
+}
+
+/* ── Run / Stop buttons ───────────────────────────────────────────────────── */
+.cr-run-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #10b981;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.cr-run-btn:hover {
+  background: #0d9f6e;
+}
+.cr-run-btn:active {
+  transform: scale(0.97);
+}
+
+.cr-stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cr-stop-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.cr-stop-icon {
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+.cr-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cr-body.cr-body-console-only {
+  grid-template-columns: 1fr;
+}
+
+/* ── Code panel ───────────────────────────────────────────────────────────── */
+.cr-code-panel {
+  position: relative;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: auto;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prevent text from appearing selected/highlighted in the code display panel */
+.cr-code-panel *::selection {
+  background: transparent !important;
+}
+.cr-code-panel *::-moz-selection {
+  background: transparent !important;
+}
+.cr-code-panel {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cr-code-lang-badge {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.cr-code-panel pre,
+.cr-code-panel code {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "IBM Plex Mono", Consolas, monospace !important;
+}
+
+/* ── Console panel ────────────────────────────────────────────────────────── */
+.cr-console-panel {
+  background: #000;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 0 80px;
+  font-family: "JetBrains Mono", "Fira Code", "IBM Plex Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling for console */
+.cr-console-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.cr-console-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cr-console-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+.cr-console-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Output lines ─────────────────────────────────────────────────────────── */
+.cr-output-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 1.5px 20px;
+  animation: cr-line-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes cr-line-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.cr-output-prefix {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  margin-top: 1px;
+  user-select: none;
+}
+.cr-output-prefix-info {
+  color: rgba(255, 255, 255, 0.3);
+}
+.cr-output-prefix-out {
+  color: rgba(255, 255, 255, 0.15);
+}
+.cr-output-prefix-err {
+  color: #f87171;
+}
+
+.cr-output-text {
+  word-break: break-word;
+  white-space: pre-wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.cr-output-stdout .cr-output-text {
+  color: rgba(255, 255, 255, 0.88);
+}
+.cr-output-info .cr-output-text {
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+.cr-output-stderr .cr-output-text {
+  color: #fb923c;
+}
+.cr-output-error .cr-output-text {
+  color: #f87171;
+}
+.cr-output-result .cr-output-text {
+  color: #86efac;
+}
+
+/* ── Running indicator ────────────────────────────────────────────────────── */
+.cr-output-running {
+  animation: none;
+}
+
+.cr-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: cr-spin 0.7s linear infinite;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+@keyframes cr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.cr-console-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.18);
+  font-size: 0.8rem;
+  font-style: italic;
+  padding: 40px;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+.cr-output-footer {
+  margin-top: 12px;
+  padding: 8px 20px;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.25);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Run button in code block header ─────────────────────────────────────── */
+.answer-run-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 5px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #10b981;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.answer-run-btn:hover {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #34d399;
+}
+.answer-run-btn:active {
+  transform: scale(0.96);
+}
+.answer-run-btn svg {
+  flex-shrink: 0;
+}
+
+/* Adjust code header to accommodate Run button */
+.answer-code-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Responsive: stack on mobile ─────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .cr-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .cr-code-panel {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .cr-console-label {
+    display: none;
+  }
+}

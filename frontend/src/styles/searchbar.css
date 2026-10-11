@@ -1,0 +1,505 @@
+/* =============================================================================
+   Corten AI — Search Bar Styles
+   ============================================================================= */
+
+.search-bar {
+    width: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+.search-bar-container {
+    background: var(--color-bg-elevated);
+    border: none;
+    outline: none;
+    border-radius: var(--radius-xl);
+    padding: var(--space-3) var(--space-4);
+    transition: all var(--transition-base);
+    position: relative;
+    z-index: 10;
+    backdrop-filter: blur(20px);
+}
+
+.search-bar-container:focus-within {
+    background: #2a2a2f;
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* --- Input Row --- */
+.search-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.search-bar-input {
+    flex: 1;
+    background: none;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    color: var(--color-text-primary);
+    font-size: 1.1rem;
+    font-weight: 400;
+    font-family: var(--font-family);
+    line-height: normal;
+    padding: var(--space-2) 0;
+}
+
+.search-bar-input::placeholder {
+    color: var(--color-text-tertiary);
+    font-weight: 400;
+}
+
+/* --- Focus Mode Row --- */
+.search-focus-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.focus-add-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background: none;
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.focus-add-btn:hover {
+    border-color: var(--color-text-secondary);
+    color: var(--color-text-secondary);
+}
+
+/* --- Focus Mode Tabs --- */
+.focus-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: var(--space-1);
+}
+
+.focus-tab {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.focus-tab:hover {
+    color: var(--color-text-primary);
+}
+
+.focus-tab.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* --- Focus More Dropdown --- */
+.focus-more-wrapper {
+    position: relative;
+}
+
+.focus-more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px !important;
+}
+
+.focus-more-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 200px;
+    background: var(--color-bg-elevated, #1a1a2e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 6px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: focusDropIn 0.15s ease-out;
+}
+
+@keyframes focusDropIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.focus-more-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    color: var(--color-text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+}
+
+.focus-more-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text-primary);
+}
+
+.focus-more-item.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary);
+}
+
+.focus-more-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text-secondary);
+    transition: color 0.15s ease;
+}
+
+.focus-more-item:hover .focus-more-icon,
+.focus-more-item.active .focus-more-icon {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.focus-more-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.focus-more-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: inherit;
+}
+
+.focus-more-desc {
+    font-size: 11px;
+    color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+}
+
+/* --- Search Divider --- */
+.search-divider {
+    width: 1px;
+    height: 16px;
+    background-color: var(--color-border);
+    margin: 0 var(--space-4);
+}
+
+/* --- Model Selector --- */
+.search-model-selector {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.model-dropdown-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border: none;
+    background: none;
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    white-space: nowrap;
+}
+
+.model-dropdown-btn:hover {
+    color: var(--color-text-secondary);
+}
+
+.model-dropdown-arrow {
+    font-size: 10px;
+    margin-left: 2px;
+}
+
+/* --- Report Button --- */
+.search-report-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: none;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.search-report-btn:hover {
+    border-color: var(--color-text-secondary);
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* --- Submit Button --- */
+.search-submit-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: var(--color-text-primary);
+    /* White circle */
+    border: none;
+    color: var(--color-bg-primary);
+    /* Black icon */
+    font-size: var(--font-size-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.search-submit-btn:hover {
+    background: var(--color-text-secondary);
+    /* Dim white on hover */
+    transform: scale(1.05);
+}
+
+.search-submit-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* =============================================================================
+   Quick Actions
+   ============================================================================= */
+
+.quick-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    margin-top: var(--space-6);
+    flex-wrap: wrap;
+}
+
+.quick-action-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background: rgba(30, 30, 42, 0.6);
+    backdrop-filter: blur(10px);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.quick-action-chip:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.quick-action-icon {
+    font-size: var(--font-size-sm);
+    line-height: 1;
+}
+
+.quick-action-label {
+    line-height: 1;
+}
+
+/* =============================================================================
+   Gemini-style Suggestion Chips + Expanded Panel
+   ============================================================================= */
+
+.qa-wrapper {
+    width: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+/* ── Chip row ── */
+.qa-chips {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.qa-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+    background: rgba(30, 30, 42, 0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--color-text-secondary, #aaa);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.qa-chip:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.qa-chip--active {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.qa-chip:active {
+    transform: scale(0.96);
+}
+
+.qa-chip-icon {
+    display: flex;
+    align-items: center;
+    opacity: 0.8;
+    flex-shrink: 0;
+}
+
+.qa-chip-label {
+    line-height: 1;
+}
+
+.qa-chip-arrow {
+    display: flex;
+    align-items: center;
+    opacity: 0.5;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.qa-chip-arrow--open {
+    transform: rotate(180deg);
+    opacity: 0.9;
+}
+
+/* ── Expanded suggestions panel ── */
+.qa-panel {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.qa-panel-inner {
+    background: rgba(22, 22, 30, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 6px;
+    overflow: hidden;
+}
+
+/* ── Individual suggestion row ── */
+.qa-suggestion {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 9px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-secondary, #bbb);
+    font-size: 0.875rem;
+    font-weight: 400;
+    font-family: var(--font-family);
+    text-align: left;
+    transition: background 0.13s ease, color 0.13s ease;
+    gap: 12px;
+}
+
+.qa-suggestion:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+}
+
+.qa-suggestion-text {
+    flex: 1;
+    line-height: 1.4;
+    text-align: left;
+}
+
+.qa-suggestion-arrow {
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    flex-shrink: 0;
+    transition: opacity 0.15s ease;
+    color: var(--color-text-tertiary, #666);
+}
+
+.qa-suggestion:hover .qa-suggestion-arrow {
+    opacity: 1;
+}
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+    .qa-chips {
+        gap: 6px;
+        margin-top: 16px;
+    }
+
+    .qa-chip {
+        padding: 6px 11px;
+        font-size: 0.75rem;
+    }
+
+    .qa-suggestion {
+        font-size: 0.8125rem;
+        padding: 9px 12px;
+    }
+}
