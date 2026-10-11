@@ -90,7 +90,7 @@ def conversation_intent(query: str) -> str | None:
     external_operation = re.search(
         r"(?:^|[.!?;,:]\s*|\b(?:and|also|then)\s+)(?:please\s+)?(?:search|browse|look up|fact.check|verify|research|find|update)\b", text,
     )
-    if re.fullmatch(r"(?:remember|keep in mind|note) (?:that |this[: ]+).{1,2000}", text):
+    if re.fullmatch(r"(?:remember|keep in mind|note) (?:that |this[: ]+).{1,16000}", text):
         return None if external_operation else "conversation_note"
     # New external operations are different from remembering a price/news item
     # the user already supplied. Conjunctions inside a recalled list are allowed.

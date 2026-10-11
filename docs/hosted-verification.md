@@ -109,3 +109,31 @@ calls reduced repeated usage. Functional checks were then paced within that quot
 this is not a concurrent load test. Company-wide usage still needs appropriate provider
 capacity. The security and shared-workspace gaps from the separate project review
 were not addressed by this answer-quality change.
+
+## Conversation recall and saved context (2026-10-11)
+
+Both services deployed the conversation-memory change at `aa0ef0d`. See
+[conversation-memory.md](conversation-memory.md) for the retention limits and persistence model.
+
+- All 70 backend tests and 89 subtests passed, along with 18 frontend tests and the
+  production frontend build.
+- Hosted real-model recall returned the older Meridian/oncology note with the
+  user's latest Japan correction. An absent budget was acknowledged. Neither
+  request selected tools or returned web sources.
+- The hosted browser answered previous/first/numbered question requests without
+  web search. Refresh restored ten saved exchanges without issuing another search;
+  reopening the saved thread preserved context. A follow-up after reopening used
+  the retained earlier messages.
+- New-thread context, navigation between saved threads, missing-thread errors and
+  private mode passed in the hosted browser, with no client exceptions. Private
+  synthetic notes were absent from local storage.
+- Fast offline responses render even when the entire stream completes in one React
+  batch. Native URL updates participate in Next.js navigation state.
+- The public-source scan found no credential values in 283 source files.
+
+During initial testing, the configured Groq model hit its 200,000-token daily
+allowance. Question retrieval, note acknowledgment and conversation titles no
+longer require an LLM. Other generated responses still depend on provider
+availability and quota. This is functional verification, not a concurrency test.
+Memory remains bounded and specific to a conversation in this browser; authenticated
+cross-device and shared-team memory are separate work.

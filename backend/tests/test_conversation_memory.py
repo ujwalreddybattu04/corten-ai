@@ -45,6 +45,7 @@ class MemoryPolicyTests(unittest.TestCase):
                       "Remember that my project is Meridian and its country is India."]:
             with self.subTest(query=query):
                 self.assertIn(conversation_intent(query), {"conversation", "conversation_note"})
+        self.assertEqual(conversation_intent("Remember this: " + "Project assumptions and planning notes. " * 100), "conversation_note")
 
     def test_external_and_mixed_requests_do_not_bypass_research(self):
         for query in ["What was my previous question and search for an answer?",
