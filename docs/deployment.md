@@ -19,8 +19,10 @@ by adding this configuration to GitHub.
 4. Render generates the JWT secret and database/cache connection strings. The backend
    normalizes PostgreSQL URLs for the async driver and runs Alembic before starting.
    Migration failure stops startup so a broken database is not presented as a successful deployment.
-5. Wait for both services to become live. Open the **frontend** URL for the app.
-   `BACKEND_URL` is wired to the backend's public HTTPS URL through the Blueprint;
+5. Set the frontend's `BACKEND_URL` to the backend's public HTTPS URL from its
+   Render service page and redeploy the frontend. You can leave the initial
+   Blueprint prompt blank until the backend's URL has been assigned.
+   Wait for both services to become live. Open the **frontend** URL for the app.
    browser API calls use the frontend proxy, including authentication, streamed
    responses and PDF downloads. The backend URL stays in server environment variables.
 6. If the frontend starts before the backend is ready, reload after the backend

@@ -12,10 +12,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: BACKEND_URL
-        fromService:
-          type: web
-          name: corten-ai-api
-          envVarKey: PUBLIC_API_URL
+        sync: false
 
   - type: web
     name: corten-ai-api
@@ -32,11 +29,6 @@ services:
         value: "false"
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: PUBLIC_API_URL
-        fromService:
-          type: web
-          name: corten-ai-api
-          envVarKey: RENDER_EXTERNAL_URL
       - key: DATABASE_URL
         fromDatabase:
           name: corten-ai-db
