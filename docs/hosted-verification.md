@@ -1,5 +1,18 @@
 # Hosted verification — 11 October 2026
 
+## Chat startup recovery release
+
+Both services deployed `d510e33` and reached `live`. [Both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38157925617).
+
+- All 153 backend tests (195 subtests), 73 frontend tests, production build and lint passed. Lint retains 53 maintenance warnings.
+- Nine startup/retry browser checks passed locally and against the hosted frontend using isolated simulated gateway/startup errors. They verify waiting before generation, a single POST after readiness, manual Retry preserving context, failure/partial-output persistence, bounded waiting and mobile/reduced-motion behavior. No client exceptions occurred.
+- The existing 17 local browser regressions passed with the startup check enabled.
+- A live guest identity conversation checked application status first, submitted one generation POST, completed with the Chryselys identity, and displayed no error. This verifies real routing and streaming, not external provider availability under load.
+- The hosting API confirmed both web services remain on the free compute plan. The public startup endpoint returned HTTP 200 with `status: ready`. No hosting plans or credentials were changed.
+- The public-source scan found zero credential findings in 335 files.
+
+Startup fault tests were simulated; they do not prove every historical 502 came from idle starts. Render's documented free-plan wake-up delay matches the reported first-open pattern. Deployments and other connection failures can also produce 502. Always-on hosting is still required to remove idle startup delays. See [chat startup behavior](chat-startup.md).
+
 ## Discover reliability release
 
 Backend and frontend deployed `dcbca1d` and reached `live`. [Both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38156805923).
