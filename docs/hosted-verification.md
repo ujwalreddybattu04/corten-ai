@@ -47,8 +47,9 @@ The backend subsequently deployed successfully.
 
 ## Current limits
 
-- Guardian news returned an authentication error for the configured key. FDA and
-  ClinicalTrials.gov continue working independently.
+- Guardian news returned an authentication error for the configured key. Discover
+  now falls back to the configured NewsAPI source. The workspace's Guardian pharma
+  source still reports its authentication error; FDA and ClinicalTrials.gov work independently.
 - Serper image requests returned 403. Tavily web search still returned cited results.
 - Groq briefly retried some requests; the tested streamed answers completed successfully.
 - Forecasts and review versions remain local to each browser. Hosting PostgreSQL does
@@ -59,3 +60,25 @@ The backend subsequently deployed successfully.
   and configure backups before using this setup for ongoing company work.
 
 See [deployment instructions](deployment.md) and [Render free-plan limits](https://render.com/docs/free).
+
+## Discover follow-up verification — 11 October 2026
+
+The empty Discover page was caused by calling only Guardian and returning its
+authentication failure as a successful empty feed. The deployed fix tries NewsAPI
+when Guardian fails, distinguishes source failure from an empty category, and
+shows a Retry action. Personalized requests respect the API's minimum page size,
+and Redis cache entries include the requested size. Delayed responses from a
+previous tab cannot replace the active feed.
+
+- Ten deterministic backend checks passed for fallback, missing keys, cache sizes,
+  pagination, topic mapping, truthful HTTP statuses and safe error logging.
+- Two personalization checks passed, including strong positive and negative preferences.
+- The production frontend build passed compilation, TypeScript and static generation.
+- Twelve local browser checks passed with no client exceptions, including all seven
+  tabs, mobile layout, Retry recovery, failed pagination preserving existing stories,
+  and a deliberately delayed previous-tab response.
+- Both Render services deployed commit `7d51d98` successfully.
+- The hosted API returned 17–18 articles in each of the six news categories and six
+  articles for the tested next page. All responses used the NewsAPI fallback.
+- The hosted browser displayed 50 articles in For You and 17–18 in each other tab,
+  with no client exceptions or horizontal overflow in the tested mobile viewport.
