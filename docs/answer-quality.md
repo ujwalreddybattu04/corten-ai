@@ -46,6 +46,9 @@ answers skip speculative follow-up generation to reduce unnecessary provider req
 Forecast-related business questions no longer qualify for weather solely because
 they contain the word “forecast”. Self-contained text edits can reuse a prior answer
 without web search; requests for fresh external facts still require research.
+Generic requests to write a short explanation of forecast assumptions use a maintained
+workspace explanation, avoiding invented project figures or market conditions. Requests
+for real forecasts, supplied project data or current evidence retain their normal handling.
 
 ## Verification
 

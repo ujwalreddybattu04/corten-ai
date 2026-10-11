@@ -82,3 +82,30 @@ previous tab cannot replace the active feed.
   articles for the tested next page. All responses used the NewsAPI fallback.
 - The hosted browser displayed 50 articles in For You and 17–18 in each other tab,
   with no client exceptions or horizontal overflow in the tested mobile viewport.
+
+## Context and company answers (2026-10-11)
+
+The backend is live at commit `72ea81d`. The existing frontend design and deployment
+remain unchanged. See [answer-quality.md](answer-quality.md) for the routing and evidence rules.
+
+- All 59 deterministic backend tests passed, including 52 additional subtests.
+- Thirteen hosted functional query cases passed: identity, company description,
+  company location follow-up, agents, capabilities, training attribution, missing and
+  ambiguous subjects, another company's follow-up, misleading prior answers,
+  headquarters uncertainty, generic forecast explanation and current FDA research.
+- Seven hosted browser checks passed with no client exceptions. The real input form
+  sent conversation history, displayed verified office locations, and answered the
+  agent question without web-search progress. The tested mobile layout remained dark
+  and fit the viewport after its sidebar transition completed.
+- Company sources came from the configured official domain. Office addresses were read
+  from the retrieved contact page; they were not inferred as headquarters.
+- The generic forecast explanation used no tools, invented figures or project conditions.
+- The current FDA request retained web search and used 2026 in its generated plan.
+- The public-source scan found no credential values in 278 source files.
+
+The first rapid hosted sequence hit the configured Groq account's 8,000-token-per-minute
+limit. Verified company-answer caching and removal of unnecessary company suggestion
+calls reduced repeated usage. Functional checks were then paced within that quota;
+this is not a concurrent load test. Company-wide usage still needs appropriate provider
+capacity. The security and shared-workspace gaps from the separate project review
+were not addressed by this answer-quality change.
