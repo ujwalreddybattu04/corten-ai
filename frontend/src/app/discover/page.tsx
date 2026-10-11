@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -342,7 +344,7 @@ export default function DiscoverPage() {
         // Restore saved GPS coords immediately for accurate weather on load
         if (typeof window !== "undefined") {
             try {
-                const saved = localStorage.getItem("user_coords");
+                const saved = accountStorage.getItem("user_coords");
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     // Expire after 1 hour — user may have moved
@@ -458,7 +460,7 @@ export default function DiscoverPage() {
     const saveCoords = (lat: number, lon: number) => {
         setCoords({ lat, lon });
         try {
-            localStorage.setItem("user_coords", JSON.stringify({ lat, lon, ts: Date.now() }));
+            accountStorage.setItem("user_coords", JSON.stringify({ lat, lon, ts: Date.now() }));
         } catch { /* quota */ }
     };
 
@@ -492,7 +494,7 @@ export default function DiscoverPage() {
     // Restore all persisted state from localStorage after hydration (SSR-safe)
     useEffect(() => {
         try {
-            const saved = localStorage.getItem("discover_interests");
+            const saved = accountStorage.getItem("discover_interests");
             if (saved) setSelectedInterests(JSON.parse(saved));
         } catch { /* ignore */ }
 
@@ -511,7 +513,7 @@ export default function DiscoverPage() {
         let savedLat: number | undefined;
         let savedLon: number | undefined;
         try {
-            const saved = localStorage.getItem("user_coords");
+            const saved = accountStorage.getItem("user_coords");
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed.ts && Date.now() - parsed.ts < 3600000) {
@@ -583,12 +585,12 @@ export default function DiscoverPage() {
         // Only show once ever — check localStorage flag
         if (feedToastShownRef.current) return;
         try {
-            if (localStorage.getItem("discover_feed_toast_shown")) return;
+            if (accountStorage.getItem("discover_feed_toast_shown")) return;
         } catch { /* ignore */ }
         feedToastShownRef.current = true;
         setShowFeedToast(true);
         setTimeout(() => setShowFeedToast(false), 4000);
-        try { localStorage.setItem("discover_feed_toast_shown", "1"); } catch { /* ignore */ }
+        try { accountStorage.setItem("discover_feed_toast_shown", "1"); } catch { /* ignore */ }
     };
 
     // Handlers receive category directly from the article — avoids stale state lookup
@@ -664,9 +666,9 @@ export default function DiscoverPage() {
     };
 
     const handleSaveInterests = () => {
-        localStorage.setItem("discover_interests", JSON.stringify(selectedInterests));
+        accountStorage.setItem("discover_interests", JSON.stringify(selectedInterests));
         // Invalidate affinity cache so computeAffinities picks up new interests
-        try { localStorage.removeItem("discover_affinities_v3"); } catch { /* ignore */ }
+        try { accountStorage.removeItem("discover_affinities_v3"); } catch { /* ignore */ }
         setInterestsSaved(true);
         setTimeout(() => setInterestsSaved(false), 2000);
         // Show toast popup

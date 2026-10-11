@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -53,7 +55,7 @@ export default function ThreadMenu({
         if (!threadId) return;
         try {
             const pins: string[] = JSON.parse(
-                localStorage.getItem("corten_pinned_threads") || "[]"
+                accountStorage.getItem("corten_pinned_threads") || "[]"
             );
             setBookmarked(pins.includes(threadId));
         } catch {}
@@ -83,12 +85,12 @@ export default function ThreadMenu({
         if (!threadId) return;
         try {
             const pins: string[] = JSON.parse(
-                localStorage.getItem("corten_pinned_threads") || "[]"
+                accountStorage.getItem("corten_pinned_threads") || "[]"
             );
             const newPins = pins.includes(threadId)
                 ? pins.filter((p) => p !== threadId)
                 : [threadId, ...pins];
-            localStorage.setItem("corten_pinned_threads", JSON.stringify(newPins));
+            accountStorage.setItem("corten_pinned_threads", JSON.stringify(newPins));
             window.dispatchEvent(new Event("corten_threads_updated"));
             setBookmarked(!pins.includes(threadId));
             setBookmarkFeedback(true);
@@ -109,7 +111,7 @@ export default function ThreadMenu({
         if (!threadId) return;
         try {
             const threads = JSON.parse(
-                localStorage.getItem("corten_threads") || "[]"
+                accountStorage.getItem("corten_threads") || "[]"
             );
             const thread = threads.find((t: any) => t.id === threadId);
             setRenameValue(thread?.title || query);
@@ -125,12 +127,12 @@ export default function ThreadMenu({
         if (!trimmed || !threadId) return;
         try {
             const threads = JSON.parse(
-                localStorage.getItem("corten_threads") || "[]"
+                accountStorage.getItem("corten_threads") || "[]"
             );
             const updated = threads.map((t: any) =>
                 t.id === threadId ? { ...t, title: trimmed, titleSource: "manual" } : t
             );
-            localStorage.setItem("corten_threads", JSON.stringify(updated));
+            accountStorage.setItem("corten_threads", JSON.stringify(updated));
             window.dispatchEvent(new Event("corten_threads_updated"));
         } catch {}
         onRename?.(trimmed);
@@ -237,16 +239,16 @@ export default function ThreadMenu({
         if (!threadId) return;
         try {
             const threads = JSON.parse(
-                localStorage.getItem("corten_threads") || "[]"
+                accountStorage.getItem("corten_threads") || "[]"
             );
-            localStorage.setItem(
+            accountStorage.setItem(
                 "corten_threads",
                 JSON.stringify(threads.filter((t: any) => t.id !== threadId))
             );
             const pins: string[] = JSON.parse(
-                localStorage.getItem("corten_pinned_threads") || "[]"
+                accountStorage.getItem("corten_pinned_threads") || "[]"
             );
-            localStorage.setItem(
+            accountStorage.setItem(
                 "corten_pinned_threads",
                 JSON.stringify(pins.filter((p) => p !== threadId))
             );
@@ -261,7 +263,7 @@ export default function ThreadMenu({
         if (!threadId) return query;
         try {
             const threads = JSON.parse(
-                localStorage.getItem("corten_threads") || "[]"
+                accountStorage.getItem("corten_threads") || "[]"
             );
             const thread = threads.find((t: any) => t.id === threadId);
             return thread?.title || query;

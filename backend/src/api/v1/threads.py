@@ -3,6 +3,7 @@ Threads endpoints — CRUD for conversation threads and messages.
 """
 
 from typing import Optional
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,7 +61,7 @@ async def list_threads(
 
 @router.get("/{thread_id}")
 async def get_thread(
-    thread_id: str,
+    thread_id: UUID,
     user_id: Optional[str] = Depends(get_optional_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -69,7 +70,8 @@ async def get_thread(
     - Authenticated owner can always access.
     - Public threads (is_public=True) accessible without auth.
     """
-    thread = await thread_service.get_thread(db, thread_id, user_id)
+    thread_id = str(thread_id)
+    thread = await thread_service.get_thread(db, thread_id, user_id) if user_id else None
     if not thread:
         # Try public access
         thread = await thread_service.get_thread(db, thread_id)
@@ -84,13 +86,13 @@ async def get_thread(
 
 @router.patch("/{thread_id}/rename")
 async def rename_thread(
-    thread_id: str,
+    thread_id: UUID,
     body: RenameRequest,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Rename a thread title."""
-    thread = await thread_service.rename_thread(db, thread_id, user_id, body.title)
+    thread = await thread_service.rename_thread(db, str(thread_id), user_id, body.title)
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     return _thread_to_dict(thread)
@@ -98,25 +100,25 @@ async def rename_thread(
 
 @router.delete("/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
-    thread_id: str,
+    thread_id: UUID,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a thread and all its messages."""
-    deleted = await thread_service.delete_thread(db, thread_id, user_id)
+    deleted = await thread_service.delete_thread(db, str(thread_id), user_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
 
 
 @router.post("/{thread_id}/share")
 async def toggle_share(
-    thread_id: str,
+    thread_id: UUID,
     body: ShareRequest,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Toggle public sharing for a thread. Returns the share_token when making public."""
-    thread = await thread_service.toggle_share(db, thread_id, user_id, body.is_public)
+    thread = await thread_service.toggle_share(db, str(thread_id), user_id, body.is_public)
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     return {

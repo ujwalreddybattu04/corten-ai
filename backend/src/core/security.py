@@ -3,11 +3,12 @@ Security utilities — JWT token creation and verification, password hashing.
 """
 
 from datetime import datetime, timedelta, timezone
+import uuid
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from src.config.settings import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
@@ -15,27 +16,39 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # Legacy bcrypt must never silently truncate different long passwords.
+        if hashed_password.startswith("$2") and len(plain_password.encode("utf-8")) > 72:
+            return False
+        return pwd_context.verify(plain_password, hashed_password)
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta if expires_delta is not None else timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "iat": now, "iss": "corten-api", "aud": "corten", "type": "access"})
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(data: dict) -> str:
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta if expires_delta is not None else timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS))
+    to_encode.update({"exp": expire, "iat": now, "iss": "corten-api", "aud": "corten", "type": "refresh"})
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_token(token: str) -> dict | None:
+def decode_token(token: str, expected_type: str = "access") -> dict | None:
     try:
-        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience="corten", issuer="corten-api",
+                             options={"require_exp": True, "require_iat": True, "require_sub": True, "require_aud": True, "require_iss": True})
+        if payload.get("type") != expected_type:
+            return None
+        for claim in ("sub", "sid") + (("jti",) if expected_type == "refresh" else ()):
+            uuid.UUID(payload[claim])
+        return payload
+    except (JWTError, ValueError, TypeError, KeyError, AttributeError):
         return None

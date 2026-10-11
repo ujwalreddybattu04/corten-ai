@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { conversationMessages, ConversationMessage } from "@/lib/conversation";
@@ -189,7 +191,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     );
                 }
 
-                const threadsJson = localStorage.getItem("corten_threads") || localStorage.getItem("orivanta_threads");
+                const threadsJson = accountStorage.getItem("corten_threads") || accountStorage.getItem("orivanta_threads");
                 let threads: ThreadData[] = threadsJson ? JSON.parse(threadsJson) : [];
 
                 const existingIdx = threads.findIndex(t => t.id === currentThreadId);
@@ -215,7 +217,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     threads.unshift(threadToSave);
                 }
 
-                localStorage.setItem("corten_threads", JSON.stringify(threads));
+                accountStorage.setItem("corten_threads", JSON.stringify(threads));
                 // Generate only after the exact thread exists. This survives navigation/remounts.
                 scheduleThreadTitle(currentThreadId);
 
@@ -437,7 +439,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 const isPrivate = sessionStorage.getItem("corten_private_mode") === "true";
                 if (!isPrivate) {
                     try {
-                        const threadsJson = localStorage.getItem("corten_threads") || localStorage.getItem("orivanta_threads");
+                        const threadsJson = accountStorage.getItem("corten_threads") || accountStorage.getItem("orivanta_threads");
                         if (threadsJson) {
                             const threads: ThreadData[] = JSON.parse(threadsJson);
                             const thread = threads.find(t => t.id === existingThreadId);

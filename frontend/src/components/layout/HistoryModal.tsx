@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -86,9 +88,9 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     // Load threads from localStorage
     const loadData = useCallback(() => {
         try {
-            const raw = localStorage.getItem(STORAGE_KEYS.THREADS);
+            const raw = accountStorage.getItem(STORAGE_KEYS.THREADS);
             if (raw) setThreads(JSON.parse(raw));
-            const pins = localStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
+            const pins = accountStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
             if (pins) setPinnedIds(JSON.parse(pins));
         } catch { /* ignore */ }
     }, []);
@@ -191,7 +193,7 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
             ? pinnedIds.filter(p => p !== id)
             : [id, ...pinnedIds];
         setPinnedIds(newPins);
-        localStorage.setItem(STORAGE_KEYS.PINNED_THREADS, JSON.stringify(newPins));
+        accountStorage.setItem(STORAGE_KEYS.PINNED_THREADS, JSON.stringify(newPins));
         setActiveMenuId(null);
     };
 
@@ -204,12 +206,12 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     const saveRename = () => {
         if (!editingId || !editingTitle.trim()) return;
         // A generated title may arrive while the rename dialog is open.
-        const latest: ThreadItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.THREADS) || "[]");
+        const latest: ThreadItem[] = JSON.parse(accountStorage.getItem(STORAGE_KEYS.THREADS) || "[]");
         const updated = latest.map(t =>
             t.id === editingId ? { ...t, title: editingTitle.trim(), titleSource: "manual" as const } : t
         );
         setThreads(updated);
-        localStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));
+        accountStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));
         window.dispatchEvent(new Event(EVENTS.THREADS_UPDATED));
         setEditingId(null);
         setEditingTitle("");
@@ -218,11 +220,11 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     const confirmDelete = (id: string) => {
         const updated = threads.filter(t => t.id !== id);
         setThreads(updated);
-        localStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));
+        accountStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));
 
         const updatedPins = pinnedIds.filter(p => p !== id);
         setPinnedIds(updatedPins);
-        localStorage.setItem(STORAGE_KEYS.PINNED_THREADS, JSON.stringify(updatedPins));
+        accountStorage.setItem(STORAGE_KEYS.PINNED_THREADS, JSON.stringify(updatedPins));
 
         window.dispatchEvent(new Event(EVENTS.THREADS_UPDATED));
 

@@ -1,12 +1,15 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Pin, ChevronDown, ChartNoAxesCombined } from "lucide-react";
+import { Pin, ChevronDown, ChartNoAxesCombined, UserRound, LogOut, LogIn } from "lucide-react";
 import { STORAGE_KEYS, EVENTS } from "@/config/constants";
 import HistoryModal from "./HistoryModal";
 import { refreshThreadTitles } from "@/lib/threadTitles";
+import { useAuth } from "@/contexts/AuthContext";
 
 const SIDEBAR_HISTORY_LIMIT = 7;
 
@@ -54,6 +57,7 @@ export default function Sidebar() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const activeThreadId = searchParams.get("id");
+    const { user, logout, sessionError, reloadSession } = useAuth();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [threads, setThreads] = useState<any[]>([]);
@@ -64,17 +68,17 @@ export default function Sidebar() {
     const loadThreads = () => {
         if (typeof window === "undefined") return;
         try {
-            let threadsJson = localStorage.getItem(STORAGE_KEYS.THREADS);
+            let threadsJson = accountStorage.getItem(STORAGE_KEYS.THREADS);
             if (!threadsJson) {
-                threadsJson = localStorage.getItem("orivanta_threads");
-                if (threadsJson) localStorage.setItem(STORAGE_KEYS.THREADS, threadsJson);
+                threadsJson = accountStorage.getItem("orivanta_threads");
+                if (threadsJson) accountStorage.setItem(STORAGE_KEYS.THREADS, threadsJson);
             }
             if (threadsJson) setThreads(refreshThreadTitles(SIDEBAR_HISTORY_LIMIT));
 
-            let pinsJson = localStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
+            let pinsJson = accountStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
             if (!pinsJson) {
-                pinsJson = localStorage.getItem("orivanta_pinned_threads");
-                if (pinsJson) localStorage.setItem(STORAGE_KEYS.PINNED_THREADS, pinsJson);
+                pinsJson = accountStorage.getItem("orivanta_pinned_threads");
+                if (pinsJson) accountStorage.setItem(STORAGE_KEYS.PINNED_THREADS, pinsJson);
             }
             if (pinsJson) setPinnedThreadIds(JSON.parse(pinsJson));
         } catch (e) {
@@ -204,6 +208,18 @@ export default function Sidebar() {
 
                 {/* Footer */}
                 <div className="sidebar-footer">
+                    {sessionError && <div className="sidebar-session-error" role="alert">{sessionError}<button onClick={() => void reloadSession()}>Retry</button></div>}
+                    {user ? <>
+                        <Link href="/settings" className="sidebar-link" title={user.email}>
+                            <span className="sidebar-link-icon"><UserRound size={20} /></span>
+                            <span className="sidebar-link-label">{user.name}</span>
+                        </Link>
+                        <button className="sidebar-link" id="sign-out-btn" title="Sign out" onClick={() => { void logout(); router.replace("/"); }}>
+                            <span className="sidebar-link-icon"><LogOut size={20} /></span><span className="sidebar-link-label">Sign out</span>
+                        </button>
+                    </> : <Link href={`/auth/login?next=${encodeURIComponent(pathname + (searchParams.toString() ? "?" + searchParams.toString() : ""))}`} className="sidebar-link" id="sign-in-btn" title="Sign in">
+                        <span className="sidebar-link-icon"><LogIn size={20} /></span><span className="sidebar-link-label">Sign in</span>
+                    </Link>}
                     <button
                         onClick={() => setIsCollapsed(!isCollapsed)}
                         className={`sidebar-link sidebar-collapse-btn ${isCollapsed ? "collapsed-state" : ""}`}

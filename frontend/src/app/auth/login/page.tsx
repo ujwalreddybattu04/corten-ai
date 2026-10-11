@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiRequestError } from "@/lib/api";
+import { safeReturnPath } from "@/lib/accountStorage";
 import { BRAND_NAME } from "@/config/constants";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -91,7 +92,8 @@ function BrandLogo() {
 
 export default function LoginPage() {
     const router = useRouter();
-    const { login } = useAuth();
+    const { login, isAuthenticated } = useAuth();
+    useEffect(() => { if (isAuthenticated) router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next"))); }, [isAuthenticated, router]);
 
     const [email, setEmail]         = useState("");
     const [password, setPassword]   = useState("");
@@ -109,7 +111,7 @@ export default function LoginPage() {
 
     const validateEmail = useCallback((val: string) => {
         if (!val.trim()) return "Email is required";
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return "Enter a valid email address";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) return "Enter a valid email address";
         return "";
     }, []);
 
@@ -149,11 +151,10 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
-            await login(email, password);
+            await login(email.trim(), password, rememberMe);
             setLoginSuccess(true);
             setIsExiting(true);
-            await new Promise(resolve => setTimeout(resolve, 950));
-            router.push("/");
+            router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
         } catch (err) {
             if (err instanceof ApiRequestError) {
                 if (err.status === 401) {
@@ -202,26 +203,6 @@ export default function LoginPage() {
                     <p className="auth-subheading">Sign in to your account to continue</p>
 
                     {/* OAuth */}
-                    <div className="auth-oauth-stack">
-                        <button type="button" className="btn-oauth" disabled={loading}
-                            onClick={() => setGlobalError("OAuth coming soon — use email for now")}>
-                            <GoogleIcon />
-                            Google
-                        </button>
-                        <button type="button" className="btn-oauth" disabled={loading}
-                            onClick={() => setGlobalError("OAuth coming soon — use email for now")}>
-                            <AppleIcon />
-                            Apple
-                        </button>
-                    </div>
-
-                    {/* Divider */}
-                    <div className="auth-divider" aria-hidden="true">
-                        <div className="auth-divider-line" />
-                        <span className="auth-divider-text">or continue with email</span>
-                        <div className="auth-divider-line" />
-                    </div>
-
                     {/* Global error */}
                     {globalError && (
                         <div className="auth-error-banner" role="alert">
@@ -305,7 +286,7 @@ export default function LoginPage() {
                                 />
                                 <span className="auth-remember-label">Remember me</span>
                             </label>
-                            <a href="/auth/forgot-password" className="auth-forgot">Forgot Password?</a>
+                            <span className="auth-forgot" title="Account recovery is not configured yet">Email sign-in</span>
                         </div>
 
                         {/* Submit */}
@@ -323,14 +304,10 @@ export default function LoginPage() {
 
                     <p className="auth-switch">
                         Don&apos;t have an account?
-                        <Link href="/auth/signup">Create one</Link>
+                        <Link href={`/auth/signup?next=${encodeURIComponent(typeof window === "undefined" ? "/" : safeReturnPath(new URLSearchParams(window.location.search).get("next")))}`}>Create one</Link>
                     </p>
 
-                    <p className="auth-terms">
-                        By continuing, you agree to our{" "}
-                        <a href="/terms">Terms of Service</a> and{" "}
-                        <a href="/privacy">Privacy Policy</a>.
-                    </p>
+                    <p className="auth-terms">Developed by Chryselys Private Limited</p>
                 </div>
             </div>
         </div>

@@ -1,3 +1,4 @@
+import { accountStorage, getStorageAccount } from "./accountStorage";
 /** Titles live with the saved thread, independent of the streaming component's lifetime. */
 export interface ThreadTitleMetadata {
     titleSource?: "pending" | "generated" | "fallback" | "manual";
@@ -77,7 +78,7 @@ function isPrivate(): boolean {
 }
 
 function readThreads(): TitleThread[] {
-    const raw = localStorage.getItem(KEY) || localStorage.getItem("orivanta_threads");
+    const raw = accountStorage.getItem(KEY) || accountStorage.getItem("orivanta_threads");
     const threads = raw ? JSON.parse(raw) : [];
     return Array.isArray(threads) ? threads : [];
 }
@@ -96,6 +97,7 @@ function validTitle(value: unknown, query: string): value is string {
 }
 
 async function generateSavedTitle(id: string): Promise<void> {
+    const account = getStorageAccount();
     if (isPrivate()) return;
     let context: ReturnType<typeof titleContext> | undefined;
     let previousTitle = "";
@@ -127,7 +129,7 @@ async function generateSavedTitle(id: string): Promise<void> {
     } finally {
         clearTimeout(timeout);
     }
-    if (!context || isPrivate()) return;
+    if (!context || isPrivate() || account !== getStorageAccount()) return;
     try {
         // Re-read after awaiting: another answer, rename, deletion or thread may have changed.
         const threads = readThreads();
@@ -141,7 +143,7 @@ async function generateSavedTitle(id: string): Promise<void> {
             titleSource: source,
             titleRetryAt: source === "fallback" ? Date.now() + RETRY_DELAY : undefined,
         };
-        localStorage.setItem(KEY, JSON.stringify(threads));
+        accountStorage.setItem(KEY, JSON.stringify(threads));
         window.dispatchEvent(new Event("corten_threads_updated"));
     } catch { /* Storage unavailable or thread removed. */ }
 }
@@ -180,7 +182,7 @@ export function refreshThreadTitles(limit = 7): TitleThread[] {
     if (isPrivate()) return threads;
     const prepared = threads.map(prepareThreadTitle);
     if (prepared.some((thread, index) => thread !== threads[index])) {
-        localStorage.setItem(KEY, JSON.stringify(prepared));
+        accountStorage.setItem(KEY, JSON.stringify(prepared));
     }
     [...prepared].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
         .slice(0, limit).filter(needsTitle).forEach(thread => scheduleThreadTitle(thread.id));

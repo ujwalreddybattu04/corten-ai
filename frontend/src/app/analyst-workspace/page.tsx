@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -337,8 +339,8 @@ export default function AnalystWorkspace() {
     let remembered = "";
     let raw: string | null = null;
     try {
-      remembered = localStorage.getItem(SELECTED_KEY) || "";
-      raw = localStorage.getItem(STORAGE_KEY);
+      remembered = accountStorage.getItem(SELECTED_KEY) || "";
+      raw = accountStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved: unknown = JSON.parse(raw);
         if (Array.isArray(saved)) initial = saved.filter(isProject).slice(0, 20);
@@ -371,8 +373,8 @@ export default function AnalystWorkspace() {
       return;
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-      localStorage.setItem(SELECTED_KEY, selectedId);
+      accountStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      accountStorage.setItem(SELECTED_KEY, selectedId);
       setSaveState("saved");
     } catch {
       setSaveState("unavailable");

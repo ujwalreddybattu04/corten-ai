@@ -2,25 +2,26 @@
 Auth endpoints — JWT authentication (register, login, refresh, logout).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_db, get_current_user_id
 from src.services.auth_service import auth_service
+from src.services.auth_sessions import limit_auth_attempts
 
 router = APIRouter()
 
 
 class RegisterRequest(BaseModel):
-    name: str
+    name: str = Field(max_length=100)
     email: EmailStr
-    password: str
+    password: str = Field(max_length=1024)
 
     @field_validator("name")
     @classmethod
     def name_not_empty(cls, v):
-        if not v.strip():
-            raise ValueError("Name cannot be empty")
+        if len(v.strip()) < 2:
+            raise ValueError("Name must be at least 2 characters")
         return v.strip()
 
     @field_validator("password")
@@ -33,15 +34,15 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(min_length=1, max_length=4096)
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(min_length=1, max_length=4096)
 
 
 class TokenResponse(BaseModel):
@@ -59,8 +60,9 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Register a new user with email + password."""
+    await limit_auth_attempts("register", str(body.email), request.client.host if request.client else "unknown")
     try:
         user, access_token, refresh_token = await auth_service.register(
             db, body.name, str(body.email), body.password
@@ -82,8 +84,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=dict)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Login with email + password. Returns access + refresh tokens."""
+    await limit_auth_attempts("login", str(body.email), request.client.host if request.client else "unknown")
     try:
         user, access_token, refresh_token = await auth_service.login(
             db, str(body.email), body.password

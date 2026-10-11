@@ -8,9 +8,7 @@ const source = path.join(__dirname, "../src/lib/personalization.ts");
 const compiled = ts.transpileModule(fs.readFileSync(source, "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText;
-const instance = new Module(source, module);
-instance._compile(compiled, source);
-const { getWeightedFetchSizes } = instance.exports;
+const { getWeightedFetchSizes } = require("./load-ts")(source);
 const categories = ["technology", "business", "entertainment", "sports", "health"];
 
 test("strong preferences preserve valid API sizes for every For You category", () => {

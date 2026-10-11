@@ -19,6 +19,7 @@ import "@/styles/report.css";
 import { Suspense } from "react";
 import { Sidebar } from "@/components/layout";
 import { SITE_TITLE, SITE_DESCRIPTION } from "@/config/constants";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
     title: `${SITE_TITLE} — AI-Powered Answer Engine`,
@@ -45,12 +46,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 />
             </head>
             <body suppressHydrationWarning>
+                <AuthProvider>
                 <div className="app-shell">
                     <Suspense fallback={<div style={{ width: "240px", backgroundColor: "var(--sidebar-bg)" }} />}>
                         <Sidebar />
                     </Suspense>
                     <main className="main-content">{children}</main>
                 </div>
+                </AuthProvider>
             </body>
         </html>
     );

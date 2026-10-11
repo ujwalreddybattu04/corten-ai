@@ -1,3 +1,4 @@
+import { accountStorage } from "./accountStorage";
 /**
  * Corten AI — Discover Personalization Engine  (v3 — production-grade)
  *
@@ -55,13 +56,13 @@ export interface CategoryAffinities {
 // ── Safe localStorage helpers ─────────────────────────────────────────────────
 
 function lsGet(key: string): string | null {
-    try { return localStorage.getItem(key); } catch { return null; }
+    try { return accountStorage.getItem(key); } catch { return null; }
 }
 function lsSet(key: string, value: string): void {
-    try { localStorage.setItem(key, value); } catch { /* ignore */ }
+    try { accountStorage.setItem(key, value); } catch { /* ignore */ }
 }
 function lsRemove(key: string): void {
-    try { localStorage.removeItem(key); } catch { /* ignore */ }
+    try { accountStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 // ── Interaction store ─────────────────────────────────────────────────────────

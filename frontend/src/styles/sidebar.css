@@ -608,3 +608,16 @@
         transform: scale(1);
     }
 }
+.sidebar-session-error { padding: 8px 12px; color: var(--text-secondary); font-size: 12px; }
+.sidebar-session-error button { display: block; margin-top: 6px; color: var(--text-primary); background: transparent; border: 0; cursor: pointer; text-decoration: underline; }
+.sidebar-link-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-settings { max-width: 680px; margin: 0 auto; padding: 48px 24px; }
+.account-settings h1 { font-size: 26px; font-weight: 600; margin-bottom: 12px; }
+.account-description { color: var(--text-secondary); font-size: 14px; line-height: 1.7; margin: 16px 0; }
+.account-panel { padding: 24px; margin: 24px 0; border: 1px solid var(--border-color); border-radius: 16px; background: var(--card-bg, #171717); }
+.account-panel h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.account-panel dl { display: grid; grid-template-columns: 90px 1fr; gap: 16px; margin-bottom: 24px; font-size: 14px; }
+.account-panel dt { color: var(--text-secondary); }
+.account-panel dd { margin: 0; overflow-wrap: anywhere; }
+.account-panel .auth-submit { max-width: 200px; text-decoration: none; }
+.account-panel p { margin: 16px 0; color: var(--text-secondary); }

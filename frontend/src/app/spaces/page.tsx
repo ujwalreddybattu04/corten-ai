@@ -1,4 +1,6 @@
 "use client";
+import { accountStorage } from "@/lib/accountStorage";
+
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
@@ -91,21 +93,21 @@ export default function SpacesPage() {
     // Load spaces
     useEffect(() => {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = accountStorage.getItem(STORAGE_KEY);
             if (raw) setSpaces(JSON.parse(raw));
         } catch { /* ignore */ }
     }, []);
 
     const saveSpaces = useCallback((updated: LocalSpace[]) => {
         setSpaces(updated);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        accountStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     }, []);
 
     // Get thread count for each space
     const threadCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         try {
-            const raw = localStorage.getItem(STORAGE_KEYS.THREADS);
+            const raw = accountStorage.getItem(STORAGE_KEYS.THREADS);
             if (!raw) return counts;
             JSON.parse(raw);
             for (const space of spaces) {

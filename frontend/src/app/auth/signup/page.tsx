@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiRequestError } from "@/lib/api";
+import { safeReturnPath } from "@/lib/accountStorage";
 import { BRAND_NAME } from "@/config/constants";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -106,7 +107,8 @@ function getPasswordStrength(pw: string): { score: number; label: string } {
 
 export default function SignupPage() {
     const router = useRouter();
-    const { register } = useAuth();
+    const { register, isAuthenticated } = useAuth();
+    useEffect(() => { if (isAuthenticated) router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next"))); }, [isAuthenticated, router]);
 
     const [name, setName]         = useState("");
     const [email, setEmail]       = useState("");
@@ -127,11 +129,11 @@ export default function SignupPage() {
     const pwStrength = getPasswordStrength(password);
 
     const validateName = useCallback((v: string) =>
-        !v.trim() ? "Name is required" : v.trim().length < 2 ? "Name must be at least 2 characters" : "", []);
+        !v.trim() ? "Name is required" : v.trim().length < 2 ? "Name must be at least 2 characters" : v.trim().length > 100 ? "Name must be at most 100 characters" : "", []);
     const validateEmail = useCallback((v: string) =>
-        !v.trim() ? "Email is required" : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? "Enter a valid email address" : "", []);
+        !v.trim() ? "Email is required" : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? "Enter a valid email address" : "", []);
     const validatePassword = useCallback((v: string) =>
-        !v ? "Password is required" : v.length < 8 ? "Password must be at least 8 characters" : "", []);
+        !v ? "Password is required" : v.length < 8 ? "Password must be at least 8 characters" : v.length > 1024 ? "Password must be at most 1024 characters" : "", []);
 
     const handleBlur = (field: "name" | "email" | "password") => {
         setTouched(t => ({ ...t, [field]: true }));
@@ -162,8 +164,8 @@ export default function SignupPage() {
 
         setLoading(true);
         try {
-            await register(name.trim(), email, password);
-            router.push("/");
+            await register(name.trim(), email.trim(), password);
+            router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
         } catch (err) {
             if (err instanceof ApiRequestError) {
                 if (err.status === 409) {
@@ -199,25 +201,6 @@ export default function SignupPage() {
 
                     <h1 className="auth-heading">Create Account</h1>
                     <p className="auth-subheading">Join {BRAND_NAME} and start searching smarter</p>
-
-                    <div className="auth-oauth-stack">
-                        <button type="button" className="btn-oauth" disabled={loading}
-                            onClick={() => setGlobalError("OAuth coming soon — use email for now")}>
-                            <GoogleIcon />
-                            Google
-                        </button>
-                        <button type="button" className="btn-oauth" disabled={loading}
-                            onClick={() => setGlobalError("OAuth coming soon — use email for now")}>
-                            <AppleIcon />
-                            Apple
-                        </button>
-                    </div>
-
-                    <div className="auth-divider" aria-hidden="true">
-                        <div className="auth-divider-line" />
-                        <span className="auth-divider-text">or continue with email</span>
-                        <div className="auth-divider-line" />
-                    </div>
 
                     {globalError && (
                         <div className="auth-error-banner" role="alert">
@@ -342,14 +325,10 @@ export default function SignupPage() {
 
                     <p className="auth-switch">
                         Already have an account?
-                        <Link href="/auth/login">Sign in</Link>
+                        <Link href={`/auth/login?next=${encodeURIComponent(typeof window === "undefined" ? "/" : safeReturnPath(new URLSearchParams(window.location.search).get("next")))}`}>Sign in</Link>
                     </p>
 
-                    <p className="auth-terms">
-                        By creating an account, you agree to our{" "}
-                        <a href="/terms">Terms of Service</a> and{" "}
-                        <a href="/privacy">Privacy Policy</a>.
-                    </p>
+                    <p className="auth-terms">Developed by Chryselys Private Limited</p>
                 </div>
             </div>
         </div>

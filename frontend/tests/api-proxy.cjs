@@ -77,3 +77,88 @@ test("proxy blocks path traversal and hides internal connection errors", async (
   assert.equal(res.status, 502);
   assert.doesNotMatch(await res.text(), /private-hostname/);
 });
+
+const authRequest = (action, body = {}, cookies = "", origin = "https://corten.example") => {
+  const req = new Request(`https://corten.example/api/v1/auth/${action}`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookies, origin }, body: JSON.stringify(body),
+  });
+  req.nextUrl = new URL(req.url);
+  return req;
+};
+
+test("login keeps JWTs out of JSON and creates secure HttpOnly session cookies", async () => {
+  global.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).remember_me, undefined);
+    return Response.json({ user: { id: "a" }, access_token: "access-jwt", refresh_token: "refresh-jwt" });
+  };
+  const response = await api.POST(authRequest("login", { email: "a@example.com", password: "password" }), context(["auth", "login"]));
+  assert.deepEqual(await response.json(), { user: { id: "a" } });
+  const cookies = response.headers.getSetCookie();
+  assert.equal(cookies.length, 3);
+  assert.ok(cookies.every(cookie => cookie.includes("HttpOnly") && cookie.includes("Secure") && cookie.includes("SameSite=Lax") && !cookie.includes("Max-Age")));
+});
+
+test("remember me sets persistent cookies and refresh retains that preference", async () => {
+  global.fetch = async () => Response.json({ access_token: "new-access", refresh_token: "new-refresh" });
+  let response = await api.POST(authRequest("login", { remember_me: true }), context(["auth", "login"]));
+  assert.match(response.headers.getSetCookie()[1], /Max-Age=604800/);
+  global.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).refresh_token, "saved-refresh");
+    return Response.json({ access_token: "new-access", refresh_token: "new-refresh" });
+  };
+  response = await api.POST(authRequest("refresh", {}, "corten_refresh=saved-refresh; corten_remember=1"), context(["auth", "refresh"]));
+  assert.match(response.headers.getSetCookie()[1], /Max-Age=604800/);
+  assert.equal((await response.json()).refresh_token, undefined);
+});
+
+test("cookie sessions inject access credentials without forwarding cookies upstream", async () => {
+  const req = new Request("https://corten.example/api/v1/auth/me", { headers: { cookie: "corten_access=private-access; unrelated=secret" } });
+  req.nextUrl = new URL(req.url);
+  global.fetch = async (_url, options) => {
+    assert.equal(options.headers.get("authorization"), "Bearer private-access");
+    assert.equal(options.headers.get("cookie"), null);
+    return Response.json({ id: "a" });
+  };
+  assert.equal((await api.GET(req, context(["auth", "me"]))).status, 200);
+});
+
+test("cross-origin and origin-less cookie writes are rejected before reaching the backend", async () => {
+  global.fetch = async () => assert.fail("Cross-origin authentication reached backend");
+  for (const origin of ["https://evil.example", ""]) {
+    const response = await api.POST(authRequest("logout", {}, "corten_refresh=token", origin), context(["auth", "logout"]));
+    assert.equal(response.status, 403);
+  }
+});
+
+test("logout clears cookies even if server revocation is temporarily unavailable", async () => {
+  global.fetch = async () => { throw new Error("connection failure"); };
+  const response = await api.POST(authRequest("logout", {}, "corten_refresh=token"), context(["auth", "logout"]));
+  assert.equal(response.status, 502);
+  assert.ok(response.headers.getSetCookie().every(cookie => cookie.includes("Max-Age=0")));
+});
+
+test("expired refresh clears cookies and does not expose credentials", async () => {
+  global.fetch = async () => Response.json({ detail: "Revoked" }, { status: 401 });
+  const response = await api.POST(authRequest("refresh", {}, "corten_refresh=token"), context(["auth", "refresh"]));
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.getSetCookie().length, 3);
+  assert.ok(response.headers.getSetCookie().every(cookie => cookie.includes("Max-Age=0")));
+});
+
+test("guests restore immediately without waking backend; cookie sessions are verified by backend", async () => {
+  let calls = 0;
+  global.fetch = async (url, options) => {
+    calls++;
+    assert.match(url, /\/auth\/me$/);
+    assert.equal(options.headers.get("authorization"), "Bearer saved-access");
+    return Response.json({ id: "verified-user" });
+  };
+  let req = new Request("https://corten.example/api/v1/auth/session");
+  req.nextUrl = new URL(req.url);
+  assert.equal(await (await api.GET(req, context(["auth", "session"]))).json(), null);
+  assert.equal(calls, 0);
+  req = new Request(req.url, { headers: { cookie: "corten_access=saved-access" } });
+  req.nextUrl = new URL(req.url);
+  assert.equal((await (await api.GET(req, context(["auth", "session"]))).json()).id, "verified-user");
+  assert.equal(calls, 1);
+});

@@ -4,85 +4,90 @@ Auth service — registration, login, token refresh, OAuth.
 
 import uuid
 import logging
+import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from src.models.user import User
 from src.core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
 )
-from src.db.redis import store_refresh_token, validate_refresh_token, revoke_refresh_token
+from src.services.auth_sessions import create_session, rotate_session, revoke_session
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
+_DUMMY_HASH = hash_password("non-user-comparison-password")
 
 
 class AuthService:
 
     async def register(self, db, name, email, password):
-        result = await db.execute(select(User).where(User.email == email.lower()))
+        email = email.strip().lower()
+        result = await db.execute(select(User).where(User.email == email))
         if result.scalar_one_or_none():
             raise ValueError("Email already registered")
         user = User(
             id=uuid.uuid4(),
             name=name.strip(),
             email=email.lower().strip(),
-            password_hash=hash_password(password),
+            password_hash=await asyncio.to_thread(hash_password, password),
         )
         db.add(user)
-        await db.flush()
-        access_token, refresh_token, jti = self._issue_tokens(str(user.id))
-        await store_refresh_token(jti, str(user.id), ttl=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise ValueError("Email already registered") from None
+        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id))
+        await create_session(sid, str(user.id), jti, settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
         return user, access_token, refresh_token
 
     async def login(self, db, email, password):
-        result = await db.execute(select(User).where(User.email == email.lower()))
+        result = await db.execute(select(User).where(User.email == email.strip().lower()))
         user = result.scalar_one_or_none()
-        if not user or not user.password_hash:
+        valid = await asyncio.to_thread(verify_password, password, user.password_hash if user and user.password_hash else _DUMMY_HASH)
+        if not user or not user.password_hash or not valid or not user.is_active:
             raise ValueError("Invalid email or password")
-        if not verify_password(password, user.password_hash):
-            raise ValueError("Invalid email or password")
-        if not user.is_active:
-            raise ValueError("Account is deactivated")
-        access_token, refresh_token, jti = self._issue_tokens(str(user.id))
-        await store_refresh_token(jti, str(user.id), ttl=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
+        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id))
+        await create_session(sid, str(user.id), jti, settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
         return user, access_token, refresh_token
 
     async def refresh(self, db, refresh_token):
-        payload = decode_token(refresh_token)
+        payload = decode_token(refresh_token, "refresh")
         if not payload:
             raise ValueError("Invalid or expired refresh token")
         jti = payload.get("jti")
         user_id = payload.get("sub")
         if not jti or not user_id:
             raise ValueError("Malformed token")
-        stored = await validate_refresh_token(jti)
-        if not stored:
-            raise ValueError("Refresh token revoked or expired")
         result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             raise ValueError("User not found or deactivated")
-        await revoke_refresh_token(jti)
-        new_access, new_refresh, new_jti = self._issue_tokens(str(user.id))
-        await store_refresh_token(new_jti, str(user.id), ttl=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
+        remaining = timedelta(seconds=payload["exp"] - datetime.now(timezone.utc).timestamp())
+        new_access, new_refresh, sid, new_jti = self._issue_tokens(str(user.id), payload["sid"], remaining)
+        if not await rotate_session(sid, str(user.id), jti, new_jti):
+            raise ValueError("Refresh token revoked, expired or already used")
         return user, new_access, new_refresh
 
     async def logout(self, refresh_token):
-        payload = decode_token(refresh_token)
-        if payload and payload.get("jti"):
-            await revoke_refresh_token(payload["jti"])
+        payload = decode_token(refresh_token, "refresh")
+        if payload:
+            await revoke_session(payload["sid"], payload["sub"])
 
     async def get_user_by_id(self, db, user_id):
         result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
         return result.scalar_one_or_none()
 
-    def _issue_tokens(self, user_id):
+    def _issue_tokens(self, user_id, sid=None, remaining=None):
+        sid = sid or uuid.uuid4().hex
         jti = uuid.uuid4().hex
-        access_token = create_access_token({"sub": user_id})
-        refresh_token = create_refresh_token({"sub": user_id, "jti": jti})
-        return access_token, refresh_token, jti
+        access_token = create_access_token({"sub": user_id, "sid": sid})
+        refresh_token = create_refresh_token({"sub": user_id, "sid": sid, "jti": jti}, remaining)
+        return access_token, refresh_token, sid, jti
 
 
 auth_service = AuthService()

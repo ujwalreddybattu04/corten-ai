@@ -7,16 +7,13 @@ const path = require("node:path");
 
 function setup(threads = []) {
     const source = path.join(__dirname, "../src/lib/threadTitles.ts");
-    const instance = new Module(source, module);
-    instance._compile(ts.transpileModule(fs.readFileSync(source, "utf8"), {
-        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-    }).outputText, source);
+    const exported = require("./load-ts")(source);
     const values = new Map([["corten_threads", JSON.stringify(threads)]]);
     const session = new Map();
     global.localStorage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) };
     global.sessionStorage = { getItem: key => session.get(key) || null };
     global.window = { location: { hostname: "localhost" }, dispatchEvent() {} };
-    return { ...instance.exports, read: () => JSON.parse(values.get("corten_threads")),
+    return { ...exported, read: () => JSON.parse(values.get("corten_threads")),
         save: threads => values.set("corten_threads", JSON.stringify(threads)), session };
 }
 
