@@ -85,6 +85,24 @@ if they were the reviewed result.
 
 ## API and verification
 
+The interface review keeps Corten's Plus Jakarta Sans font and dark palette,
+with higher-contrast captions, grouped input/mode controls and a responsive
+results layout. Timeline, monthly-row and series summaries use the calculation's
+actual data. All uploaded yearly rows can be reviewed before calculation.
+
+Verified curves reveal over 850 ms, with a subtle area fill and brief transitions
+between input, calculation and result states. Changing series reveals the new
+curve. Animations do not change values or geometry; all workspace motion is
+disabled when `prefers-reduced-motion` is enabled. Positive-only chart axes avoid
+implying negative data while retaining overshoot; mixed-sign data retains both
+sides of its range. The optimizer and numerical output are unchanged.
+
+Monthly inspection supports mouse, touch and keyboard, including Left/Right,
+Home/End and Escape. Review tabs use arrow navigation and one tab stop. Small
+screens bring generated results into view. Uploads reject multiple-file drops
+explicitly, errors preserve the current input and provide a retry/dismiss action,
+and exports show pending/completion feedback.
+
 POST `/api/v1/interpolation/preview`, `/calculate?mode=average|exit`, and
 `/export?mode=average|exit&format=csv|json|pdf` accept a multipart `file` and an
 optional `encoding`. Export accepts the reviewed `calculation_id`.
@@ -107,3 +125,8 @@ browser checks, including real downloads, Unicode Excel input, failure recovery,
 canceled/out-of-order requests and responsive layouts from 320 to 1440 pixels.
 The production frontend build passed. Both modes also completed a 100-year,
 1,200-month absolute-value timeline with all yearly constraints verified.
+
+The subsequent interface review passed 41 frontend tests and 29 local browser
+checks, covering real uploads/downloads, animation progression and completion,
+reduced motion, exact tooltip values, keyboard and touch input, cancellation,
+error recovery, Unicode PDF text and layouts from 320 to 1440 pixels.

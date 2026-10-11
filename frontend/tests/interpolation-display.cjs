@@ -22,3 +22,21 @@ test("full precision and small positive values remain inspectable without clippi
     assert.equal(display.displayValue(2500, false), "2,500.00");
     assert.equal(display.displayValue(25, false, "%"), "25.00%");
 });
+
+test("positive adoption axes start at zero when padding crosses zero and retain overshoot", () => {
+    const values = [1, 98, 100, 100.19544143498757];
+    const scale = display.chartScale(values);
+    assert.equal(scale.lower * scale.magnitude, 0);
+    assert.ok(scale.upper * scale.magnitude > Math.max(...values));
+    assert.ok(scale.fraction(values.at(-1)) < 1);
+});
+
+test("negative, mixed-sign and flat-zero series remain visible on their own ranges", () => {
+    const negative = display.chartScale([-100, -1]);
+    assert.equal(negative.upper * negative.magnitude, 0);
+    assert.ok(negative.lower * negative.magnitude < -100);
+    const mixed = display.chartScale([-1, 1]);
+    assert.ok(mixed.lower < 0 && mixed.upper > 0);
+    const zero = display.chartScale([0, 0]);
+    assert.equal(zero.fraction(0), .5);
+});
