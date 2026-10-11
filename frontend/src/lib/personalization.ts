@@ -219,7 +219,7 @@ export function getWeightedFetchSizes(
     affinities: CategoryAffinities,
     totalBudget: number = 50 // total articles to fetch across all categories
 ): Record<string, number> {
-    const MIN_PER_CAT = 3;  // never drop below 3 (diversity floor)
+    const MIN_PER_CAT = 6;  // match the Discover API minimum and preserve diversity
     const MAX_PER_CAT = 18; // never exceed 18 (API page size cap)
 
     // Calculate raw weights: softmax-like transformation of affinities

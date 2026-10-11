@@ -1,6 +1,6 @@
 """
 Discover service — news feed, market data, and weather.
-Uses NewsAPI for articles, Yahoo Finance for market data, wttr.in for weather.
+Uses Guardian with a NewsAPI fallback, Yahoo Finance for market data, wttr.in for weather.
 All results are Redis-cached to minimize external API calls.
 """
 
@@ -31,7 +31,8 @@ NEWSAPI_CATEGORY_MAP = {
     "business":      "business",
     "entertainment": "entertainment",
     "sports":        "sports",
-    "health":        "health",
+    # The existing UI uses "health" as the Entertainment tab's stored ID.
+    "health":        "entertainment",
 }
 
 # ── NewsAPI /everything rotating keywords (for pages 2+) ─────────────────────
@@ -73,21 +74,35 @@ TRENDING_STOCKS = [
 # ── News Articles ─────────────────────────────────────────────────────────────
 
 async def get_news_articles(category: str = "for-you", page: int = 1, page_size: int = 18) -> dict:
-    """Fetch articles from The Guardian API with Redis caching."""
-    cache_key = f"discover:news:g2:{category}:{page}"
+    """Serve live news, falling back when a provider fails or has no initial stories."""
+    cache_key = f"discover:news:g3:{category}:{page}:{page_size}"
 
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
+    empty_result = None
     async with httpx.AsyncClient(timeout=12.0) as client:
-        result = await _fetch_guardian(client, category, page, page_size)
+        for fetch_provider in (_fetch_guardian, _fetch_newsapi):
+            result = await fetch_provider(client, category, page, page_size)
+            if result["status"] == "unavailable":
+                continue
+            if result["articles"] or page > 1:
+                if result["articles"]:
+                    await cache_set(cache_key, result, ttl=NEWS_CACHE_TTL)
+                return result
+            empty_result = result
 
-    # Only cache successful non-empty responses
-    if result.get("articles"):
-        await cache_set(cache_key, result, ttl=NEWS_CACHE_TTL)
+    # A successful empty response is different from every source failing.
+    return empty_result if empty_result is not None else _news_unavailable(page)
 
-    return result
+
+def _news_unavailable(page: int) -> dict:
+    return {
+        "articles": [], "has_more": False, "page": page,
+        "status": "unavailable",
+        "message": "News is temporarily unavailable. Please try again.",
+    }
 
 
 async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, page_size: int) -> dict:
@@ -96,14 +111,16 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
     Pages 2+ → /everything with rotating keywords (gives fresh articles each scroll,
                 bypasses the 100-result cap by using different queries per page).
     """
+    if not settings.NEWSAPI_KEY:
+        return _news_unavailable(page)
     try:
-        if page == 1:
+        if page == 1 and category != "entertainment":
             # Top headlines for the category — freshest breaking news
             newsapi_category = NEWSAPI_CATEGORY_MAP.get(category, "general")
             resp = await client.get(
                 "https://newsapi.org/v2/top-headlines",
+                headers={"X-Api-Key": settings.NEWSAPI_KEY},
                 params={
-                    "apiKey": settings.NEWSAPI_KEY,
                     "category": newsapi_category,
                     "language": "en",
                     "pageSize": min(page_size, 20),
@@ -113,11 +130,13 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
         else:
             # Rotate through category keywords — each page gets different articles
             keywords = NEWSAPI_KEYWORDS.get(category, NEWSAPI_KEYWORDS["for-you"])
-            keyword = keywords[(page - 2) % len(keywords)]
+            # Arts & Culture has no dedicated headline category in NewsAPI.
+            keyword_index = page - 1 if category == "entertainment" else page - 2
+            keyword = keywords[keyword_index % len(keywords)]
             resp = await client.get(
                 "https://newsapi.org/v2/everything",
+                headers={"X-Api-Key": settings.NEWSAPI_KEY},
                 params={
-                    "apiKey": settings.NEWSAPI_KEY,
                     "q": keyword,
                     "language": "en",
                     "sortBy": "publishedAt",
@@ -128,22 +147,28 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
 
         resp.raise_for_status()
         data = resp.json()
+        if data.get("status") != "ok":
+            return _news_unavailable(page)
         articles = _transform_newsapi_articles(data.get("articles", []))
         # Keep going as long as we have keywords to rotate through
         keywords_count = len(NEWSAPI_KEYWORDS.get(category, NEWSAPI_KEYWORDS["for-you"]))
-        has_more = page < (keywords_count + 1) and len(articles) > 0
-        return {"articles": articles, "has_more": has_more}
+        last_page = keywords_count if category == "entertainment" else keywords_count + 1
+        has_more = page < last_page and len(articles) > 0
+        return {
+            "articles": articles, "has_more": has_more, "page": page,
+            "status": "available" if articles else "empty", "provider": "newsapi",
+        }
 
     except Exception as exc:
-        logger.warning(f"NewsAPI failed (category={category}, page={page}): {exc}")
-        return {"articles": [], "has_more": False}
+        # HTTP exception strings can contain provider keys in the request URL.
+        logger.warning("NewsAPI failed (category=%s, page=%s): %s", category, page, type(exc).__name__)
+        return _news_unavailable(page)
 
 
 async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, page_size: int) -> dict:
     """Fetch from The Guardian API. Thousands of articles per section, true infinite scroll."""
     if not settings.GUARDIAN_API_KEY:
-        logger.error("GUARDIAN_API_KEY is not set in .env — restart backend after adding it")
-        return {"articles": [], "has_more": False, "total": 0, "page": page}
+        return _news_unavailable(page)
 
     section = GUARDIAN_SECTION_MAP.get(category, "")
     params: dict = {
@@ -161,10 +186,11 @@ async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, p
         resp = await client.get("https://content.guardianapis.com/search", params=params)
         logger.info(f"Guardian HTTP {resp.status_code} | category={category} page={page}")
         if resp.status_code != 200:
-            logger.error(f"Guardian error body: {resp.text[:300]}")
-            return {"articles": [], "has_more": False, "total": 0, "page": page}
+            return _news_unavailable(page)
 
         data = resp.json().get("response", {})
+        if data.get("status") != "ok":
+            return _news_unavailable(page)
         current_page = data.get("currentPage", 1)
         total_pages = data.get("pages", 1)
         articles = _transform_guardian_articles(data.get("results", []))
@@ -174,10 +200,12 @@ async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, p
             "has_more": current_page < total_pages,
             "total": data.get("total", 0),
             "page": page,
+            "status": "available" if articles else "empty",
+            "provider": "guardian",
         }
     except Exception as exc:
-        logger.error(f"Guardian exception (category={category}, page={page}): {exc}")
-        return {"articles": [], "has_more": False, "total": 0, "page": page}
+        logger.warning("Guardian failed (category=%s, page=%s): %s", category, page, type(exc).__name__)
+        return _news_unavailable(page)
 
 
 def _transform_newsapi_articles(raw: list) -> list[dict]:

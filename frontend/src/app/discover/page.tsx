@@ -321,6 +321,8 @@ export default function DiscoverPage() {
     const [sidebar, setSidebar] = useState<SidebarData | null>(null);
     const [loadingArticles, setLoadingArticles] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [feedError, setFeedError] = useState<string | null>(null);
+    const feedRequestRef = useRef(0);
     const [loadingSidebar, setLoadingSidebar] = useState(true);
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
     const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
@@ -355,7 +357,12 @@ export default function DiscoverPage() {
     const sentinelRef = useRef<HTMLDivElement>(null);
 
     const fetchArticles = useCallback(async (tab: TabId, pageNum: number = 1, append: boolean = false) => {
-        if (pageNum === 1) setLoadingArticles(true);
+        const requestId = ++feedRequestRef.current;
+        setFeedError(null);
+        if (pageNum === 1) {
+            setLoadingArticles(true);
+            setLoadingMore(false);
+        }
         else setLoadingMore(true);
         try {
             let newArticles: Article[] = [];
@@ -374,10 +381,13 @@ export default function DiscoverPage() {
                 const results = await Promise.all(
                     allCategories.map((cat: string) =>
                         fetch(`${API_BASE}/api/v1/discover?category=${cat}&page=${pageNum}&page_size=${fetchSizes[cat] ?? 9}`)
-                            .then(r => r.ok ? r.json() : { articles: [], has_more: false, category: cat })
-                            .catch(() => ({ articles: [], has_more: false, category: cat }))
+                            .then(r => r.ok ? r.json() : { articles: [], has_more: false, failed: true })
+                            .catch(() => ({ articles: [], has_more: false, failed: true }))
                     )
                 );
+                if (results.every(r => r.failed || r.status === "unavailable")) {
+                    throw new Error("News sources unavailable");
+                }
 
                 // Tag each article with its source category for affinity scoring
                 let tagged: Article[] = [];
@@ -400,11 +410,14 @@ export default function DiscoverPage() {
                 const res = await fetch(`${API_BASE}/api/v1/discover?category=${tab}&page=${pageNum}&page_size=18`);
                 if (!res.ok) throw new Error("Failed");
                 const data = await res.json();
+                if (data.status === "unavailable") throw new Error("News sources unavailable");
                 // Tag articles with their category
                 newArticles = (data.articles ?? []).map((a: Article) => ({ ...a, category: tab }));
                 moreAvailable = data.has_more ?? false;
             }
 
+            // A slower response from a previous tab must not replace the active feed.
+            if (requestId !== feedRequestRef.current) return;
             setArticles(prev => {
                 if (!append) return newArticles;
                 const existingIds = new Set(prev.map(a => a.id));
@@ -413,10 +426,17 @@ export default function DiscoverPage() {
             setHasMore(moreAvailable);
             setPage(pageNum);
         } catch {
+            if (requestId !== feedRequestRef.current) return;
             if (!append) setArticles([]);
+            setHasMore(false);
+            setFeedError(append
+                ? "More stories couldn't load. Please try again."
+                : "News is temporarily unavailable. Please try again.");
         } finally {
-            setLoadingArticles(false);
-            setLoadingMore(false);
+            if (requestId === feedRequestRef.current) {
+                setLoadingArticles(false);
+                setLoadingMore(false);
+            }
         }
     }, []);
 
@@ -729,7 +749,14 @@ export default function DiscoverPage() {
                             <div className="discover-empty-icon">
                                 <Newspaper size={40} />
                             </div>
-                            <p className="discover-empty-text">No articles found. Try a different category.</p>
+                            <p className="discover-empty-text" role={feedError ? "alert" : undefined}>
+                                {feedError || "No articles found. Try a different category."}
+                            </p>
+                            {feedError && (
+                                <button className="discover-share-btn" onClick={() => fetchArticles(activeTab)}>
+                                    Retry
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <>
@@ -846,7 +873,15 @@ export default function DiscoverPage() {
                     )}
 
                     {/* End of feed */}
-                    {!hasMore && !loadingMore && !loadingArticles && articles.length > 0 && (
+                    {feedError && !loadingArticles && articles.length > 0 && (
+                        <div className="discover-empty">
+                            <p className="discover-empty-text" role="alert">{feedError}</p>
+                            <button className="discover-share-btn" onClick={() => fetchArticles(activeTab, page + 1, true)}>
+                                Retry
+                            </button>
+                        </div>
+                    )}
+                    {!feedError && !hasMore && !loadingMore && !loadingArticles && articles.length > 0 && (
                         <div className="discover-feed-end">
                             <div className="discover-feed-end-line" />
                             <span className="discover-feed-end-text">You&apos;re all caught up</span>

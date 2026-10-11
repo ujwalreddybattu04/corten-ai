@@ -3,7 +3,7 @@ Discover endpoints — trending news, market data, and weather.
 """
 
 import asyncio
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -55,12 +55,15 @@ def _get_client_ip(request: Request) -> str:
 
 @router.get("")
 async def get_discover_feed(
+    response: Response,
     category: str = Query("for-you", description="News category"),
     page: int = Query(1, ge=1, le=10),
     page_size: int = Query(18, ge=6, le=20),
 ):
     """Get trending news articles for the discover feed. Supports pagination for infinite scroll."""
     result = await get_news_articles(category=category, page=page, page_size=page_size)
+    if result.get("status") == "unavailable":
+        response.status_code = 503
     return {**result, "category": category}
 
 
