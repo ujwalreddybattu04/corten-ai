@@ -25,6 +25,7 @@ from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
 from src.config.settings import settings
 from src.services.application_facts import self_answer
 from src.services.agents.query_context import clean_history
+from src.services.conversation_memory import recall_answer, acknowledge_note, MISSING_HISTORY
 from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER, company_answer_cache_key
 from src.services.company_evidence import official_office_answer
 from src.db.redis import cache_get, cache_set, make_search_cache_key
@@ -59,7 +60,7 @@ class SearchOrchestrator:
         messages = clean_history(messages)
         try:
             start_time = time.time()
-            logger.info(f"[Orchestrator] Query: {query} | focus: {focus_mode}")
+            logger.info("[Orchestrator] Request: query_chars=%d history_messages=%d focus=%s", len(query), len(messages), focus_mode)
 
             # ── PHASE 0: SMART ROUTING ────────────────────────────────────
             short_query = (query[:55] + "\u2026") if len(query) > 55 else query
@@ -103,6 +104,17 @@ class SearchOrchestrator:
             # ── DISPATCH BY STRATEGY ──────────────────────────────────────
 
             if strategy == STRATEGY_DIRECT:
+                if query_type in {"question_recall", "conversation", "conversation_note"}:
+                    remembered = acknowledge_note(query) if query_type == "conversation_note" else recall_answer(query, messages)
+                    if remembered is not None or (not messages and query_type != "conversation_note"):
+                        yield _sse("token", {"content": remembered or MISSING_HISTORY})
+                    else:
+                        async for chunk in groq_llm_service.stream_answer(
+                            query, [], messages, focus_mode="all", conversation_only=True
+                        ):
+                            yield _sse("token", {"content": chunk})
+                    yield _sse("done", {})
+                    return
                 # ── DIRECT: Check if calculator/weather can handle it ─────
                 verified_answer = self_answer(query_type)
                 if verified_answer:

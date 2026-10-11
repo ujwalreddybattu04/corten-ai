@@ -1,5 +1,5 @@
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional
@@ -11,9 +11,9 @@ from src.services.search_orchestrator import search_orchestrator
 router = APIRouter()
 
 class SearchRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, max_length=16000)
     focus_mode: str = "all"
-    messages: Optional[List[Dict[str, str]]] = None
+    messages: Optional[List[Dict[str, str]]] = Field(default=None, max_length=120)
 
 @router.post("/stream")
 async def search_stream(request: SearchRequest):
@@ -41,6 +41,9 @@ async def generate_title(request: TitleRequest):
     Generate a short thread title from the initial query.
     """
     try:
+        from src.services.conversation_memory import conversation_intent
+        if conversation_intent(request.query):
+            return {"title": " ".join(request.query.strip().split()[:7]).rstrip("?.!")}
         from src.services.llm_service import groq_llm_service
         title = await groq_llm_service.generate_thread_title(request.query)
         return {"title": title}

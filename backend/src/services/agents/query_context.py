@@ -1,15 +1,6 @@
 """Bounded conversation context and conservative follow-up resolution."""
 import re
-
-
-def clean_history(messages: list | None) -> list[dict[str, str]]:
-    """Client history is conversation data, never trusted system instructions."""
-    return [
-        {"role": message["role"], "content": message["content"][:3000]}
-        for message in (messages or [])[-12:]
-        if isinstance(message, dict) and message.get("role") in {"user", "assistant"}
-        and isinstance(message.get("content"), str) and message["content"].strip()
-    ]
+from src.services.conversation_memory import clean_history
 
 
 def company_alias(company_name: str) -> str:

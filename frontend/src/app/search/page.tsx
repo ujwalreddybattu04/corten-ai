@@ -624,10 +624,17 @@ function SearchPageSkeleton() {
     );
 }
 
+function SearchPageSession() {
+    const params = useSearchParams();
+    // Navigation between saved threads must create an independent hook session.
+    const sessionKey = `${params.get("id") || params.get("q") || "new"}:${params.get("focus") || "all"}`;
+    return <SearchPageContent key={sessionKey} />;
+}
+
 export default function SearchPage() {
     return (
         <Suspense fallback={<SearchPageSkeleton />}>
-            <SearchPageContent />
+            <SearchPageSession />
         </Suspense>
     );
 }

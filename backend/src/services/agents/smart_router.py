@@ -21,6 +21,7 @@ from typing import Dict, Any, List
 
 from src.config.settings import settings
 from src.services.agents.routing_policy import direct_intent, needs_external_information
+from src.services.conversation_memory import conversation_intent, answer_context
 from src.services.agents.query_context import (
     clean_history, is_contextual, mentions_company, resolve_company_followup, validated_standalone,
     ambiguous_comparison_followup,
@@ -134,6 +135,9 @@ class SmartRouter:
         """
         messages = clean_history(messages)
         original_query = query
+        memory_intent = conversation_intent(query)
+        if memory_intent:
+            return self._direct_route(query, focus_mode, memory_intent)
         query = resolve_company_followup(query, messages, settings.COMPANY_NAME, settings.BRAND_NAME)
         query = resolve_named_followup(query, messages)
         intent = direct_intent(query, settings.BRAND_NAME, bool(messages))
@@ -166,7 +170,7 @@ class SmartRouter:
         if messages:
             context = [
                 {"role": m.get("role", "user"), "content": str(m.get("content", ""))[:600]}
-                for m in messages[-4:] if isinstance(m, dict)
+                for m in answer_context(messages, query, max_chars=3500) if isinstance(m, dict)
             ]
             user_message = f"Conversation context: {json.dumps(context)}\nCurrent request: {user_message}"
 

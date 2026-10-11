@@ -29,6 +29,7 @@ from typing import AsyncGenerator, Dict, Any, List
 
 from src.config.settings import settings
 from src.services.agents.query_context import clean_history
+from src.services.conversation_memory import answer_context
 from src.services.answer_grounding import UNVERIFIED_ANSWER
 
 logger = logging.getLogger(__name__)
@@ -452,7 +453,7 @@ class ResearchAgent:
         # Build messages
         messages_payload = [{"role": "system", "content": system_prompt}]
         if messages:
-            messages_payload.extend(clean_history(messages)[-4:])
+            messages_payload.extend(answer_context(messages, query))
         messages_payload.append({"role": "user", "content": query})
 
         try:

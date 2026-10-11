@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { conversationMessages, ConversationMessage } from "@/lib/conversation";
 
 const API_BASE = typeof window !== "undefined" && window.location.hostname !== "localhost"
     ? ""
@@ -113,8 +114,16 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
     const hasStarted = useRef(false);
     const lastProcessedQuery = useRef<string | null>(null);
     const threadIdRef = useRef<string | null>(existingThreadId || null);
+    const hasAnswer = state.answer.length > 0;
 
-    // Animation loop to drip text into displayAnswer
+    useEffect(() => () => {
+        abortRef.current?.abort();
+        // React development mode replays effects; allow that mount to restart.
+        hasStarted.current = false;
+    }, []);
+
+    // Fast offline answers may finish in one React batch. The first token must
+    // start the display buffer even if streaming=true never reached the screen.
     useEffect(() => {
         const updateDisplay = (timestamp: number) => {
             if (!lastUpdateTimeRef.current) lastUpdateTimeRef.current = timestamp;
@@ -156,7 +165,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         return () => {
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         };
-    }, [state.isStreaming]);
+    }, [state.isStreaming, hasAnswer]);
 
     // --- PERSISTENCE EFFECT ---
     // Save thread to localStorage when streaming completes successfully
@@ -206,6 +215,15 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
 
                 localStorage.setItem("corten_threads", JSON.stringify(threads));
 
+                // A reload must reopen this saved thread, including its follow-ups.
+                const url = new URL(window.location.href);
+                if (url.pathname === "/search" && url.searchParams.get("id") !== currentThreadId) {
+                    url.searchParams.set("id", currentThreadId);
+                    // Next.js copies its router state for native navigation. Passing
+                    // its internal state back would bypass the search-param update.
+                    window.history.replaceState(null, "", url.toString());
+                }
+
                 // Dispatch event so Sidebar knows to reload its list
                 window.dispatchEvent(new Event("corten_threads_updated"));
             } catch (e) {
@@ -214,12 +232,13 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         }
     }, [state.isStreaming, state.isConnecting, state.error, state.answer, state.query, state.history, state.sources, state.images, state.researchSteps, state.thoughtTime]);
 
-    const runSearch = useCallback(async (q: string, focus: string, backendMessages?: any[], keepHistory?: SearchMessage[]) => {
+    const runSearch = useCallback(async (q: string, focus: string, backendMessages?: ConversationMessage[], keepHistory?: SearchMessage[]) => {
         if (!q.trim()) return;
 
         // Abort any in-flight request
         abortRef.current?.abort();
-        abortRef.current = new AbortController();
+        const controller = new AbortController();
+        abortRef.current = controller;
 
         streamingBufferRef.current = "";
         setDisplayAnswer("");
@@ -247,7 +266,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ query: q, focus_mode: focus, messages: backendMessages || [] }),
-                signal: abortRef.current.signal,
+                signal: controller.signal,
             });
 
             if (!response.ok) {
@@ -404,7 +423,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             }
 
         } catch (err: unknown) {
-            if (err instanceof Error && err.name === "AbortError") return;
+            if (controller.signal.aborted || abortRef.current !== controller) return;
             const msg = err instanceof Error ? err.message : "Search failed";
             setState(prev => ({
                 ...prev,
@@ -412,7 +431,9 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 isConnecting: false,
             }));
         } finally {
-            setState(prev => ({ ...prev, isStreaming: false, isConnecting: false }));
+            if (!controller.signal.aborted && abortRef.current === controller) {
+                setState(prev => ({ ...prev, isStreaming: false, isConnecting: false }));
+            }
         }
     }, []);
 
@@ -431,10 +452,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             }];
         }
 
-        const backendMessages = newHistory.flatMap(msg => [
-            { role: "user", content: msg.query },
-            { role: "assistant", content: msg.answer }
-        ]);
+        const backendMessages = conversationMessages(newHistory);
 
         runSearch(newQuery, focusMode, backendMessages, newHistory);
     }, [state, focusMode, runSearch]);
@@ -454,11 +472,11 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                                 setState(prev => ({
                                     ...prev,
                                     threadId: thread.id,
-                                    history: thread.history,
+                                    history: Array.isArray(thread.history) ? thread.history : [],
                                     query: thread.query,
                                     answer: thread.answer,
-                                    sources: thread.sources,
-                                    images: thread.images,
+                                    sources: thread.sources || [],
+                                    images: thread.images || [],
                                     researchSteps: thread.researchSteps || [],
                                     thoughtTime: thread.thoughtTime || 0,
                                     isConnecting: false,
@@ -474,6 +492,14 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                         console.error("Failed to load existing thread:", e);
                     }
                 }
+            }
+            if (!hasStarted.current) {
+                hasStarted.current = true;
+                setState(prev => ({
+                    ...prev,
+                    isConnecting: false,
+                    error: "This saved conversation isn't available in this browser. Open it in the browser where it was created, or start a new thread."
+                }));
             }
         }
 
