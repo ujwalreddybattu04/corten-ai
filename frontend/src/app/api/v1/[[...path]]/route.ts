@@ -104,7 +104,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
         }
         const upstream = await fetch(target, {
             method: request.method, headers, body, cache: "no-store", redirect: "manual",
-            signal: AbortSignal.timeout(action ? 30_000 : 300_000),
+            signal: AbortSignal.timeout(path.join("/") === "search/status" ? 10_000 : action ? 30_000 : 300_000),
         });
         for (const name of ["content-type", "content-disposition", "retry-after"]) {
             const value = upstream.headers.get(name);

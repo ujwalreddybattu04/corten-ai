@@ -11,6 +11,7 @@ The application works as a hosted preview. The defects below are repaired, but t
 | Spaces | List, detail and templates use the same account-isolated browser storage. Questions started inside a Space save their thread association. Existing saved chats can be added to a chosen Space. |
 | Feature accuracy | Spaces identify browser storage, notes and reference links accurately. Public/team sharing is not offered. Discover's unfinished article-to-Space action is explicitly unavailable. |
 | Answer delivery | Chat/report readers handle Unicode, final unterminated SSE records, errors and premature EOF. Interrupted answers are not saved as successful conversations. |
+| Chat startup | Chat waits for the application status endpoint before submitting generation, with a two-minute connection budget and visible progress. Only status GETs are retried automatically. Failed generation has a manual Retry action that preserves the question and conversation and excludes interrupted drafts. |
 | Report integrity | One sourced model draft replaces separate planning/outline/section calls. Missing evidence, invalid JSON, output limits, incomplete sentences, provider failures and unknown citations stop publication. Downloads appear only after the stream completes. |
 | Report downloads | Random 128-bit identifiers, a 24-hour maximum download window, traversal rejection and no-store/nosniff headers. ReportLab headings and references escape markup. Files remain ephemeral. |
 | Discover citations | The original article is inserted before showing sources. Citation numbers match the model's evidence order. Prior AI summaries remain conversation context rather than numbered sources. |
@@ -23,9 +24,10 @@ The application works as a hosted preview. The defects below are repaired, but t
 
 ## Verification
 
-- **152 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports, citations and Discover recovery.
-- **65 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
+- **153 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports, citations, Discover recovery and the stateless chat startup endpoint.
+- **73 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
 - **12 isolated Discover browser checks**, repeated against the hosted frontend, verify saved-feed recovery, partial/delayed topic outages, automatic retries, correct pagination retries, stale notices, cancelled tab requests and mobile layout. Nine live browser checks cover all seven tabs, reload and mobile layout. Real category APIs and all seven RSS fallback mappings were also checked, including non-overlapping RSS pages. Fault injection uses synthetic headlines; live fallback checks use publisher data.
+- **Nine chat startup browser checks** cover temporary 502 recovery before generation, single submission, manual Retry with unchanged context, failed/partial output persistence, persistent startup failure and mobile/reduced-motion states. The existing 17 browser regressions also pass with the startup check enabled.
 - **17 isolated browser checks** cover Spaces, account separation, headings, interrupted chat, image lightbox, report errors/completion/retry and mobile layout. These use synthetic account/API responses.
 - **18 Analyst Workspace browser checks** use real calculation/export endpoints: Average/Exit constraints, first-year behavior, the unchanged adoption example, UTF-16 CSV, Chinese/Greek/Cyrillic PDF labels, absolute values, single-year fallback, cancellation/replacement races, errors and 320–1440px layouts.
 - **14 API checks** cover readiness, guest protection, input bounds, downloads, company identity and conversation recall.

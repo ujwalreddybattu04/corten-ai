@@ -7,7 +7,7 @@ import { useSearch } from "@/hooks/useSearch";
 import AnswerStream from "@/components/thread/AnswerStream";
 import AnswerSkeleton from "@/components/thread/AnswerSkeleton";
 import ImagesGrid from "@/components/thread/ImagesGrid";
-import { Sparkles, Globe, Image as ImageIcon, Pencil, Copy, Check, CornerDownRight } from "lucide-react";
+import { Sparkles, Globe, Image as ImageIcon, Pencil, Copy, Check, CornerDownRight, RefreshCw, LoaderCircle } from "lucide-react";
 import { Favicon } from "@/components/common";
 import ThreadMenu from "@/components/thread/ThreadMenu";
 import ShareModal from "@/components/thread/ShareModal";
@@ -82,11 +82,13 @@ function SearchPageContent() {
         relatedQuestions,
         isStreaming,
         isConnecting,
+        connectionMessage,
         isDisplayComplete,
         error,
         model,
         thoughtTime,
-        appendQuery
+        appendQuery,
+        retrySearch
     } = useSearch(query, focusMode, threadId, searchParams.get("space") || undefined);
 
     // --- EFFECT: When global sources update, update the active panel IF it was for the current query ---
@@ -396,7 +398,13 @@ function SearchPageContent() {
                                             </div>
                                         </div>
 
-                                        {(displayAnswer || isStreaming) && (
+                                        {isConnecting && (
+                                            <div className="sp-connection-status" role="status">
+                                                <LoaderCircle size={16} className="sp-connection-spinner" aria-hidden="true" />
+                                                <span>{connectionMessage}</span>
+                                            </div>
+                                        )}
+                                        {(displayAnswer || (isStreaming && !isConnecting)) && (
                                             <div className="sp-answer-body">
                                                 <AnswerStream
                                                     query={currentQuery}
@@ -419,9 +427,11 @@ function SearchPageContent() {
 
                                         {error && !isLoading && (
                                             <div className="sp-error">
-                                                <div className="sp-error-icon">⚡</div>
-                                                <h2 className="sp-error-title">{error.includes("fetch") ? "Backend not connected" : "Search Error"}</h2>
+                                                <h2 className="sp-error-title">Unable to complete this answer</h2>
                                                 <p className="sp-error-msg">{error}</p>
+                                                <button className="sp-retry-btn" onClick={retrySearch} disabled={isConnecting || isStreaming}>
+                                                    <RefreshCw size={14} aria-hidden="true" /> Retry
+                                                </button>
                                             </div>
                                         )}
                                     </motion.div>

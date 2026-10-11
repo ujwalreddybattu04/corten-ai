@@ -1,6 +1,7 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
+import { openSearchStream } from "@/lib/searchConnection";
 import { associateSpaceThread } from "@/lib/spaces";
 
 
@@ -80,6 +81,7 @@ export interface SearchState {
     relatedQuestions: string[];
     isStreaming: boolean;
     isConnecting: boolean;
+    connectionMessage: string;
     error: string | null;
     model: string;
     tokensUsed: number;
@@ -100,6 +102,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         relatedQuestions: [],
         isStreaming: false,
         isConnecting: true,
+        connectionMessage: "Connecting to Corten…",
         error: null,
         model: "Auto",
         tokensUsed: 0,
@@ -263,24 +266,20 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             relatedQuestions: [],
             isStreaming: true,
             isConnecting: true,
+            connectionMessage: "Connecting to Corten…",
             error: null,
             toolsUsed: [],
             toolsSelected: [],
         }));
 
         try {
-            const response = await fetch(`${API_BASE}/api/v1/search/stream`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ query: q, focus_mode: focus, messages: backendMessages || [] }),
-                signal: controller.signal,
-            });
-
-            if (!response.ok) {
-                throw new Error(`Search failed: ${response.status} ${response.statusText}`);
-            }
+            const response = await openSearchStream({ apiBase: API_BASE, query: q, focus, messages: backendMessages || [] },
+                controller.signal, message => {
+                    if (!controller.signal.aborted && abortRef.current === controller) {
+                        setState(prev => ({ ...prev, connectionMessage: message }));
+                    }
+                });
+            if (controller.signal.aborted || abortRef.current !== controller) return;
 
             setState(prev => ({ ...prev, isConnecting: false }));
 
@@ -394,7 +393,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         if (!newQuery.trim() || state.isConnecting || state.isStreaming) return;
 
         let newHistory = state.history;
-        if (state.query && state.answer) {
+        if (state.query && state.answer && !state.error) {
             newHistory = [...state.history, {
                 query: state.query,
                 answer: state.answer,
@@ -408,6 +407,11 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         const backendMessages = conversationMessages(newHistory);
 
         runSearch(newQuery, focusMode, backendMessages, newHistory);
+    }, [state, focusMode, runSearch]);
+
+    const retrySearch = useCallback(() => {
+        if (state.isConnecting || state.isStreaming || !state.query.trim()) return;
+        void runSearch(state.query, focusMode, conversationMessages(state.history), state.history);
     }, [state, focusMode, runSearch]);
 
     useEffect(() => {
@@ -469,6 +473,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         isBufferDraining,
         isDisplayComplete: !state.isStreaming && !isBufferDraining,
         appendQuery,
+        retrySearch,
     };
 }
 

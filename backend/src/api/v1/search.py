@@ -1,6 +1,6 @@
 import logging
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional
 
@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 from src.services.search_orchestrator import search_orchestrator
 
 router = APIRouter()
+
+@router.get("/status")
+async def search_status(response: Response):
+    """Confirm the application is serving before sending a billable generation."""
+    response.headers["Cache-Control"] = "no-store"
+    return {"status": "ready"}
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=16000)
