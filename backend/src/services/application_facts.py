@@ -1,4 +1,4 @@
-"""Application self-description from maintained product facts, without web or LLM guesses."""
+"""Maintained application self-description and basic workspace explanations."""
 from src.config.settings import settings
 
 
@@ -32,6 +32,10 @@ def self_answer(intent: str, clarification: str | None = None) -> str | None:
         return (f"{settings.COMPANY_NAME} developed the {brand} application. That is different from "
                 "training the underlying language model, which is supplied through the configured AI provider. "
                 "I don’t have verified details of its training dataset.")
+    if intent == "forecast_explanation":
+        return ("Forecast assumptions describe the expected conditions and inputs used to build a forecast, "
+                "such as demand, pricing and costs. Review these assumptions with the team, record their "
+                "supporting evidence and update them when the underlying conditions change.")
     if intent == "clarification":
         return clarification or "Which company, person, place or topic are you referring to?"
     return None

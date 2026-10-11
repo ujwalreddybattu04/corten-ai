@@ -104,6 +104,13 @@ def direct_intent(query: str, brand_name: str, has_history: bool = False) -> Opt
 
     if needs_external_information(text):
         return None
+    # A generic workspace explanation needs no invented project-specific inputs.
+    if re.fullmatch(
+        r"(?:write|draft) (?:(?:me|a|an|one|two|2|short|brief|simple|concise|sentences?|paragraph|explanation) )*"
+        r"(?:explain(?:ing)?|about|on) (?:forecast|forecasting) assumptions"
+        r"(?: (?:to|for) (?:(?:a|the|our) )?(?:team|analysts|forecasting team))?", text
+    ):
+        return "forecast_explanation"
     expression = re.sub(r"^(?:what is|what's|calculate|compute|solve)\s+", "", text)
     if re.fullmatch(r"[\d\s.+*/%()^=-]+", expression) and re.search(r"\d", expression):
         return "math"

@@ -255,6 +255,7 @@ class AnswerStreamTests(unittest.IsolatedAsyncioTestCase):
              patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock()) as tools:
             for query, expected in [("do u have any agents inside this corten ??", "research agent"),
                                     ("What can you do?", "Analyst Workspace"),
+                                    ("Write two brief sentences explaining forecast assumptions to a team.", "supporting evidence"),
                                     ("Who trained you?", "underlying language model")]:
                 events = parse_events([event async for event in SearchOrchestrator().stream_search(query)])
                 answer = "".join(event.get("content", "") for event in events if event["type"] == "token")

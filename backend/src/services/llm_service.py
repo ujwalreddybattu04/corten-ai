@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any, List
 
@@ -109,6 +110,16 @@ class GroqLLMService:
         current_request = query[:1000]
         if context_results:
             current_request += "\nUse inline numeric source citations after factual claims, for example [1]."
+        elif re.search(r"\b(?:write|draft|compose|explain)\b", query, re.I) and re.search(
+            r"\b(?:forecast|assumptions?|revenue|sales|budget|expenses?)\b", query, re.I
+        ):
+            current_request += (
+                "\nUse only the inputs actually provided in this conversation. "
+                "For a conceptual explanation, explain the concept generally; do not invent a "
+                "company-specific forecast or numerical assumptions. For a requested template, "
+                "use clearly marked placeholders for missing figures. Do not claim to have reviewed "
+                "financial projections, historical data or market analysis that was not supplied."
+            )
         messages_payload.append({"role": "user", "content": current_request})
 
         try:

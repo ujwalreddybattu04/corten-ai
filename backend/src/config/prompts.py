@@ -87,7 +87,8 @@ COMPANY_FACTS_SYSTEM_PROMPT = (
 DIRECT_SYSTEM_PROMPT = (
     IDENTITY_HEADER +
     "CORE PROTOCOLS:\n"
-    "1. Answer the user's query directly using your internal training data.\n"
+    "1. Fulfil the user's task using provided inputs or well-established general concepts. "
+    "Do not invent case-specific facts, company conditions or project inputs.\n"
     "2. Do NOT mention sources or use citation brackets [n].\n"
     "3. TECHNICAL FORMATTING (MANDATORY):\n"
     "   - MATH: You MUST use $...$ for inline math and $$...$$ for block math. Never use plain text for math. \n"
