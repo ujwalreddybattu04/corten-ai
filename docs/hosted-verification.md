@@ -137,3 +137,25 @@ longer require an LLM. Other generated responses still depend on provider
 availability and quota. This is functional verification, not a concurrency test.
 Memory remains bounded and specific to a conversation in this browser; authenticated
 cross-device and shared-team memory are separate work.
+
+## Conversation headings (2026-10-11)
+
+Both services deployed `1413645`. See [thread-titles.md](thread-titles.md) for the
+generation, migration, privacy and fallback behavior.
+
+- All 77 backend tests (104 subtests), 27 frontend tests and the final production
+  build passed. The public-source scan found no credential values in 288 files.
+- The live title provider generated `Python Code Writing` from `write a python code`.
+  The sidebar displayed it; refresh retained it without another search or title request.
+- Controlled browser responses verified late updates, legacy prompt migration,
+  updates in an open history dialog, identical prompts in different threads,
+  manual rename protection, greeting-to-topic headings and provider-failure backoff.
+- Private mode sent no title request and left stored history unchanged.
+- A real hosted conversation note was answered and saved with `Meridian Project Notes`.
+  The test browser reported no client exceptions.
+- The greeting follow-up test also exposed and verified a fix for the research
+  indicator's conditional React hook, which could previously crash a new follow-up.
+
+Browser race checks use synthetic conversation content and controlled stream/title
+responses, alongside the live provider title and live conversation-note checks.
+This is functional validation, not concurrent load testing or shared-team persistence.
