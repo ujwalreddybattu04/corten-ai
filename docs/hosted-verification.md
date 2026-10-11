@@ -1,5 +1,17 @@
 # Hosted verification — 11 October 2026
 
+## Discover reliability release
+
+Backend and frontend deployed `dcbca1d` and reached `live`. [Both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38156805923).
+
+- All 152 backend tests (195 subtests), 65 frontend tests and the production build passed. ESLint reported zero errors and 53 existing maintenance warnings.
+- Seven real hosted API requests returned HTTP 200 with stories: all six category feeds and a second page. Nine live browser checks covered For You, all six category tabs, refresh and mobile layout. No client exceptions occurred.
+- Twelve fault-injection browser checks passed against both the local production build and hosted frontend. They cover saved stories after outage/reload, account/category cache boundaries, automatic 502 retry, refresh versus pagination retry, partial topic failure, delayed topics rendering progressively, stale notices, request cancellation and mobile layout. These failure checks use synthetic headlines and isolated guest browser profiles.
+- All seven BBC RSS fallback mappings returned real headlines with API credentials disabled. Sports pagination had no overlapping stories. The hosted news check used the healthy NewsAPI provider; RSS fallback behavior was separately verified with live publisher feeds and offline failure tests.
+- The public-source scan found zero credential findings in 331 files. No provider keys or hosting plans were changed.
+
+The observed Guardian 401 remains a credential issue, but it no longer makes that source the only way to load the feed. Free hosting can still idle-start, and total upstream failure without any usable saved data still produces a clear error. Weather and financial widgets have separate providers. See [Discover recovery behavior](discover-reliability.md) for deadlines and freshness limits.
+
 ## Completion review release
 
 The core completion repairs were deployed and checked on `61cfc0c`. Both Render
