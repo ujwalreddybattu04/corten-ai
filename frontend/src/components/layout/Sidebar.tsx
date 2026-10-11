@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Pin, ChevronDown, ChartNoAxesCombined } from "lucide-react";
 import { STORAGE_KEYS, EVENTS } from "@/config/constants";
 import HistoryModal from "./HistoryModal";
+import { refreshThreadTitles } from "@/lib/threadTitles";
 
 const SIDEBAR_HISTORY_LIMIT = 7;
 
@@ -68,7 +69,7 @@ export default function Sidebar() {
                 threadsJson = localStorage.getItem("orivanta_threads");
                 if (threadsJson) localStorage.setItem(STORAGE_KEYS.THREADS, threadsJson);
             }
-            if (threadsJson) setThreads(JSON.parse(threadsJson));
+            if (threadsJson) setThreads(refreshThreadTitles(SIDEBAR_HISTORY_LIMIT));
 
             let pinsJson = localStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
             if (!pinsJson) {

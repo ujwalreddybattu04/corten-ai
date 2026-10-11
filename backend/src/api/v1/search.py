@@ -33,24 +33,27 @@ async def search_stream(request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 class TitleRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, max_length=16000)
+    answer: str = Field(default="", max_length=2000)
 
 @router.post("/title")
 async def generate_title(request: TitleRequest):
     """
-    Generate a short thread title from the initial query.
+    Generate a bounded topic heading without web search or blocking chat streaming.
     """
     try:
         from src.services.conversation_memory import conversation_intent
-        if conversation_intent(request.query):
-            return {"title": " ".join(request.query.strip().split()[:7]).rstrip("?.!")}
+        from src.services.thread_titles import fallback_title, is_greeting
+        fallback = fallback_title(request.query)
+        if conversation_intent(request.query) or is_greeting(request.query):
+            return {"title": fallback, "source": "local"}
         from src.services.llm_service import groq_llm_service
-        title = await groq_llm_service.generate_thread_title(request.query)
-        return {"title": title}
+        title = await groq_llm_service.generate_thread_title(request.query, request.answer)
+        return {"title": title, "source": "fallback" if title == fallback else "generated"}
     except Exception as e:
-        logger.error(f"Error in title generation: {e}", exc_info=True)
-        # Fallback to a generic title rather than failing
-        return {"title": "Corten Search"}
+        logger.warning("Thread title unavailable (%s)", type(e).__name__)
+        from src.services.thread_titles import fallback_title
+        return {"title": fallback_title(request.query), "source": "fallback"}
 
 @router.post("/suggestions")
 async def search_suggestions(query: str = ""):

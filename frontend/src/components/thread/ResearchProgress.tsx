@@ -251,8 +251,6 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
         }
     }, [steps.length]);
 
-    if (steps.length === 0 && !isStreaming) return null;
-
     // --- Classify steps ---
     // Filter out the first query_step (user's original query — already visible in chat bubble)
     const allQuerySteps = steps.filter(s => s.type === 'query_step');
@@ -277,6 +275,9 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
         }
         return msgs;
     }, [steps]);
+
+    // Keep hooks in the same order as an empty completed chat starts a follow-up.
+    if (steps.length === 0 && !isStreaming) return null;
 
     return (
         <div className="research-container">

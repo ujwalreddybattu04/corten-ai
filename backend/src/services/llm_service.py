@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -8,6 +9,7 @@ from groq import AsyncGroq
 from src.config.settings import settings
 from src.services.agents.query_context import clean_history, company_alias
 from src.services.conversation_memory import answer_context, CONVERSATION_SYSTEM_PROMPT
+from src.services.thread_titles import fallback_title, validate_title
 from src.config.prompts import (
     RAG_SYSTEM_PROMPT, DIRECT_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT,
     TITLE_SYSTEM_PROMPT, FOLLOW_UP_SYSTEM_PROMPT, ARTICLE_SUMMARY_SYSTEM_PROMPT,
@@ -304,29 +306,30 @@ class GroqLLMService:
             logger.error(f"Error generating research plan: {str(e)}")
             return {"intent": f"Searching for {query}...", "queries": [query]}
 
-    async def generate_thread_title(self, query: str) -> str:
-        """
-        Generates a concise 3-5 word title based on the user's initial query.
-        """
+    async def generate_thread_title(self, query: str, answer: str = "") -> str:
+        """Best-effort topic heading; never let a title delay or fail the answer."""
+        fallback = fallback_title(query)
         if not self.client:
-            return "New Thread"
-            
-        system_prompt = TITLE_SYSTEM_PROMPT
-        
+            return fallback
         try:
-            chat_completion = await self.client.chat.completions.create(
+            chat_completion = await asyncio.wait_for(self.client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
+                    {"role": "system", "content": TITLE_SYSTEM_PROMPT},
+                    {"role": "user", "content": json.dumps({"query": query[:1600], "answer_excerpt": answer[:1000]})}
                 ],
                 model=self.default_model,
-                temperature=0.3,
-                max_tokens=20,
-            )
-            return chat_completion.choices[0].message.content.strip()
-        except Exception as e:
-            logger.error(f"Error generating title: {str(e)}")
-            return "New Thread"
+                temperature=0.2,
+                # Reasoning models count internal reasoning against this limit too.
+                max_tokens=512,
+                response_format={"type": "json_object"},
+            ), timeout=8)
+            content = chat_completion.choices[0].message.content
+            data = json.loads(content or "{}")
+            return validate_title(data.get("title") if isinstance(data, dict) else None, query) or fallback
+        except Exception as exc:
+            # Do not log conversation content or provider error bodies/credentials.
+            logger.warning("Thread title fallback (%s)", type(exc).__name__)
+            return fallback
 
     async def generate_follow_up_questions(self, query: str, context: list) -> list[str]:
         """

@@ -128,7 +128,7 @@ export default function ThreadMenu({
                 localStorage.getItem("corten_threads") || "[]"
             );
             const updated = threads.map((t: any) =>
-                t.id === threadId ? { ...t, title: trimmed } : t
+                t.id === threadId ? { ...t, title: trimmed, titleSource: "manual" } : t
             );
             localStorage.setItem("corten_threads", JSON.stringify(updated));
             window.dispatchEvent(new Event("corten_threads_updated"));

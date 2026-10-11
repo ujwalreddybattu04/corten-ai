@@ -106,6 +106,12 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
         }
     }, [isOpen, loadData]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        window.addEventListener(EVENTS.THREADS_UPDATED, loadData);
+        return () => window.removeEventListener(EVENTS.THREADS_UPDATED, loadData);
+    }, [isOpen, loadData]);
+
     // Close on Escape
     useEffect(() => {
         if (!isOpen) return;
@@ -197,8 +203,10 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
 
     const saveRename = () => {
         if (!editingId || !editingTitle.trim()) return;
-        const updated = threads.map(t =>
-            t.id === editingId ? { ...t, title: editingTitle.trim() } : t
+        // A generated title may arrive while the rename dialog is open.
+        const latest: ThreadItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.THREADS) || "[]");
+        const updated = latest.map(t =>
+            t.id === editingId ? { ...t, title: editingTitle.trim(), titleSource: "manual" as const } : t
         );
         setThreads(updated);
         localStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));

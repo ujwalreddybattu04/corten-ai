@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { conversationMessages, ConversationMessage } from "@/lib/conversation";
+import { prepareThreadTitle, scheduleThreadTitle, ThreadTitleMetadata } from "@/lib/threadTitles";
 
 const API_BASE = typeof window !== "undefined" && window.location.hostname !== "localhost"
     ? ""
@@ -34,7 +35,7 @@ export interface SearchMessage {
     thoughtTime?: number;
 }
 
-export interface ThreadData {
+export interface ThreadData extends ThreadTitleMetadata {
     id: string;
     title: string;
     createdAt: number;
@@ -193,9 +194,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
 
                 const existingIdx = threads.findIndex(t => t.id === currentThreadId);
 
-                const threadToSave: ThreadData = {
+                const threadToSave = prepareThreadTitle<ThreadData>({
+                    ...(existingIdx >= 0 ? threads[existingIdx] : {}),
                     id: currentThreadId,
-                    title: existingIdx >= 0 && threads[existingIdx].title ? threads[existingIdx].title : state.query,
+                    title: existingIdx >= 0 ? threads[existingIdx].title : "",
                     createdAt: existingIdx >= 0 ? threads[existingIdx].createdAt : Date.now(),
                     updatedAt: Date.now(),
                     query: state.query,
@@ -205,7 +207,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     images: state.images,
                     researchSteps: state.researchSteps,
                     thoughtTime: state.thoughtTime,
-                };
+                });
 
                 if (existingIdx >= 0) {
                     threads[existingIdx] = threadToSave;
@@ -214,6 +216,8 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 }
 
                 localStorage.setItem("corten_threads", JSON.stringify(threads));
+                // Generate only after the exact thread exists. This survives navigation/remounts.
+                scheduleThreadTitle(currentThreadId);
 
                 // A reload must reopen this saved thread, including its follow-ups.
                 const url = new URL(window.location.href);
@@ -389,37 +393,6 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                         console.error("[useSearch] Failed to parse JSON line:", trimmed, e);
                     }
                 }
-            }
-
-            // --- LLM TITLE GENERATION ---
-            if (!keepHistory || keepHistory.length === 0) {
-                fetch(`${API_BASE}/api/v1/search/title`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ query: q }),
-                })
-                    .then(res => res.json())
-                    .then(data => {
-                        const isPrivate = typeof window !== "undefined" && sessionStorage.getItem("corten_private_mode") === "true";
-                        if (data.title && !isPrivate) {
-                            try {
-                                const threadsJson = localStorage.getItem("corten_threads") || localStorage.getItem("orivanta_threads");
-                                if (threadsJson) {
-                                    const threads: ThreadData[] = JSON.parse(threadsJson);
-                                    const currentId = threadIdRef.current;
-                                    const threadIdx = threads.findIndex(t => t.id === currentId || t.query === q);
-                                    if (threadIdx >= 0) {
-                                        threads[threadIdx].title = data.title;
-                                        localStorage.setItem("corten_threads", JSON.stringify(threads));
-                                        window.dispatchEvent(new Event("corten_threads_updated"));
-                                    }
-                                }
-                            } catch (e) {
-                                console.error("Failed to update thread title:", e);
-                            }
-                        }
-                    })
-                    .catch(err => console.error("Title generation failed:", err));
             }
 
         } catch (err: unknown) {
