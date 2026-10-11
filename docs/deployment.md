@@ -73,8 +73,8 @@ node --test tests/auth-session.cjs tests/api-proxy.cjs
 
 ```bash
 cd backend
-python -m pip install -r requirements.txt
-python -m unittest tests.test_routing_policy tests.test_pharma_updates tests.test_deployment -v
+python -m pip install -r requirements-test.txt
+python -m unittest tests.test_routing_policy tests.test_pharma_updates tests.test_deployment tests.test_interpolation -v
 ```
 
 Docker build contexts and Git ignore local `.env` files, virtual environments,

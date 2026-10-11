@@ -56,7 +56,28 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     // actually revoke the server session. The client hides private views meanwhile.
     if (logout) setCookie(responseHeaders, request, ACCESS, "", 0);
     try {
-        let body: BodyInit | undefined = mutation ? await request.arrayBuffer() : undefined;
+        let body: BodyInit | undefined;
+        if (mutation && path[0] === "interpolation") {
+            const limit = 10 * 1024 * 1024 + 64 * 1024;
+            const tooLarge = () => Response.json({ detail: "CSV files must be no larger than 10 MB." }, { status: 413, headers: responseHeaders });
+            if (Number(request.headers.get("content-length")) > limit) return tooLarge();
+            const reader = request.body?.getReader();
+            if (reader) {
+                const parts: Uint8Array[] = [];
+                let size = 0;
+                while (true) {
+                    const part = await reader.read();
+                    if (part.done) break;
+                    size += part.value.byteLength;
+                    if (size > limit) { await reader.cancel(); return tooLarge(); }
+                    parts.push(part.value);
+                }
+                const bytes = new Uint8Array(size);
+                let offset = 0;
+                for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
+                body = bytes;
+            }
+        } else if (mutation) body = await request.arrayBuffer();
         let remember = cookie(request, PERSIST) === "1";
         if (mutation && ["register", "login", "refresh", "logout"].includes(action)) {
             let data: Record<string, unknown>;

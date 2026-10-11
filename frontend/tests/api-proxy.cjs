@@ -32,6 +32,35 @@ const request = (method, query = "", body) => {
   return req;
 };
 
+test("multipart interpolation uploads preserve Unicode CSV bytes and the generated boundary", async () => {
+  const form = new FormData();
+  const bytes = new TextEncoder().encode("year,中文採用率\r\n1,25%\r\n");
+  form.append("file", new Blob([bytes], { type: "text/csv" }), "input.csv");
+  const req = new Request("https://corten.example/api/v1/interpolation/preview?encoding=auto", { method: "POST", body: form });
+  req.nextUrl = new URL(req.url);
+  const boundary = req.headers.get("content-type");
+  global.fetch = async (url, options) => {
+    assert.equal(url, "https://backend.example/api/v1/interpolation/preview?encoding=auto");
+    assert.equal(options.headers.get("content-type"), boundary);
+    assert.ok(Buffer.from(options.body).includes(Buffer.from(bytes)));
+    return Response.json({ columns: ["中文採用率"] });
+  };
+  process.env.BACKEND_URL = "https://backend.example";
+  assert.equal((await api.POST(req, context(["interpolation", "preview"]))).status, 200);
+});
+
+test("interpolation upload limits reject declared and streamed oversized bodies before upstream fetch", async () => {
+  let calls = 0;
+  global.fetch = async () => { calls++; throw new Error("unexpected upload"); };
+  const declared = new Request("https://corten.example/api/v1/interpolation/preview", { method: "POST", headers: { "content-length": "20971520" }, body: "small" });
+  declared.nextUrl = new URL(declared.url);
+  assert.equal((await api.POST(declared, context(["interpolation", "preview"]))).status, 413);
+  const streamed = new Request(declared.url, { method: "POST", body: new Uint8Array(10 * 1024 * 1024 + 65537) });
+  streamed.nextUrl = new URL(streamed.url);
+  assert.equal((await api.POST(streamed, context(["interpolation", "preview"]))).status, 413);
+  assert.equal(calls, 0);
+});
+
 test("proxy forwards auth, query filters and a binary PDF download", async () => {
   process.env.BACKEND_URL = "https://backend.example/";
   global.fetch = async (url, options) => {

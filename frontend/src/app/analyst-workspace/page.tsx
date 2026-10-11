@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import YearlyMonthlyWorkspace from "@/components/analyst/YearlyMonthlyWorkspace";
 import "@/styles/analyst-workspace.css";
 
 export const metadata: Metadata = {
@@ -11,6 +12,7 @@ export default function AnalystWorkspace() {
       <header className="aw-header">
         <h1 id="analyst-workspace-title">Analyst Workspace</h1>
       </header>
+      <YearlyMonthlyWorkspace />
     </section>
   );
 }

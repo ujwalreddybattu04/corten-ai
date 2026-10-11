@@ -1,25 +1,109 @@
-# Analyst Workspace for Chryselys
+# Analyst Workspace: yearly-to-monthly interpolation
 
-The previous analyst workflow was removed at the project owner's request. The
-sidebar entry and `/analyst-workspace` route remain, with the page title and the
-app's shared typography and dark styling.
+The current workspace implements the Chryselys requirements supplied by the
+project owner. The previous forecasting dashboard, project/scenario workflow,
+pharma feed and review-pack tools remain removed.
 
-The workspace currently has no dashboard, forecast models, projects, scenarios,
-pharma feed, evidence review, import/export, or assistant actions. The page does
-not load or create project data, run forecasts, or request pharma updates.
+## Analyst flow
 
-The next workflow will follow requirements supplied by Chryselys. No replacement
-workflow has been assumed.
+1. Upload a CSV and review its yearly inputs and column names.
+2. Choose Average or Exit. Generating a result is an explicit action.
+3. Inspect each series' graph, original inputs, monthly values and yearly checks.
+4. Export monthly CSV, the complete JSON review, or PDF with inputs, graphs and
+   monthly numbers. Exports are checked against the result that was reviewed.
 
-Previously saved browser records are not deleted by opening the empty workspace.
-The standalone backend pharma API remains available independently; it has no
-connection to the current workspace page.
+No example is loaded automatically. The downloadable review example contains
+exactly the supplied 13-year Slow/Moderate/Fast adoption inputs, including 98%
+for all three columns in Year 10 and 100% in Years 11–13. Uploaded files are not
+edited, filled, capped, rebased or replaced.
 
-The earlier [review](analyst-workspace-review.md) and
-[test report](analyst-workspace-test-report.md) are historical records of the
-removed implementation.
+## Methods
 
-Validation of the reset: production build and TypeScript passed, along with 34
-frontend regression tests and 36 backend routing/answer tests. Ten local browser
-checks verified navigation, the title-only page, shared font and dark theme,
-320–1440px layouts, reload, no pharma/research requests, and no runtime exceptions.
+Both modes minimize squared second differences across the complete monthly
+sequence. Columns are solved independently, without carrying a previous column's
+warm start into the next one.
+
+- **Average:** each 12-month mean is an equality constraint. Each column's yearly
+  minimum/maximum is a soft preference, weighted 0.1 against curvature. The first
+  month has a positive lower bound: 1% of the largest positive yearly target, or
+  a small bound relative to the series magnitude for entirely nonpositive
+  inputs. Only an all-zero series uses the reference floor of 1e-6. Other monthly
+  values can be negative or exceed the yearly extrema.
+- **Exit:** every December is an equality constraint and the first month is
+  non-negative. The first year is part of the same optimization. A single
+  non-negative target produces a flat year; a negative single-year target is
+  rejected because the flat fallback cannot satisfy the first-month constraint.
+
+The supplied smoother was adapted to scale tiny inputs consistently, check every
+nonzero target relative to its own magnitude, reject inaccurate solver statuses,
+and use a bounded direct-solver fallback when the primary solver does not meet
+feasibility requirements. No hard 0–100 output limits are applied. The internal
+normalization is numerical scaling, not a business-value boundary.
+
+## CSV support and validation
+
+- A case-insensitive `year` column and 1–20 independent value columns.
+- Calendar integers or relative integer years; `Year 1`/`Year1` labels also work.
+- Consecutive years, sorted when necessary. Duplicate or missing years are errors.
+- Numbers with optional `%`: `25%` and `25` mean the same numeric value, 25.
+- UTF-8/BOM, UTF-16/BOM and Windows-1252, plus explicitly selectable GB18030.
+  Auto detection handles UTF-8, BOM-marked UTF-16, then Windows-1252. Select an
+  explicit legacy encoding if the preview's names do not match the source.
+- Comma, semicolon and tab separators, Excel `sep=` declarations, and LF/CRLF/CR
+  endings. Malformed rows, duplicate/empty/reserved/formula-like headers and
+  invalid numbers are rejected with row/column details.
+- Invalid/overflowing numbers, underflow, excessive decimal-to-float conversion
+  loss and nonzero magnitude ratios above 1e12 are rejected.
+- Limits: 10 MB files, 100 years, 20 columns and 12,000 monthly values per request.
+  Body size is bounded at the frontend proxy and backend before multipart parsing.
+
+Raw float64 results are independently checked using high-precision decimal
+accumulation. Nonzero targets have a 1e-6 relative acceptance tolerance; zero
+has a 1e-12 absolute tolerance. Only constraint roundoff may be corrected. Results
+that cannot be verified are withheld. Display rounding is not used for validation.
+
+## Outputs and privacy
+
+CSV uses UTF-8 BOM and unrounded numeric values; JSON includes original yearly
+inputs, monthly outputs, units, constraint errors, input digest and calculation
+engine identifier. PDF embeds bundled Noto fonts and contains original targets,
+one graph per series and all monthly rows. Its numbers display two decimal
+places, using scientific notation for very large/small values.
+
+PDF supports Latin, Greek, Cyrillic, Chinese and supported Japanese glyphs.
+Unsupported glyphs or right-to-left scripts produce a clear PDF error rather than
+missing characters; CSV and JSON remain available. See [font provenance and
+licenses](../backend/assets/fonts/README.md).
+
+Uploads are processed statelessly, with temporary upload files closed after read.
+The workspace does not persist files/projects, call AI/search providers or modify
+company forecasts. Requests/responses use `no-store`. One calculation/export per
+backend worker is allowed at a time; capacity exhaustion returns 503 with
+Retry-After. Exports recompute from the unchanged upload and reject a mismatched
+calculation fingerprint with 409 so stale engine results cannot be exported as
+if they were the reviewed result.
+
+## API and verification
+
+POST `/api/v1/interpolation/preview`, `/calculate?mode=average|exit`, and
+`/export?mode=average|exit&format=csv|json|pdf` accept a multipart `file` and an
+optional `encoding`. Export accepts the reviewed `calculation_id`.
+
+Install `backend/requirements-test.txt` to run the tests, then:
+
+```sh
+cd backend
+python -m unittest tests.test_interpolation -v
+```
+
+The supplied adoption example was verified in both modes: 156 monthly rows,
+three independent columns and 39 yearly checks each. Average errors were at most
+1.67e-14 in the local verification; Exit December errors were zero. Smooth values
+can exceed 100% by small amounts, as permitted by the requirements; inputs remain
+98% in Year 10 and 100% in Years 11–13.
+
+Local verification passed 93 backend tests, 39 frontend tests and 18 isolated
+browser checks, including real downloads, Unicode Excel input, failure recovery,
+canceled/out-of-order requests and responsive layouts from 320 to 1440 pixels.
+The production frontend build passed. Both modes also completed a 100-year,
+1,200-month absolute-value timeline with all yearly constraints verified.

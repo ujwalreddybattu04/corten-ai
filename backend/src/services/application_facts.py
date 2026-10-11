@@ -25,7 +25,8 @@ def self_answer(intent: str, clarification: str | None = None) -> str | None:
         enabled = [descriptions[name] for name in tool_registry.get_tool_names() if name in descriptions]
         tools = ", ".join(enabled) or "answering questions"
         return (f"I can help with {tools}, explanations, writing and multi-step research. "
-                "The Analyst Workspace is currently empty, with its features pending Chryselys requirements. "
+                "The Analyst Workspace converts yearly CSV inputs into smooth monthly series using Average "
+                "or Exit mode, verifies yearly targets and exports CSV, JSON and PDF results. "
                 "External tools depend on their configured providers.")
     if intent == "training":
         return (f"{settings.COMPANY_NAME} developed the {brand} application. That is different from "

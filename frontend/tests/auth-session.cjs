@@ -32,6 +32,24 @@ test("wrong passwords do not attempt token refresh", async () => {
     assert.equal(calls, 1);
 });
 
+test("multipart uploads retry after session refresh with original file bytes and no JSON content type", async () => {
+    const { api } = apiModule();
+    const body = new FormData();
+    body.append("file", new Blob(["year,V\n1,25%"], { type: "text/csv" }), "input.csv");
+    let uploads = 0, rotations = 0;
+    global.fetch = async (url, options) => {
+        if (url.endsWith("/refresh")) { rotations++; return Response.json({}); }
+        uploads++;
+        assert.equal(options.body, body);
+        assert.equal(options.headers.get("Content-Type"), null);
+        assert.equal(await options.body.get("file").text(), "year,V\n1,25%");
+        return uploads === 1 ? Response.json({ detail: "Expired" }, { status: 401 }) : Response.json({ columns: ["V"] });
+    };
+    assert.deepEqual(await (await api.upload("/api/v1/interpolation/preview", body)).json(), { columns: ["V"] });
+    assert.equal(uploads, 2);
+    assert.equal(rotations, 1);
+});
+
 test("expired refresh ends the session once without retry loops", async () => {
     const { api } = apiModule();
     let calls = 0, events = 0;

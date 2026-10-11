@@ -34,7 +34,7 @@
 - **Discover** — Trending news with AI-powered article summaries and follow-up Q&A
 - **History Dashboard** — Full-screen Grok-style history modal with search, time grouping, and conversation preview
 - **Focus Modes** — Scope searches: All, Academic, YouTube, Reddit, Writing, Math
-- **Analyst Workspace** — Sidebar entry and empty workspace shell, ready for workflows based on Chryselys requirements.
+- **Analyst Workspace** — Yearly-to-monthly CSV interpolation with Average/Exit modes, verified yearly targets, raw-value review, and CSV/JSON/PDF exports. See [Chryselys requirements and methods](docs/chryselys-analyst-workspace.md).
 
 ## Hosting
 

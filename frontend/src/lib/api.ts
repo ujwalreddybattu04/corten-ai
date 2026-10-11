@@ -38,24 +38,31 @@ async function refreshSession(): Promise<boolean> {
     }
     return refreshInFlight;
 }
-async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
-    const { body, token, ...init } = options;
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
     const generation = sessionGeneration;
     const headers = new Headers(init.headers);
-    headers.set("Content-Type", "application/json");
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    const send = () => fetch(path, { ...init, headers, credentials: "same-origin", cache: "no-store", body: body === undefined ? undefined : JSON.stringify(body) });
+    const explicitToken = headers.has("Authorization");
+    const send = () => fetch(path, { ...init, headers, credentials: "same-origin", cache: "no-store" });
     let res = await send();
     const authMutation = /^\/api\/v1\/auth\/(login|register|refresh|logout)$/.test(path);
-    if (res.status === 401 && !authMutation && !token && generation === sessionGeneration && await refreshSession()) {
+    if (res.status === 401 && !authMutation && !explicitToken && generation === sessionGeneration && await refreshSession()) {
         if (generation !== sessionGeneration) throw new ApiRequestError("Session changed. Please try again.", 401);
         res = await send();
     }
     if (!res.ok) throw new ApiRequestError(errorMessage(await res.json().catch(() => null)), res.status);
+    return res;
+}
+async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
+    const { body, token, ...init } = options;
+    const headers = new Headers(init.headers);
+    headers.set("Content-Type", "application/json");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const res = await apiFetch(path, { ...init, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
 }
 export const api = {
+    upload: (path: string, body: FormData, opts: RequestInit = {}) => apiFetch(path, { ...opts, method: "POST", body }),
     get: <T>(path: string, opts?: ApiOptions) => request<T>(path, { ...opts, method: "GET" }),
     post: <T>(path: string, body?: unknown, opts?: ApiOptions) => request<T>(path, { ...opts, method: "POST", body }),
     put: <T>(path: string, body?: unknown, opts?: ApiOptions) => request<T>(path, { ...opts, method: "PUT", body }),
