@@ -5,8 +5,8 @@ import re
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any, List
 
-from groq import AsyncGroq
 from src.config.settings import settings
+from src.services.llm_runtime import build_llm_client, LLMProviderError
 from src.services.agents.query_context import clean_history, company_alias
 from src.services.conversation_memory import answer_context, CONVERSATION_SYSTEM_PROMPT
 from src.services.thread_titles import fallback_title, validate_title
@@ -40,11 +40,9 @@ def format_evidence(context_results: list, char_budget: int = 10000) -> str:
 class GroqLLMService:
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
-        if not self.api_key:
-            logger.warning("GROQ_API_KEY is not set. LLM generation will fail.")
-            self.client = None
-        else:
-            self.client = AsyncGroq(api_key=self.api_key)
+        self.client = build_llm_client(settings)
+        if not self.client:
+            logger.warning("No configured LLM provider is available.")
             
         self.default_model = settings.DEFAULT_MODEL
 
@@ -94,8 +92,7 @@ class GroqLLMService:
         Focus mode injects specialized instructions for different query types.
         """
         if not self.client:
-            yield "LLM generation failed because Groq API key is missing."
-            return
+            raise LLMProviderError("No AI provider is configured. Please contact the administrator.")
 
         system_prompt = CONVERSATION_SYSTEM_PROMPT if conversation_only else self._build_system_prompt(context_results, focus_mode, company_lookup)
         system_prompt += (
@@ -131,7 +128,7 @@ class GroqLLMService:
                 messages=messages_payload,
                 model=self.default_model,
                 temperature=0.2,
-                max_tokens=1024 if company_lookup else 4096,
+                max_tokens=1024 if company_lookup else settings.LLM_MAX_OUTPUT_TOKENS,
                 stream=True,
                 stop=[
                     "\n\n**Sources", "\n\nSources"
@@ -157,8 +154,7 @@ class GroqLLMService:
         Token-budgeted to stay within Groq free tier limits (~4500 input tokens).
         """
         if not self.client:
-            yield "LLM generation failed because Groq API key is missing."
-            return
+            raise LLMProviderError("No AI provider is configured. Please contact the administrator.")
 
         # ── Token Budget ──────────────────────────────────────────────────
         # Groq model context is large enough; the real constraint is TPM.
@@ -200,7 +196,7 @@ class GroqLLMService:
                 messages=messages_payload,
                 model=self.default_model,
                 temperature=0.4,
-                max_tokens=4096,
+                max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
                 stream=True,
                 # No stop sequences — the prompt already forbids source lists,
                 # and stop words like "Sources" / "References" can appear in
@@ -221,8 +217,7 @@ class GroqLLMService:
         Token-budgeted for Groq limits.
         """
         if not self.client:
-            yield "LLM generation failed because Groq API key is missing."
-            return
+            raise LLMProviderError("No AI provider is configured. Please contact the administrator.")
 
         system_prompt = (
             "You are a knowledgeable journalist assistant. The user is reading an article and asking follow-up questions about it.\n\n"
@@ -298,7 +293,7 @@ class GroqLLMService:
                 ],
                 model=self.default_model,
                 temperature=0.3,
-                max_tokens=200,
+                max_tokens=512,
                 response_format={"type": "json_object"}
             )
             return json.loads(chat_completion.choices[0].message.content)
@@ -353,6 +348,7 @@ class GroqLLMService:
                 ],
                 model=self.default_model,
                 temperature=0.4,
+                max_tokens=512,
                 response_format={"type": "json_object"}
             )
             response_text = chat_completion.choices[0].message.content

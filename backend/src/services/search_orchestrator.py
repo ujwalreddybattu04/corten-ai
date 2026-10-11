@@ -19,6 +19,7 @@ import time
 from typing import AsyncGenerator
 
 from src.services.llm_service import groq_llm_service
+from src.services.llm_runtime import LLMProviderError, llm_error_details
 from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
@@ -228,14 +229,8 @@ class SearchOrchestrator:
             primary_tools = [t for t in selected_tools if t.name != "image_search"]
             image_tool = tool_registry.get_tool("image_search") if query_type != "company" else None
 
-            # Start plan generation for standard strategy
-            if strategy != STRATEGY_QUICK:
-                plan_task = asyncio.create_task(
-                    groq_llm_service.generate_research_plan(query, focus_mode)
-                )
-                background_tasks.append(plan_task)
-            else:
-                plan_task = None
+            # Routing already supplies the research intent. A second AI request
+            # used only for progress text would consume quota without improving search.
 
             yield _sse("query_step", {"content": query})
 
@@ -313,17 +308,8 @@ class SearchOrchestrator:
                 yield _sse("status", {"content": f"Reviewing {len(unique_sources)} sources"})
 
             # ── PHASE 4: LAYER IN PLAN ────────────────────────────────────
-            if plan_task:
-                try:
-                    plan = await asyncio.wait_for(plan_task, timeout=0.5)
-                    refined_intent = plan.get("intent")
-                    if refined_intent:
-                        yield _sse("thought", {"content": refined_intent})
-                    for sq in plan.get("queries", []):
-                        if sq.lower().strip("?") != query.lower().strip("?"):
-                            yield _sse("query_step", {"content": sq})
-                except Exception:
-                    logger.warning("[Orchestrator] Plan timed out or failed")
+            if strategy != STRATEGY_QUICK and route.get("reasoning"):
+                yield _sse("thought", {"content": route["reasoning"]})
 
             # ── PHASE 5: STREAM LLM ANSWER ────────────────────────────────
             thought_time = time.time() - start_time
@@ -370,14 +356,6 @@ class SearchOrchestrator:
                     yield _sse("done", {})
                     return
 
-            # Basic company answers do not need a second speculative suggestion request.
-            follow_up_task = None
-            if query_type != "company":
-                follow_up_task = asyncio.create_task(
-                    groq_llm_service.generate_follow_up_questions(query, enriched_results)
-                )
-                background_tasks.append(follow_up_task)
-
             buffer = ""
             # The subject is already resolved. Old assistant claims must not contaminate company facts.
             answer_history = [] if query_type == "company" else messages
@@ -410,7 +388,10 @@ class SearchOrchestrator:
 
             # ── PHASE 6: DELIVER CONCURRENT RESULTS ───────────────────────
             try:
-                related = await follow_up_task if follow_up_task else []
+                # Give the answer priority over optional suggestions on a small quota.
+                related = await asyncio.wait_for(
+                    groq_llm_service.generate_follow_up_questions(query, enriched_results), timeout=4
+                ) if query_type != "company" else []
                 if related:
                     yield _sse("related", {"questions": related})
             except Exception as e:
@@ -443,7 +424,7 @@ class SearchOrchestrator:
                 error_message = "Web search limit reached. Please check your search provider plan."
             elif "429" in error_message or "rate limit" in error_message.lower():
                 error_message = "API rate limit reached. Please wait a moment."
-            yield _sse("error", {"message": error_message})
+            yield _sse("error", llm_error_details(e) if isinstance(e, LLMProviderError) else {"message": error_message})
             yield _sse("done", {})
         finally:
             for task in background_tasks:
@@ -590,7 +571,7 @@ class SearchOrchestrator:
             error_message = str(e)
             if "Tavily" in error_message:
                 error_message = "Web search limit reached."
-            yield _sse("error", {"message": error_message})
+            yield _sse("error", llm_error_details(e) if isinstance(e, LLMProviderError) else {"message": error_message})
             yield _sse("done", {})
 
 

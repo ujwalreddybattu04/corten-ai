@@ -3,8 +3,8 @@ Application settings loaded from environment variables via Pydantic Settings.
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import field_validator, model_validator
-from typing import List
+from pydantic import Field, field_validator, model_validator
+from typing import List, Literal
 
 
 class Settings(BaseSettings):
@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GOOGLE_AI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
+    GROQ_FALLBACK_API_KEYS: List[str] = Field(default_factory=list, max_length=4, repr=False)
+    LLM_PROVIDER: Literal["groq", "gemini"] = "groq"
+    # Fallback must be explicitly enabled; merely supplying another key does not send it data.
+    LLM_FALLBACK_PROVIDER: Literal["", "groq", "gemini"] = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    LLM_MAX_OUTPUT_TOKENS: int = Field(default=2048, ge=256, le=32768)
+
+    @field_validator("GROQ_FALLBACK_API_KEYS")
+    @classmethod
+    def clean_groq_fallback_keys(cls, values: List[str]) -> List[str]:
+        return list(dict.fromkeys(value.strip() for value in values if value.strip()))
     
     # Models
     DEFAULT_MODEL: str = "openai/gpt-oss-20b"

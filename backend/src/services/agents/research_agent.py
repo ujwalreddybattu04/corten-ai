@@ -23,6 +23,7 @@ Architecture:
 
 import json
 import asyncio
+from src.services.llm_runtime import LLMProviderError, llm_error_details
 import logging
 import time
 from typing import AsyncGenerator, Dict, Any, List
@@ -168,9 +169,6 @@ class ResearchAgent:
                 serper_image_service.search_images(query, num=20)
             )
             background_tasks.append(image_task)
-            # Fire follow-up generation in background
-            follow_up_task = None  # Will be created after we have sources
-
             # ── PHASE 2: ITERATIVE RESEARCH LOOP ──────────────────────────
             for iteration in range(MAX_ITERATIONS):
                 round_num = iteration + 1
@@ -246,13 +244,6 @@ class ResearchAgent:
                     "items": frontend_sources,
                 })
 
-                # Start follow-up generation as soon as we have sources
-                if follow_up_task is None and all_sources:
-                    follow_up_task = asyncio.create_task(
-                        groq_llm_service.generate_follow_up_questions(query, all_sources)
-                    )
-                    background_tasks.append(follow_up_task)
-
                 # ── EVALUATE: Check if we have enough ──────────────────────
                 if round_num >= MAX_ITERATIONS or len(all_sources) >= MAX_TOTAL_SOURCES:
                     yield self._event("research_step", {
@@ -319,9 +310,11 @@ class ResearchAgent:
                 yield self._event("token", {"content": chunk})
 
             # ── PHASE 4: DELIVER CONCURRENT RESULTS ────────────────────────
-            if follow_up_task:
+            if all_sources:
                 try:
-                    related = await follow_up_task
+                    related = await asyncio.wait_for(
+                        groq_llm_service.generate_follow_up_questions(query, all_sources), timeout=4
+                    )
                     if related:
                         yield self._event("related", {"questions": related})
                 except Exception as e:
@@ -343,7 +336,7 @@ class ResearchAgent:
                 error_msg = "Web search limit reached. Please check your search provider plan."
             elif "429" in error_msg or "rate limit" in error_msg.lower():
                 error_msg = "API rate limit reached. Please wait a moment."
-            yield self._event("error", {"message": error_msg})
+            yield self._event("error", llm_error_details(e) if isinstance(e, LLMProviderError) else {"message": error_msg})
             yield self._event("done", {})
         finally:
             for task in background_tasks:
@@ -461,7 +454,7 @@ class ResearchAgent:
                 messages=messages_payload,
                 model=settings.DEFAULT_MODEL,
                 temperature=0.3,
-                max_tokens=8192,
+                max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
                 stream=True,
                 stop=["\n\n**Sources", "\n\nSources"],
             )

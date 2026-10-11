@@ -15,6 +15,7 @@ import json
 import os
 import uuid
 import asyncio
+from src.services.llm_runtime import LLMProviderError, llm_error_details
 import logging
 import time
 import re
@@ -246,7 +247,7 @@ class ReportService:
                 error_msg = "Web search limit reached. Please check your search provider plan."
             elif "429" in error_msg or "rate limit" in error_msg.lower():
                 error_msg = "API rate limit reached. Please wait a moment."
-            yield _sse("error", {"message": error_msg})
+            yield _sse("error", llm_error_details(e) if isinstance(e, LLMProviderError) else {"message": error_msg})
             yield _sse("done", {})
 
     # ── Internal Methods ──────────────────────────────────────────────────────
