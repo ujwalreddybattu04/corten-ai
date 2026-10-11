@@ -1,5 +1,6 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
+import { DiscoverArticle, DiscoverFeed, readSavedFeed, saveFeed, requestDiscoverFeed } from "@/lib/discoverFeed";
 
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -29,17 +30,7 @@ interface ArticleSource {
     favicon: string;
 }
 
-interface Article {
-    id: string;
-    title: string;
-    description: string;
-    url: string;
-    image: string;
-    publishedAt: string;
-    source: ArticleSource;
-    isHero: boolean;
-    category?: string; // injected client-side for personalization scoring
-}
+type Article = DiscoverArticle;
 
 interface MarketItem {
     price: number;
@@ -325,6 +316,10 @@ export default function DiscoverPage() {
     const [loadingMore, setLoadingMore] = useState(false);
     const [feedError, setFeedError] = useState<string | null>(null);
     const feedRequestRef = useRef(0);
+    const feedAbortRef = useRef<AbortController | null>(null);
+    const feedTabRef = useRef<TabId>("for-you");
+    const [feedNotice, setFeedNotice] = useState<string | null>(null);
+    const [retryPage, setRetryPage] = useState<number | null>(null);
     const [loadingSidebar, setLoadingSidebar] = useState(true);
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
     const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
@@ -360,8 +355,18 @@ export default function DiscoverPage() {
 
     const fetchArticles = useCallback(async (tab: TabId, pageNum: number = 1, append: boolean = false) => {
         const requestId = ++feedRequestRef.current;
+        feedAbortRef.current?.abort();
+        const controller = new AbortController();
+        feedAbortRef.current = controller;
         setFeedError(null);
+        setRetryPage(null);
+        setHasMore(false);
         if (pageNum === 1) {
+            const saved = readSavedFeed(tab);
+            if (feedTabRef.current !== tab) setArticles(saved?.articles ?? []);
+            else if (saved) setArticles(saved.articles);
+            feedTabRef.current = tab;
+            setFeedNotice(saved ? "Showing saved stories. Checking for fresh updates…" : null);
             setLoadingArticles(true);
             setLoadingMore(false);
         }
@@ -369,6 +374,11 @@ export default function DiscoverPage() {
         try {
             let newArticles: Article[] = [];
             let moreAvailable = false;
+            let responses: DiscoverFeed[] = [];
+            let incomplete = false;
+            const onRetry = () => {
+                if (requestId === feedRequestRef.current) setFeedNotice("Connecting to news sources. This may take a moment…");
+            };
 
             if (tab === "for-you") {
                 // All 5 categories — always fetch all for diversity
@@ -379,23 +389,37 @@ export default function DiscoverPage() {
 
                 // Weighted fetch: more articles from liked categories, fewer from disliked
                 const fetchSizes = getWeightedFetchSizes(allCategories, affinities, 50);
+                const progress: (DiscoverFeed | null)[] = allCategories.map(() => null);
 
                 const results = await Promise.all(
-                    allCategories.map((cat: string) =>
-                        fetch(`${API_BASE}/api/v1/discover?category=${cat}&page=${pageNum}&page_size=${fetchSizes[cat] ?? 9}`)
-                            .then(r => r.ok ? r.json() : { articles: [], has_more: false, failed: true })
-                            .catch(() => ({ articles: [], has_more: false, failed: true }))
-                    )
+                    allCategories.map((cat: string, index: number) => requestDiscoverFeed(
+                        `${API_BASE}/api/v1/discover?category=${cat}&page=${pageNum}&page_size=${fetchSizes[cat] ?? 9}`,
+                        controller.signal, onRetry).then(result => {
+                            progress[index] = result;
+                            if (!append && requestId === feedRequestRef.current) {
+                                const seen = new Set<string>();
+                                const available = progress.flatMap((r, i) => (r?.articles ?? []).map(a => ({ ...a, category: allCategories[i] })))
+                                    .filter(a => seen.has(a.id) ? false : (seen.add(a.id), true));
+                                if (available.length) {
+                                    setArticles(rankArticles(available, affinities, readDislikedIds()));
+                                    setLoadingArticles(false);
+                                    setFeedNotice("Loading remaining topics…");
+                                }
+                            }
+                            return result;
+                        }).catch(() => null))
                 );
-                if (results.every(r => r.failed || r.status === "unavailable")) {
+                if (results.every(r => r === null)) {
                     throw new Error("News sources unavailable");
                 }
+                responses = results.filter((r): r is DiscoverFeed => r !== null);
+                incomplete = results.some(r => r === null) || responses.some(r => r.partial);
 
                 // Tag each article with its source category for affinity scoring
                 let tagged: Article[] = [];
                 results.forEach((r, idx) => {
                     const cat = allCategories[idx];
-                    (r.articles ?? []).forEach((a: Article) => {
+                    (r?.articles ?? []).forEach((a: Article) => {
                         tagged.push({ ...a, category: cat });
                     });
                 });
@@ -407,12 +431,11 @@ export default function DiscoverPage() {
                 // Score + sort + diversity injection
                 const disliked = readDislikedIds();
                 newArticles = rankArticles(tagged, affinities, disliked);
-                moreAvailable = results.some(r => r.has_more);
+                moreAvailable = results.some(r => r?.has_more);
             } else {
-                const res = await fetch(`${API_BASE}/api/v1/discover?category=${tab}&page=${pageNum}&page_size=18`);
-                if (!res.ok) throw new Error("Failed");
-                const data = await res.json();
-                if (data.status === "unavailable") throw new Error("News sources unavailable");
+                const data = await requestDiscoverFeed(`${API_BASE}/api/v1/discover?category=${tab}&page=${pageNum}&page_size=18`, controller.signal, onRetry);
+                responses = [data];
+                incomplete = !!data.partial;
                 // Tag articles with their category
                 newArticles = (data.articles ?? []).map((a: Article) => ({ ...a, category: tab }));
                 moreAvailable = data.has_more ?? false;
@@ -420,26 +443,44 @@ export default function DiscoverPage() {
 
             // A slower response from a previous tab must not replace the active feed.
             if (requestId !== feedRequestRef.current) return;
+            const stale = responses.some(r => r.status === "stale");
+            const timestamps = responses.map(r => Date.parse(r.fetched_at ?? "")).filter(Number.isFinite);
+            if (!append && !incomplete && timestamps.length === responses.length) saveFeed(tab, {
+                articles: newArticles, has_more: moreAvailable, status: stale ? "stale" : "available",
+                fetched_at: new Date(Math.min(...timestamps)).toISOString(),
+            });
+            setFeedNotice(stale ? "Showing saved stories while news sources reconnect."
+                : incomplete ? "Some topics are temporarily unavailable. Available stories are shown below." : null);
+            if (incomplete) {
+                setFeedError("Some stories couldn't refresh. Please try again.");
+                setRetryPage(pageNum);
+            }
             setArticles(prev => {
                 if (!append) return newArticles;
                 const existingIds = new Set(prev.map(a => a.id));
                 return [...prev, ...newArticles.filter(a => !existingIds.has(a.id))];
             });
-            setHasMore(moreAvailable);
+            setHasMore(moreAvailable && !incomplete);
             setPage(pageNum);
         } catch {
             if (requestId !== feedRequestRef.current) return;
-            if (!append) setArticles([]);
             setHasMore(false);
+            setFeedNotice(null);
+            setRetryPage(pageNum);
             setFeedError(append
                 ? "More stories couldn't load. Please try again."
-                : "News is temporarily unavailable. Please try again.");
+                : "Fresh news is temporarily unavailable. Any saved stories remain visible. Please try again.");
         } finally {
             if (requestId === feedRequestRef.current) {
                 setLoadingArticles(false);
                 setLoadingMore(false);
             }
         }
+    }, []);
+
+    useEffect(() => () => {
+        ++feedRequestRef.current;
+        feedAbortRef.current?.abort();
     }, []);
 
     const fetchSidebar = useCallback(async (lat?: number, lon?: number) => {
@@ -741,7 +782,8 @@ export default function DiscoverPage() {
             <div className="discover-body">
                 {/* ── Feed ── */}
                 <div className="discover-feed">
-                    {loadingArticles ? (
+                    {feedNotice && <div className="discover-feed-notice" role="status">{feedNotice}</div>}
+                    {loadingArticles && articles.length === 0 ? (
                         <>
                             <HeroSkeleton />
                             <GridSkeleton />
@@ -878,7 +920,7 @@ export default function DiscoverPage() {
                     {feedError && !loadingArticles && articles.length > 0 && (
                         <div className="discover-empty">
                             <p className="discover-empty-text" role="alert">{feedError}</p>
-                            <button className="discover-share-btn" onClick={() => fetchArticles(activeTab, page + 1, true)}>
+                            <button className="discover-share-btn" onClick={() => fetchArticles(activeTab, retryPage ?? 1, (retryPage ?? 1) > 1)}>
                                 Retry
                             </button>
                         </div>

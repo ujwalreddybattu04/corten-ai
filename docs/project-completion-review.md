@@ -14,6 +14,7 @@ The application works as a hosted preview. The defects below are repaired, but t
 | Report integrity | One sourced model draft replaces separate planning/outline/section calls. Missing evidence, invalid JSON, output limits, incomplete sentences, provider failures and unknown citations stop publication. Downloads appear only after the stream completes. |
 | Report downloads | Random 128-bit identifiers, a 24-hour maximum download window, traversal rejection and no-store/nosniff headers. ReportLab headings and references escape markup. Files remain ephemeral. |
 | Discover citations | The original article is inserted before showing sources. Citation numbers match the model's evidence order. Prior AI summaries remain conversation context rather than numbered sources. |
+| Discover availability | Guardian/NewsAPI failures fall back to attributed BBC RSS headlines. Shared 20-story pools reduce duplicate provider calls while preserving page boundaries. Successful feeds remain cached for 15 minutes and can be served with a stale notice for at most six hours. Browser requests have bounded retries and cancellation; refresh failures preserve account-isolated saved stories. |
 | Images | Hooks run consistently when an empty image list becomes populated, preventing a React runtime failure. |
 | Authentication | PyJWT replaces python-jose/ecdsa. Algorithm allowlisting, issuer/audience checks, required typed session claims and refresh IDs are retained. Malformed/overflowing claims fail closed. Existing valid sessions retain their token format. |
 | Dependencies | Next.js/ESLint config updated to 16.4.0; compatible vulnerable transitive dependencies updated; unused Jest removed. Production Docker images exclude development dependencies. |
@@ -22,8 +23,9 @@ The application works as a hosted preview. The defects below are repaired, but t
 
 ## Verification
 
-- **142 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports and citations.
-- **57 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
+- **152 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports, citations and Discover recovery.
+- **65 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
+- **11 isolated Discover browser checks** verify saved-feed recovery, partial topic outages, automatic retries, correct pagination retries, stale notices, cancelled tab requests and mobile layout. Real category APIs and all seven RSS fallback mappings were also checked, including non-overlapping RSS pages. Fault injection uses synthetic headlines; live fallback checks use publisher data.
 - **17 isolated browser checks** cover Spaces, account separation, headings, interrupted chat, image lightbox, report errors/completion/retry and mobile layout. These use synthetic account/API responses.
 - **18 Analyst Workspace browser checks** use real calculation/export endpoints: Average/Exit constraints, first-year behavior, the unchanged adoption example, UTF-16 CSV, Chinese/Greek/Cyrillic PDF labels, absolute values, single-year fallback, cancellation/replacement races, errors and 320–1440px layouts.
 - **14 API checks** cover readiness, guest protection, input bounds, downloads, company identity and conversation recall.

@@ -3,6 +3,7 @@ Discover endpoints — trending news, market data, and weather.
 """
 
 import asyncio
+from typing import Literal
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -56,7 +57,7 @@ def _get_client_ip(request: Request) -> str:
 @router.get("")
 async def get_discover_feed(
     response: Response,
-    category: str = Query("for-you", description="News category"),
+    category: Literal["for-you", "top", "technology", "business", "entertainment", "sports", "health"] = Query("for-you", description="News category"),
     page: int = Query(1, ge=1, le=10),
     page_size: int = Query(18, ge=6, le=20),
 ):
@@ -64,6 +65,8 @@ async def get_discover_feed(
     result = await get_news_articles(category=category, page=page, page_size=page_size)
     if result.get("status") == "unavailable":
         response.status_code = 503
+        response.headers["Retry-After"] = "30"
+    response.headers["Cache-Control"] = "no-store"
     return {**result, "category": category}
 
 

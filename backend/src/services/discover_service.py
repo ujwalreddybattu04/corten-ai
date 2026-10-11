@@ -1,12 +1,19 @@
 """
 Discover service — news feed, market data, and weather.
-Uses Guardian with a NewsAPI fallback, Yahoo Finance for market data, wttr.in for weather.
-All results are Redis-cached to minimize external API calls.
+Uses Guardian, NewsAPI and attributed RSS headlines, Yahoo Finance for market data,
+and wttr.in for weather. Successful news has a bounded last-good cache.
 """
 
 import asyncio
 import hashlib
 import logging
+import time
+import re
+import math
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from html import unescape
+from xml.etree import ElementTree
 from collections import defaultdict
 from itertools import zip_longest
 from urllib.parse import urlparse
@@ -20,6 +27,21 @@ logger = logging.getLogger(__name__)
 
 # ── Cache TTLs ────────────────────────────────────────────────────────────────
 NEWS_CACHE_TTL = 900       # 15 min
+NEWS_STALE_TTL = 21600    # Last successful feed is usable for at most six hours.
+NEWS_POOL_SIZE = 20
+_news_memory: dict[str, dict] = {}
+_news_pending: dict[str, asyncio.Task] = {}
+_news_retry_at: dict[str, float] = {}
+_provider_retry_at: dict[tuple[str, str], float] = {}
+RSS_FEEDS = {
+    "for-you": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "top": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "technology": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "business": "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "entertainment": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+    "sports": "https://feeds.bbci.co.uk/sport/rss.xml",
+    "health": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+}
 MARKET_CACHE_TTL = 300     # 5 min
 WEATHER_CACHE_TTL = 600    # 10 min — weather changes fast, accuracy matters
 
@@ -74,27 +96,153 @@ TRENDING_STOCKS = [
 # ── News Articles ─────────────────────────────────────────────────────────────
 
 async def get_news_articles(category: str = "for-you", page: int = 1, page_size: int = 18) -> dict:
-    """Serve live news, falling back when a provider fails or has no initial stories."""
-    cache_key = f"discover:news:g3:{category}:{page}:{page_size}"
+    """Slice shared 20-story pools without skipping stories for smaller page sizes."""
+    if category not in RSS_FEEDS or not 1 <= page <= 10 or not 6 <= page_size <= 20:
+        raise ValueError("Invalid news category or pagination")
+    offset = (page - 1) * page_size
+    pool_page, start = divmod(offset, NEWS_POOL_SIZE)
+    articles, pools = [], []
+    more = False
+    slots_remaining = page_size
+    while slots_remaining > 0 and pool_page < 10:
+        pool = await _get_news_pool(category, pool_page + 1)
+        if pool["status"] == "unavailable":
+            if not articles:
+                return _news_unavailable(page)
+            return {**pools[0], "articles": articles, "page": page,
+                    "has_more": True, "partial": True}
+        pools.append(pool)
+        span = min(slots_remaining, NEWS_POOL_SIZE - start)
+        articles.extend(pool["articles"][start:start + span])
+        slots_remaining -= span
+        more = start + span < len(pool["articles"]) or pool["has_more"]
+        if slots_remaining == 0 or not pool["has_more"] or not pool["articles"]:
+            break
+        pool_page += 1
+        start = 0
+    stale = any(p["status"] == "stale" for p in pools)
+    oldest = min(pools, key=lambda p: p["fetched_at_epoch"])
+    return {**oldest, "articles": articles, "has_more": more and page < 10, "page": page,
+            "status": "stale" if stale else "available" if articles else "empty"}
 
-    cached = await cache_get(cache_key)
+
+async def _get_news_pool(category: str, page: int) -> dict:
+    # Size-independent keys share quota across personalized and category feeds.
+    key = f"discover:news:g4:{category}:{page}"
+    task = _news_pending.get(key)
+    if task is None:
+        task = asyncio.create_task(_refresh_news_pool(key, category, page))
+        _news_pending[key] = task
+        task.add_done_callback(lambda done: _news_pending.pop(key, None))
+    # Cancelling one browser request must not cancel other readers' shared refresh.
+    return await asyncio.shield(task)
+
+
+async def _refresh_news_pool(key: str, category: str, page: int) -> dict:
+    now = time.time()
+    cached = _news_memory.get(key)
+    if not cached:
+        try:
+            cached = await asyncio.wait_for(cache_get(key), timeout=1.0)
+        except Exception:
+            cached = None
+    if cached and not _valid_news_cache(cached):
+        cached = None
+    age = now - cached["fetched_at_epoch"] if cached else float("inf")
+    if cached and not 0 <= age <= NEWS_STALE_TTL:
+        cached = None
     if cached:
-        return cached
+        _news_memory[key] = cached
+        if age < cached.get("fresh_for", NEWS_CACHE_TTL):
+            return cached
+    if now < _news_retry_at.get(key, 0):
+        return _stale_news(cached) if cached and cached["articles"] else _news_unavailable(page)
 
     empty_result = None
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        for fetch_provider in (_fetch_guardian, _fetch_newsapi):
-            result = await fetch_provider(client, category, page, page_size)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=3.0), follow_redirects=True) as client:
+        for fetch_provider in (_fetch_guardian, _fetch_newsapi, _fetch_rss):
+            try:
+                result = await asyncio.wait_for(fetch_provider(client, category, page, NEWS_POOL_SIZE), timeout=7.0)
+            except TimeoutError:
+                logger.warning("News source deadline exceeded (category=%s, page=%s)", category, page)
+                result = _news_unavailable(page)
             if result["status"] == "unavailable":
                 continue
             if result["articles"] or page > 1:
-                if result["articles"]:
-                    await cache_set(cache_key, result, ttl=NEWS_CACHE_TTL)
+                fetched = time.time()
+                result.update(fetched_at_epoch=fetched,
+                              fetched_at=datetime.fromtimestamp(fetched, timezone.utc).isoformat())
+                _news_memory[key] = result
+                _news_retry_at.pop(key, None)
+                try:
+                    await asyncio.wait_for(cache_set(key, result, ttl=NEWS_STALE_TTL), timeout=1.0)
+                except Exception:
+                    pass
                 return result
             empty_result = result
+    _news_retry_at[key] = time.time() + 30
+    if cached and cached["articles"]:
+        return _stale_news(cached)
+    if empty_result is not None:
+        fetched = time.time()
+        result = {**empty_result, "fetched_at_epoch": fetched, "fresh_for": 30,
+                  "fetched_at": datetime.fromtimestamp(fetched, timezone.utc).isoformat()}
+        _news_memory[key] = result
+        return result
+    return _news_unavailable(page)
 
-    # A successful empty response is different from every source failing.
-    return empty_result if empty_result is not None else _news_unavailable(page)
+
+def _valid_news_cache(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    timestamp = value.get("fetched_at_epoch")
+    fresh_for = value.get("fresh_for", NEWS_CACHE_TTL)
+    articles = value.get("articles")
+    return (isinstance(timestamp, (int, float)) and math.isfinite(timestamp)
+            and isinstance(fresh_for, (int, float)) and 0 < fresh_for <= NEWS_CACHE_TTL
+            and isinstance(value.get("fetched_at"), str)
+            and isinstance(value.get("has_more"), bool)
+            and value.get("status") in ("available", "empty")
+            and isinstance(articles, list) and len(articles) <= NEWS_POOL_SIZE
+            and all(isinstance(a, dict) and isinstance(a.get("title"), str)
+                    and _news_url(a.get("url")) and isinstance(a.get("source"), dict)
+                    and isinstance(a["source"].get("name"), str) for a in articles))
+
+
+def _news_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
+def _stale_news(cached: dict) -> dict:
+    return {**cached, "status": "stale",
+            "message": "Showing saved stories while news sources reconnect."}
+
+
+def _provider_identity(name: str, credential: str) -> tuple[str, str]:
+    return name, hashlib.sha256(credential.encode()).hexdigest()
+
+
+def _provider_ready(name: str, credential: str) -> bool:
+    return time.time() >= _provider_retry_at.get(_provider_identity(name, credential), 0)
+
+
+def _provider_failed(name: str, credential: str, response: httpx.Response | None = None) -> None:
+    # An invalid credential waits longer; changing it immediately enables the provider.
+    delay = 3600 if response is not None and response.status_code in (401, 403) else 30
+    if response is not None and response.status_code == 429:
+        try:
+            delay = max(30, min(3600, float(response.headers.get("Retry-After", "60"))))
+        except ValueError:
+            delay = 60
+    if len(_provider_retry_at) > 20:
+        _provider_retry_at.clear()
+    _provider_retry_at[_provider_identity(name, credential)] = time.time() + delay
 
 
 def _news_unavailable(page: int) -> dict:
@@ -111,7 +259,7 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
     Pages 2+ → /everything with rotating keywords (gives fresh articles each scroll,
                 bypasses the 100-result cap by using different queries per page).
     """
-    if not settings.NEWSAPI_KEY:
+    if not settings.NEWSAPI_KEY or not _provider_ready("newsapi", settings.NEWSAPI_KEY):
         return _news_unavailable(page)
     try:
         if page == 1 and category != "entertainment":
@@ -145,9 +293,13 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
                 },
             )
 
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            _provider_failed("newsapi", settings.NEWSAPI_KEY, resp)
+            logger.warning("NewsAPI HTTP %s (category=%s, page=%s)", resp.status_code, category, page)
+            return _news_unavailable(page)
         data = resp.json()
         if data.get("status") != "ok":
+            _provider_failed("newsapi", settings.NEWSAPI_KEY)
             return _news_unavailable(page)
         articles = _transform_newsapi_articles(data.get("articles", []))
         # Keep going as long as we have keywords to rotate through
@@ -160,6 +312,7 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
         }
 
     except Exception as exc:
+        _provider_failed("newsapi", settings.NEWSAPI_KEY)
         # HTTP exception strings can contain provider keys in the request URL.
         logger.warning("NewsAPI failed (category=%s, page=%s): %s", category, page, type(exc).__name__)
         return _news_unavailable(page)
@@ -167,7 +320,7 @@ async def _fetch_newsapi(client: httpx.AsyncClient, category: str, page: int, pa
 
 async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, page_size: int) -> dict:
     """Fetch from The Guardian API. Thousands of articles per section, true infinite scroll."""
-    if not settings.GUARDIAN_API_KEY:
+    if not settings.GUARDIAN_API_KEY or not _provider_ready("guardian", settings.GUARDIAN_API_KEY):
         return _news_unavailable(page)
 
     section = GUARDIAN_SECTION_MAP.get(category, "")
@@ -186,10 +339,12 @@ async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, p
         resp = await client.get("https://content.guardianapis.com/search", params=params)
         logger.info(f"Guardian HTTP {resp.status_code} | category={category} page={page}")
         if resp.status_code != 200:
+            _provider_failed("guardian", settings.GUARDIAN_API_KEY, resp)
             return _news_unavailable(page)
 
         data = resp.json().get("response", {})
         if data.get("status") != "ok":
+            _provider_failed("guardian", settings.GUARDIAN_API_KEY)
             return _news_unavailable(page)
         current_page = data.get("currentPage", 1)
         total_pages = data.get("pages", 1)
@@ -204,7 +359,66 @@ async def _fetch_guardian(client: httpx.AsyncClient, category: str, page: int, p
             "provider": "guardian",
         }
     except Exception as exc:
+        _provider_failed("guardian", settings.GUARDIAN_API_KEY)
         logger.warning("Guardian failed (category=%s, page=%s): %s", category, page, type(exc).__name__)
+        return _news_unavailable(page)
+
+
+async def _fetch_rss(client: httpx.AsyncClient, category: str, page: int, page_size: int) -> dict:
+    """Read attributed public headlines without depending on API credentials."""
+    feed_url = RSS_FEEDS[category]
+    if not _provider_ready("rss", feed_url):
+        return _news_unavailable(page)
+    try:
+        async with client.stream("GET", feed_url) as resp:
+            if resp.status_code != 200:
+                _provider_failed("rss", feed_url, resp)
+                return _news_unavailable(page)
+            content = bytearray()
+            async for chunk in resp.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > 1_000_000:
+                    raise ValueError("RSS exceeds size limit")
+        # Strict UTF-8 plus DTD/entity rejection prevents XML expansion attacks.
+        xml = content.decode("utf-8-sig")
+        if "<!DOCTYPE" in xml.upper() or "<!ENTITY" in xml.upper():
+            raise ValueError("RSS declarations are not supported")
+        root = ElementTree.fromstring(xml)
+        articles, seen = [], set()
+        for item in root.findall("./channel/item")[:200]:
+            title = (item.findtext("title") or "").strip()
+            url = (item.findtext("link") or "").strip()
+            parsed = urlparse(url)
+            if not title or parsed.scheme not in ("https", "http") or not parsed.hostname or url in seen:
+                continue
+            seen.add(url)
+            try:
+                published = parsedate_to_datetime(item.findtext("pubDate") or "")
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=timezone.utc)
+                published_at = published.astimezone(timezone.utc).isoformat()
+            except (ValueError, TypeError, OverflowError):
+                published_at = ""
+            thumbnail = item.find("{http://search.yahoo.com/mrss/}thumbnail")
+            image = thumbnail.get("url", "") if thumbnail is not None else ""
+            if urlparse(image).scheme not in ("https", "http"):
+                image = ""
+            articles.append({
+                "id": hashlib.md5(url.encode()).hexdigest(), "title": title,
+                "description": unescape(re.sub(r"<[^>]*>", "", item.findtext("description") or "")),
+                "url": url, "image": image, "publishedAt": published_at,
+                "source": {"name": "BBC News" if category != "sports" else "BBC Sport",
+                           "domain": parsed.netloc.removeprefix("www."),
+                           "favicon": "https://www.google.com/s2/favicons?domain=bbc.com&sz=32"},
+                "isHero": False,
+            })
+        start = (page - 1) * page_size
+        selected = articles[start:start + page_size]
+        return {"articles": selected, "has_more": start + page_size < len(articles),
+                "page": page, "status": "available" if selected else "empty", "provider": "bbc-rss"}
+    except Exception as exc:
+        _provider_failed("rss", feed_url)
+        logger.warning("RSS failed (category=%s, page=%s): %s", category, page, type(exc).__name__)
         return _news_unavailable(page)
 
 
@@ -216,6 +430,8 @@ def _transform_newsapi_articles(raw: list) -> list[dict]:
         if not title or title == "[Removed]":
             continue
         url = art.get("url", "") or ""
+        if not _news_url(url):
+            continue
         domain = ""
         try:
             domain = urlparse(url).netloc.replace("www.", "")
@@ -247,6 +463,8 @@ def _transform_guardian_articles(raw: list) -> list[dict]:
         if not title:
             continue
         url = art.get("webUrl", "") or ""
+        if not _news_url(url):
+            continue
         domain = ""
         try:
             domain = urlparse(url).netloc.replace("www.", "")
