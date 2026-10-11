@@ -39,9 +39,9 @@ The backend subsequently deployed successfully.
   the requested topic and seven-day window preserved through the proxy.
 - “Who developed you?” streamed the Chryselys identity with no tools or web sources.
 - A current FDA query streamed an answer with ten web sources.
-- A request to explain forecast assumptions streamed an answer. It invoked web search
-  and an unnecessary weather tool because the existing router treats “forecast” as
-  an external-information/weather signal. This behavior remains a routing limitation.
+- Forecast-assumption writing was subsequently corrected to use a direct answer.
+  Business forecasts no longer qualify for the weather tool solely because they
+  contain the word “forecast”; see [answer-quality.md](answer-quality.md).
 - The report page loaded successfully. Full report generation and a live generated-PDF
   download were not exercised; PDF forwarding was covered by the proxy regression test.
 

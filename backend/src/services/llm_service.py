@@ -5,13 +5,33 @@ from typing import AsyncGenerator, Dict, Any, List
 
 from groq import AsyncGroq
 from src.config.settings import settings
+from src.services.agents.query_context import clean_history, company_alias
 from src.config.prompts import (
     RAG_SYSTEM_PROMPT, DIRECT_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT,
     TITLE_SYSTEM_PROMPT, FOLLOW_UP_SYSTEM_PROMPT, ARTICLE_SUMMARY_SYSTEM_PROMPT,
     FOCUS_MODE_PROMPTS, FOCUS_MODE_PLANNING_HINTS,
+    COMPANY_FACTS_SYSTEM_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_evidence(context_results: list, char_budget: int = 10000) -> str:
+    """Use stable UI citation IDs and bound source material for generation and review."""
+    entries = []
+    chars_used = 0
+    for idx, result in enumerate(context_results[:8], start=1):
+        snippet = result.get("snippet", "")
+        if len(snippet) > 4000:
+            snippet = snippet[:2600] + "\n[excerpt continues]\n" + snippet[-1400:]
+        citation = result.get("citationIndex", idx)
+        label = f"Source [{citation}]" if citation is not None else "Tool output (no citation number)"
+        entry = f"{label}:\nTitle: {result.get('title', 'N/A')}\nURL: {result.get('url', '')}\nContent: {snippet}\n\n"
+        if chars_used + len(entry) > char_budget:
+            break
+        entries.append(entry)
+        chars_used += len(entry)
+    return "".join(entries)
 
 class GroqLLMService:
     def __init__(self):
@@ -24,12 +44,17 @@ class GroqLLMService:
             
         self.default_model = settings.DEFAULT_MODEL
 
-    def _build_system_prompt(self, context_results: List[Dict[str, Any]], focus_mode: str = "all") -> str:
+    def _build_system_prompt(self, context_results: List[Dict[str, Any]], focus_mode: str = "all", company_lookup: bool = False) -> str:
         """Constructs a dynamic system prompt, token-budgeted for Groq limits.
 
         Injects focus-mode-specific instructions when a specialized mode is active.
         """
         current_date = datetime.now().strftime("%B %d, %Y")
+
+        if company_lookup:
+            return COMPANY_FACTS_SYSTEM_PROMPT.format(
+                company_name=company_alias(settings.COMPANY_NAME), current_date=current_date
+            ) + format_evidence(context_results)
 
         if not context_results:
             prompt = DIRECT_SYSTEM_PROMPT.format(
@@ -56,20 +81,9 @@ class GroqLLMService:
             if focus_instructions:
                 prompt += focus_instructions
 
-        # Budget: ~10000 chars for sources (~2500 tokens), leave room for history + output
-        SOURCE_CHAR_BUDGET = 10000
-        chars_used = 0
-        for idx, result in enumerate(context_results[:6], start=1):
-            snippet = result.get('snippet', '')[:600]
-            entry = f"Source [{idx}]:\nTitle: {result.get('title', 'N/A')}\nContent: {snippet}\n\n"
-            if chars_used + len(entry) > SOURCE_CHAR_BUDGET:
-                break
-            prompt += entry
-            chars_used += len(entry)
+        return prompt + format_evidence(context_results)
 
-        return prompt
-
-    async def stream_answer(self, query: str, context_results: List[Dict[str, Any]], history: List[Dict[str, str]] = None, focus_mode: str = "all") -> AsyncGenerator[str, None]:
+    async def stream_answer(self, query: str, context_results: List[Dict[str, Any]], history: List[Dict[str, str]] = None, focus_mode: str = "all", company_lookup: bool = False) -> AsyncGenerator[str, None]:
         """
         Streams the LLM response chunk by chunk using Groq.
         Token-budgeted to stay within Groq limits.
@@ -79,20 +93,23 @@ class GroqLLMService:
             yield "LLM generation failed because Groq API key is missing."
             return
 
-        system_prompt = self._build_system_prompt(context_results, focus_mode)
+        system_prompt = self._build_system_prompt(context_results, focus_mode, company_lookup)
 
         # Build message history
         messages_payload = [{"role": "system", "content": system_prompt}]
         if history:
             # Take only the last 4 messages (2 complete turns) to save tokens
-            recent_history = history[-4:]
+            recent_history = clean_history(history)[-4:]
             # Trim each history message to prevent overflow
             for msg in recent_history:
                 trimmed = {**msg}
                 if len(trimmed.get("content", "")) > 1500:
                     trimmed["content"] = trimmed["content"][:1500] + "..."
                 messages_payload.append(trimmed)
-        messages_payload.append({"role": "user", "content": query[:1000]})
+        current_request = query[:1000]
+        if context_results:
+            current_request += "\nUse inline numeric source citations after factual claims, for example [1]."
+        messages_payload.append({"role": "user", "content": current_request})
 
         try:
             model_options = {}
@@ -105,7 +122,7 @@ class GroqLLMService:
                 max_tokens=4096,
                 stream=True,
                 stop=[
-                    "\n\n**Sources", "\n\nSources", "\n[", "\n- ["
+                    "\n\n**Sources", "\n\nSources"
                 ] if context_results else None,
                 **model_options,
             )
@@ -251,6 +268,9 @@ class GroqLLMService:
             return {"intent": f"Search for {query}", "queries": [query]}
 
         system_prompt = PLANNING_SYSTEM_PROMPT
+        system_prompt += ("\nToday is " + datetime.now().strftime("%B %d, %Y") +
+                          ". Preserve dates explicitly requested by the user. For latest/current "
+                          "requests, use the current year; do not introduce stale years from examples.")
 
         # Inject focus mode planning hint
         if focus_mode and focus_mode != "all":
@@ -309,7 +329,7 @@ class GroqLLMService:
         system_prompt = FOLLOW_UP_SYSTEM_PROMPT
         
         # Create a lightweight context summary to save tokens
-        context_str = " ".join([f"{item.get('title', '')}: {item.get('content', '')}" for item in context])[:3000]
+        context_str = " ".join([f"{item.get('title', '')}: {item.get('snippet', item.get('content', ''))}" for item in context])[:3000]
         user_prompt = f"Original Query: {query}\n\nContext: {context_str}"
         
         try:

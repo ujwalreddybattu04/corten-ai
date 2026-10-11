@@ -23,7 +23,8 @@ _WEATHER_PATTERNS = [
     re.compile(r'\bweather\b', re.IGNORECASE),
     re.compile(r'\btemperature\b.*\b(in|at|for)\b', re.IGNORECASE),
     re.compile(r'\bhow\s+(hot|cold|warm)\b.*\b(in|is)\b', re.IGNORECASE),
-    re.compile(r'\bforecast\b', re.IGNORECASE),
+    re.compile(r'\b(?:weather|rain|snow|temperature) forecast\b', re.IGNORECASE),
+    re.compile(r'\bforecast (?:in|for|at)\b', re.IGNORECASE),
     re.compile(r'\brain(ing)?\b.*\b(in|today)\b', re.IGNORECASE),
     re.compile(r'\bsnow(ing)?\b.*\b(in|today)\b', re.IGNORECASE),
     re.compile(r'\bhumidity\b.*\bin\b', re.IGNORECASE),
@@ -53,6 +54,10 @@ class WeatherTool(BaseTool):
     def can_handle(self, context: ToolContext) -> bool:
         """Detect weather-related queries."""
         q = context.query.lower()
+        if re.search(r'\b(sales|revenue|demand|pharma|patients?|financial|business|market)\b', q) and not re.search(
+            r'\b(weather|rain|snow|temperature|humidity|wind)\b', q
+        ):
+            return False
         return any(p.search(q) for p in _WEATHER_PATTERNS)
 
     async def execute(self, context: ToolContext) -> ToolResult:

@@ -16,8 +16,16 @@ class RoutingPolicyTests(unittest.TestCase):
             "Who are you and who developed you?": "identity",
             "Please tell me who created Corten AI?": "identity",
             "Which company developed you?": "identity",
-            "Who trained you?": "identity",
-            "What can you do?": "identity",
+            "Who trained you?": "training",
+            "What can you do?": "capabilities",
+            "do u have any agents inside this corten ??": "agents",
+            "Does Corten use multiple AI agents?": "agents",
+            "Explain your architecture": "agents",
+            "Can you tell me about your agents?": "agents",
+            "Tell me about yourself": "identity",
+            "Tell me about Corten's capabilities": "capabilities",
+            "How do you work?": "capabilities",
+            "What is Corten?": "identity",
             "Hello there!": "greeting",
             "Thank you so much": "greeting",
             "2 + 2": "math",
@@ -39,6 +47,9 @@ class RoutingPolicyTests(unittest.TestCase):
             "Who developed Python?",
             "Who created ChatGPT?",
             "Who is the CEO of Chryselys Private Limited?",
+            "what is chryselys ??",
+            "Where is Chryselys located?",
+            "Do you have agents and what is the latest pharma news?",
             "Who developed you and what is the current stock price?",
             "Who are you? Also search for AI news.",
             "Hi, latest AI news please",
@@ -59,6 +70,10 @@ class RoutingPolicyTests(unittest.TestCase):
     def test_transforming_previous_answer(self):
         self.assertEqual(direct_intent("Summarize your answer", "Corten", True), "text")
         self.assertIsNone(direct_intent("Summarize the latest news", "Corten", True))
+        self.assertEqual(direct_intent("Make it shorter", "Corten", True), "text")
+        self.assertEqual(direct_intent("Explain that in simple words", "Corten", True), "text")
+        self.assertIsNone(direct_intent("Make it shorter", "Corten", False))
+        self.assertIsNone(direct_intent("Make it shorter and add current prices", "Corten", True))
 
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):

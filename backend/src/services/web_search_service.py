@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 from tavily import AsyncTavilyClient
+from urllib.parse import urlsplit
 
 from src.config.settings import settings
 
@@ -15,14 +16,15 @@ class TavilySearchService:
         else:
             self.client = AsyncTavilyClient(api_key=self.api_key)
 
-    async def search(self, query: str, max_results: int = 12) -> Dict[str, Any]:
+    async def search(self, query: str, max_results: int = 12,
+                     include_domains: list[str] | None = None) -> Dict[str, Any]:
         """
         Perform a web search using the Tavily API.
         Returns a list of dictionaries with 'results' (text) and 'images'.
         """
         if not self.client:
             logger.error("Attempted to search without Tavily API key.")
-            return []
+            return {"results": [], "images": []}
 
         try:
             logger.info(f"Searching Tavily for: {query}")
@@ -33,6 +35,7 @@ class TavilySearchService:
                 include_answer=False,
                 include_images=False, # Disabled: Separate API will be used for images
                 include_raw_content=False,
+                **({"include_domains": include_domains} if include_domains else {}),
             )
             
             # Robustness check: Ensure response is a dictionary
@@ -42,7 +45,7 @@ class TavilySearchService:
             
             results = []
             for item in response.get("results", []):
-                domain = item.get("url", "").split("/")[2] if "://" in item.get("url", "") else ""
+                domain = urlsplit(item.get("url", "")).hostname or ""
                 if domain.startswith("www."):
                     domain = domain[4:]
                     

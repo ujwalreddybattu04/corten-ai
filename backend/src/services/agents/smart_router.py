@@ -14,10 +14,18 @@ that can route queries to the right pipeline for world-class answers.
 import asyncio
 import json
 import logging
+import re
+from datetime import datetime
+from urllib.parse import urlsplit
 from typing import Dict, Any, List
 
 from src.config.settings import settings
 from src.services.agents.routing_policy import direct_intent, needs_external_information
+from src.services.agents.query_context import (
+    clean_history, is_contextual, mentions_company, resolve_company_followup, validated_standalone,
+    ambiguous_comparison_followup,
+    resolve_named_followup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +92,14 @@ SMART_ROUTER_PROMPT += (
     "Include a boolean requires_search in the JSON. For false, use strategy direct. "
     "For true, use quick/standard/deep. If uncertain, use requires_search=true.\n"
     "For supplied text transformations use query_type=text.\n"
+    "For a factual follow-up with pronouns, resolve the subject from the most recent turn. "
+    "Include standalone_query (a complete searchable question), context_entity (the exact "
+    "entity name already present in that turn), and needs_clarification (boolean). "
+    "Only resolve when there is one clear referent; set needs_clarification=true for "
+    "missing/ambiguous subjects or comparisons with multiple possible referents. "
+    "Do not invent an entity or treat a previous assistant assertion as verified evidence. "
+    "For non-follow-ups, standalone_query is the original request and context_entity is empty.\n"
+    "Today is {current_date}. For latest/current requests, use current dates, not years from examples.\n"
     "Examples: 'who developed you ??' = direct/identity/false; "
     "'who developed Python?' = quick/factual/true; "
     "'write a leave email' = direct/creative/false; "
@@ -116,18 +132,31 @@ class SmartRouter:
                 "focus_mode": str
             }
         """
+        messages = clean_history(messages)
+        original_query = query
+        query = resolve_company_followup(query, messages, settings.COMPANY_NAME, settings.BRAND_NAME)
+        query = resolve_named_followup(query, messages)
         intent = direct_intent(query, settings.BRAND_NAME, bool(messages))
         if intent:
             return self._direct_route(query, focus_mode, intent)
 
+        if ambiguous_comparison_followup(query, messages):
+            return self._direct_route(query, focus_mode, "clarification")
+
+        company_route = self._company_route(query, focus_mode)
+        if company_route:
+            return company_route
+
+        contextual = is_contextual(query)
         from src.services.llm_service import groq_llm_service
 
         if not groq_llm_service.client:
-            return self._fallback(query, focus_mode)
+            return self._fallback(query, focus_mode, contextual)
 
         system_prompt = SMART_ROUTER_PROMPT.format(
             brand_name=settings.BRAND_NAME,
             company_name=settings.COMPANY_NAME,
+            current_date=datetime.now().strftime("%B %d, %Y"),
         )
 
         # Inject focus mode context into the router's user message
@@ -161,6 +190,16 @@ class SmartRouter:
             if not isinstance(result, dict):
                 raise ValueError("Router response must be a JSON object")
 
+            if contextual:
+                resolved = validated_standalone(query, result.get("standalone_query"),
+                                                 result.get("context_entity"), messages)
+                if result.get("needs_clarification") is True or not resolved:
+                    return self._direct_route(original_query, focus_mode, "clarification")
+                query = resolved
+                company_route = self._company_route(query, focus_mode)
+                if company_route:
+                    return company_route
+
             # Validate and normalize
             strategy = result.get("strategy", "standard")
             if strategy not in (STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH):
@@ -184,11 +223,13 @@ class SmartRouter:
                 sub_questions = []
 
             query_type = result.get("query_type", "factual")
-            offline_types = {"greeting", "identity", "math", "creative", "code", "text"}
+            # Identity and self-description are accepted only by the exact rules above.
+            offline_types = {"math", "creative", "code", "text"}
             requires_search = result.get("requires_search", True)
             # Enforce policy independently of a potentially contradictory strategy.
             if (requires_search is False and query_type in offline_types
-                    and not needs_external_information(query)):
+                    and not needs_external_information(query)
+                    and not mentions_company(query, settings.COMPANY_NAME)):
                 return self._direct_route(query, focus_mode, query_type)
             if strategy == STRATEGY_DIRECT:
                 strategy = STRATEGY_STANDARD
@@ -209,6 +250,7 @@ class SmartRouter:
                 "tools": selected_tools,
                 "focus_mode": focus_mode,
                 "requires_search": True,
+                "resolved_query": query,
             }
 
             logger.info(
@@ -220,7 +262,26 @@ class SmartRouter:
 
         except Exception as e:
             logger.error(f"[SmartRouter] Routing failed for '{query}': {e}")
-            return self._fallback(query, focus_mode)
+            return self._fallback(query, focus_mode, contextual)
+
+    def _company_route(self, query: str, focus_mode: str) -> Dict[str, Any] | None:
+        """Basic company facts require the company's own evidence, in every focus mode."""
+        if not mentions_company(query, settings.COMPANY_NAME):
+            return None
+        if re.search(r"\b(compare|versus|vs|competitors?|news|reviews?|best|analysis|analy[sz]e|"
+                     r"research|investment|stock|market|report)\b", query, re.I):
+            return None
+        if not re.search(r"\b(what|who|where|about|located|location|headquarters|hq|offices?|"
+                         r"based|business|services?|products?|operate|does|doing|ceo|founder)\b", query, re.I):
+            return None
+        domain = (urlsplit(settings.COMPANY_WEBSITE).hostname or "").removeprefix("www.")
+        return {
+            "strategy": STRATEGY_QUICK, "complexity": 2, "query_type": "company",
+            "reasoning": "Verify company facts using official sources",
+            "sub_questions": [], "tools": ["web_search"], "focus_mode": focus_mode,
+            "requires_search": True, "resolved_query": query,
+            "tool_metadata": {"include_domains": [domain]} if domain else {},
+        }
 
     def _select_tools(
         self, query: str, query_type: str, complexity: int, strategy: str, focus_mode: str = "all"
@@ -254,13 +315,16 @@ class SmartRouter:
             "tools": tools,
             "focus_mode": focus_mode,
             "requires_search": False,
+            "resolved_query": query,
         }
 
-    def _fallback(self, query: str, focus_mode: str = "all") -> Dict[str, Any]:
+    def _fallback(self, query: str, focus_mode: str = "all", contextual: bool = False) -> Dict[str, Any]:
         """Retain offline rules on failure; prefer research for everything else."""
         intent = direct_intent(query, settings.BRAND_NAME)
         if intent:
             return self._direct_route(query, focus_mode, intent)
+        if contextual:
+            return self._direct_route(query, focus_mode, "clarification")
         tools = self._select_tools(query, "factual", 3, STRATEGY_STANDARD, focus_mode)
         return {
             "strategy": STRATEGY_STANDARD,
@@ -271,6 +335,7 @@ class SmartRouter:
             "tools": tools,
             "focus_mode": focus_mode,
             "requires_search": True,
+            "resolved_query": query,
         }
 
 

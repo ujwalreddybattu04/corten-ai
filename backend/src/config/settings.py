@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_DEBUG: bool = True
     BRAND_NAME: str = "Corten"
     COMPANY_NAME: str = "Chryselys Private Limited"
+    COMPANY_WEBSITE: str = "https://chryselys.com"
     BRAND_DESCRIPTION: str = "the AI assistant developed by Chryselys Private Limited"
 
     # --- Database ---

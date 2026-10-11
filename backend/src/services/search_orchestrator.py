@@ -23,6 +23,10 @@ from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRA
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
 from src.config.settings import settings
+from src.services.application_facts import self_answer
+from src.services.agents.query_context import clean_history
+from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER
+from src.services.company_evidence import official_office_answer
 from src.db.redis import cache_get, cache_set, make_search_cache_key
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,8 @@ class SearchOrchestrator:
             yield _sse("done", {})
             return
 
+        background_tasks = []
+        messages = clean_history(messages)
         try:
             start_time = time.time()
             logger.info(f"[Orchestrator] Query: {query} | focus: {focus_mode}")
@@ -60,6 +66,7 @@ class SearchOrchestrator:
             yield _sse("status", {"content": f"Understanding \"{short_query}\""})
 
             route = await smart_router.route(query, focus_mode, messages)
+            query = route.get("resolved_query", query)
             strategy = route.get("strategy", STRATEGY_STANDARD)
             if route.get("requires_search") is False:
                 strategy = STRATEGY_DIRECT
@@ -97,6 +104,11 @@ class SearchOrchestrator:
 
             if strategy == STRATEGY_DIRECT:
                 # ── DIRECT: Check if calculator/weather can handle it ─────
+                verified_answer = self_answer(query_type)
+                if verified_answer:
+                    yield _sse("token", {"content": verified_answer})
+                    yield _sse("done", {})
+                    return
                 compute_tools = [
                     tool_registry.get_tool(name)
                     for name in selected_tool_names
@@ -185,6 +197,7 @@ class SearchOrchestrator:
                 strategy=strategy,
                 focus_mode=focus_mode,
                 messages=messages or [],
+                metadata=route.get("tool_metadata", {}),
             )
 
             # Get the actual tool objects for selected tools
@@ -201,13 +214,14 @@ class SearchOrchestrator:
 
             # Separate primary tools (search/compute/data) from supplementary (images)
             primary_tools = [t for t in selected_tools if t.name != "image_search"]
-            image_tool = tool_registry.get_tool("image_search")
+            image_tool = tool_registry.get_tool("image_search") if query_type != "company" else None
 
             # Start plan generation for standard strategy
             if strategy != STRATEGY_QUICK:
                 plan_task = asyncio.create_task(
                     groq_llm_service.generate_research_plan(query, focus_mode)
                 )
+                background_tasks.append(plan_task)
             else:
                 plan_task = None
 
@@ -227,11 +241,13 @@ class SearchOrchestrator:
             primary_task = asyncio.create_task(
                 tool_executor.execute_tools(primary_tools, tool_context)
             )
+            background_tasks.append(primary_task)
 
             if image_tool:
                 image_task = asyncio.create_task(
                     tool_executor.execute_single(image_tool, tool_context, use_cache=False)
                 )
+                background_tasks.append(image_task)
             else:
                 image_task = None
 
@@ -304,38 +320,71 @@ class SearchOrchestrator:
             yield _sse("status", {"content": f"Synthesizing answer from {src_count} sources"})
 
             # Build enriched context for LLM with tool results
-            enriched_results = search_results_for_llm.copy()
+            enriched_results = [dict(source) for source in unique_sources]
             for tool_name, data in all_tool_data.items():
                 if tool_name == "web_search":
                     continue  # Already included
                 formatted = data.get("formatted", "")
-                if formatted:
-                    enriched_results.insert(0, {
+                if formatted or (tool_name == "url_reader" and data.get("content")):
+                    tool_result = next(result for result in tool_results if result.tool_name == tool_name)
+                    source_url = tool_result.sources[0].get("url") if tool_result.sources else None
+                    existing = next((source for source in enriched_results if source["url"] == source_url), None)
+                    if existing is not None:
+                        existing["snippet"] = formatted or data["content"]
+                        continue
+                    enriched_results.append({
                         "title": f"[{tool_name.upper()} TOOL RESULT]",
                         "url": "",
-                        "snippet": formatted,
+                        "snippet": formatted or data["content"],
                         "domain": f"tool:{tool_name}",
+                        "citationIndex": None,
                     })
-                elif tool_name == "url_reader" and data.get("content"):
-                    enriched_results.insert(0, {
-                        "title": f"Extracted from: {data.get('url', '')}",
-                        "url": data.get("url", ""),
-                        "snippet": data["content"][:3000],
-                        "domain": "extracted-content",
-                    })
+
+            if not any(result.get("snippet", "").strip() for result in enriched_results):
+                yield _sse("token", {"content": UNVERIFIED_ANSWER})
+                yield _sse("done", {})
+                return
+
+            if query_type == "company":
+                office_answer = official_office_answer(query, enriched_results, settings.COMPANY_NAME)
+                if office_answer:
+                    yield _sse("token", {"content": office_answer})
+                    yield _sse("done", {})
+                    return
 
             follow_up_task = asyncio.create_task(
                 groq_llm_service.generate_follow_up_questions(query, enriched_results)
             )
+            background_tasks.append(follow_up_task)
 
             buffer = ""
-            async for chunk in groq_llm_service.stream_answer(query, enriched_results, messages, focus_mode):
+            # The subject is already resolved. Old assistant claims must not contaminate company facts.
+            answer_history = [] if query_type == "company" else messages
+            async for chunk in groq_llm_service.stream_answer(query, enriched_results, answer_history, focus_mode,
+                                                              company_lookup=query_type == "company"):
                 buffer += chunk
                 search_window = buffer[-150:] if len(buffer) > 150 else buffer
                 if _CUTOFF_PATTERN.search(search_window):
                     logger.info("[Orchestrator] Cutoff: source list detected, truncating")
                     break
-                yield _sse("token", {"content": chunk})
+                if query_type != "company":
+                    yield _sse("token", {"content": chunk})
+
+            if query_type == "company":
+                yield _sse("status", {"content": "Checking the answer against official sources"})
+                if not await verify_company_answer(query, buffer, enriched_results, groq_llm_service):
+                    # One bounded repair using the same evidence. Neither rejected draft is exposed.
+                    yield _sse("status", {"content": "Refining the answer using verified evidence"})
+                    repair_query = (query + "\nAnswer briefly using only explicit evidence. "
+                                    "Use the company brand name from the sources, not an assumed legal name. "
+                                    "Do not infer headquarters. Include inline source IDs after every factual claim.")
+                    buffer = "".join([chunk async for chunk in groq_llm_service.stream_answer(
+                        repair_query, enriched_results, [], focus_mode, company_lookup=True)])
+                    if not await verify_company_answer(query, buffer, enriched_results, groq_llm_service):
+                        yield _sse("token", {"content": UNVERIFIED_ANSWER})
+                        yield _sse("done", {})
+                        return
+                yield _sse("token", {"content": buffer})
 
             # ── PHASE 6: DELIVER CONCURRENT RESULTS ───────────────────────
             try:
@@ -374,6 +423,12 @@ class SearchOrchestrator:
                 error_message = "API rate limit reached. Please wait a moment."
             yield _sse("error", {"message": error_message})
             yield _sse("done", {})
+        finally:
+            for task in background_tasks:
+                if not task.done():
+                    task.cancel()
+            if background_tasks:
+                await asyncio.gather(*background_tasks, return_exceptions=True)
 
     async def stream_article_summary(
         self,

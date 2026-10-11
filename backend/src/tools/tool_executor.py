@@ -20,6 +20,8 @@ Usage:
 import asyncio
 import time
 import logging
+import hashlib
+import json
 from typing import Dict, List, Optional, Tuple
 
 from src.tools.base_tool import BaseTool, ToolContext, ToolResult, ToolStatus
@@ -31,6 +33,15 @@ logger = logging.getLogger(__name__)
 TOOL_CACHE_TTL = 180              # 3 minutes cache for tool results
 MAX_PARALLEL_TOOLS = 6            # Don't fire more than 6 tools at once
 GLOBAL_TIMEOUT = 15.0             # Hard cap even if tool declares longer
+
+
+def tool_cache_key(tool: BaseTool, context: ToolContext) -> str:
+    identity = json.dumps({"query": context.query.strip().lower(),
+                           "focus": context.focus_mode, "type": context.query_type,
+                           "complexity": context.complexity, "metadata": context.metadata},
+                          sort_keys=True, ensure_ascii=True)
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    return f"tool:v2:{tool.name}:{tool.version}:{digest}"
 
 
 class ToolExecutor:
@@ -126,7 +137,7 @@ class ToolExecutor:
         Execute one tool with cache check, timeout, retry, and metrics.
         """
         # ── Cache Check ───────────────────────────────────────────────────
-        cache_key = f"tool:{tool.name}:{context.query.strip().lower()}"
+        cache_key = tool_cache_key(tool, context)
         if use_cache:
             cached = await cache_get(cache_key)
             if cached is not None:
