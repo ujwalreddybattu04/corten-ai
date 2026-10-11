@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import re
+import hashlib
 
 from src.config.settings import settings
 
@@ -11,6 +12,15 @@ UNVERIFIED_ANSWER = (
     "I couldn’t verify this from the available sources. Please try again, "
     "or share an official source so I can check it."
 )
+
+
+def company_answer_cache_key(query: str, sources: list) -> str:
+    """A verified answer may be reused only for the same request and evidence snapshot."""
+    evidence = [{"url": source.get("url"), "snippet": source.get("snippet"),
+                 "citationIndex": source.get("citationIndex")} for source in sources]
+    payload = json.dumps({"query": query.strip().lower(), "evidence": evidence,
+                          "model": settings.DEFAULT_MODEL, "review_model": settings.ROUTER_MODEL}, sort_keys=True)
+    return "company-answer:v1:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
 async def verify_company_answer(query: str, answer: str, sources: list, llm_service) -> bool:

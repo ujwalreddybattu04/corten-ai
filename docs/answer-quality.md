@@ -39,6 +39,9 @@ are not model stop sequences. Follow-up suggestions receive actual result snippe
 Unfinished background tasks are cancelled when a stream finishes or disconnects.
 Tool cache keys include the resolved query, focus, complexity, tool version and source
 policy. The v2 namespace prevents reuse of earlier context-free cached results.
+Verified company answers may be reused for three minutes only when the request, source
+URLs, citation IDs, evidence text and configured models are unchanged. Basic company
+answers skip speculative follow-up generation to reduce unnecessary provider requests.
 
 Forecast-related business questions no longer qualify for weather solely because
 they contain the word “forecast”. Self-contained text edits can reuse a prior answer

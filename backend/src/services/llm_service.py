@@ -119,7 +119,7 @@ class GroqLLMService:
                 messages=messages_payload,
                 model=self.default_model,
                 temperature=0.2,
-                max_tokens=4096,
+                max_tokens=1024 if company_lookup else 4096,
                 stream=True,
                 stop=[
                     "\n\n**Sources", "\n\nSources"

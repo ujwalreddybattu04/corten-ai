@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from src.config.settings import settings
 from src.services.agents.query_context import clean_history, validated_standalone, is_contextual, resolve_named_followup
 from src.services.agents.smart_router import SmartRouter
-from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER
+from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER, company_answer_cache_key
 from src.services.company_evidence import official_office_answer
 from src.services.llm_service import groq_llm_service
 from src.services.search_orchestrator import SearchOrchestrator
@@ -79,6 +79,9 @@ class ContextTests(unittest.TestCase):
             ToolContext(query="Where is Chryselys located?", metadata={"include_domains": ["chryselys.com"]}),
         ]]
         self.assertEqual(len(set(keys)), 4)
+        original = company_answer_cache_key("What is Chryselys?", [COMPANY_SOURCE])
+        self.assertNotEqual(original, company_answer_cache_key("What is Chryselys?", [{**COMPANY_SOURCE, "snippet": "Changed official evidence"}]))
+        self.assertNotEqual(original, company_answer_cache_key("Where is Chryselys?", [COMPANY_SOURCE]))
 
     def test_simple_names_resolve_without_accepting_ambiguous_previous_subjects(self):
         self.assertEqual(resolve_named_followup("Where is it headquartered?", [
@@ -279,6 +282,7 @@ class AnswerStreamTests(unittest.IsolatedAsyncioTestCase):
         executor = AsyncMock(return_value=[ToolResult(success=True, tool_name="web_search",
             data={"results": [COMPANY_SOURCE]}, sources=[dict(COMPANY_SOURCE)])])
         with patch("src.services.search_orchestrator.tool_executor.execute_tools", executor), \
+             patch("src.services.search_orchestrator.cache_get", AsyncMock(return_value=None)), \
              patch.object(groq_llm_service, "stream_answer", bad_answer), \
              patch.object(groq_llm_service, "generate_follow_up_questions", AsyncMock(return_value=[])), \
              patch("src.services.search_orchestrator.verify_company_answer", AsyncMock(return_value=False)) as verify:
@@ -311,6 +315,8 @@ class AnswerStreamTests(unittest.IsolatedAsyncioTestCase):
         result = ToolResult(success=True, tool_name="web_search", data={"results": [COMPANY_SOURCE]},
                             sources=[dict(COMPANY_SOURCE)])
         with patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock(return_value=[result])), \
+             patch("src.services.search_orchestrator.cache_get", AsyncMock(return_value=None)), \
+             patch("src.services.search_orchestrator.cache_set", AsyncMock()), \
              patch.object(groq_llm_service, "stream_answer", answer), \
              patch.object(groq_llm_service, "generate_follow_up_questions", AsyncMock(return_value=[])), \
              patch("src.services.search_orchestrator.verify_company_answer", AsyncMock(return_value=True)):
@@ -322,6 +328,16 @@ class AnswerStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Chryselys", calls[0][0])
         self.assertEqual(calls[0][1][0]["citationIndex"], 1)
         self.assertTrue(any(event["type"] == "token" and "Hyderabad [1]" in event["content"] for event in events))
+
+    async def test_verified_answer_cache_avoids_regeneration_for_unchanged_evidence(self):
+        result = ToolResult(success=True, tool_name="web_search", data={"results": [COMPANY_SOURCE]},
+                            sources=[dict(COMPANY_SOURCE)])
+        with patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock(return_value=[result])), \
+             patch("src.services.search_orchestrator.cache_get", AsyncMock(return_value={"verified": True, "answer": "Verified company answer [1]."})), \
+             patch.object(groq_llm_service, "stream_answer", AsyncMock()) as generation:
+            events = parse_events([event async for event in SearchOrchestrator().stream_search("What is Chryselys?")])
+        generation.assert_not_called()
+        self.assertTrue(any(event.get("content") == "Verified company answer [1]." for event in events))
 
 
 if __name__ == "__main__":

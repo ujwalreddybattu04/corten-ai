@@ -25,7 +25,7 @@ from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
 from src.config.settings import settings
 from src.services.application_facts import self_answer
 from src.services.agents.query_context import clean_history
-from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER
+from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER, company_answer_cache_key
 from src.services.company_evidence import official_office_answer
 from src.db.redis import cache_get, cache_set, make_search_cache_key
 
@@ -351,11 +351,20 @@ class SearchOrchestrator:
                     yield _sse("token", {"content": office_answer})
                     yield _sse("done", {})
                     return
+                answer_cache_key = company_answer_cache_key(query, enriched_results)
+                cached_answer = await cache_get(answer_cache_key)
+                if isinstance(cached_answer, dict) and cached_answer.get("verified") is True and cached_answer.get("answer"):
+                    yield _sse("token", {"content": cached_answer["answer"]})
+                    yield _sse("done", {})
+                    return
 
-            follow_up_task = asyncio.create_task(
-                groq_llm_service.generate_follow_up_questions(query, enriched_results)
-            )
-            background_tasks.append(follow_up_task)
+            # Basic company answers do not need a second speculative suggestion request.
+            follow_up_task = None
+            if query_type != "company":
+                follow_up_task = asyncio.create_task(
+                    groq_llm_service.generate_follow_up_questions(query, enriched_results)
+                )
+                background_tasks.append(follow_up_task)
 
             buffer = ""
             # The subject is already resolved. Old assistant claims must not contaminate company facts.
@@ -385,10 +394,11 @@ class SearchOrchestrator:
                         yield _sse("done", {})
                         return
                 yield _sse("token", {"content": buffer})
+                await cache_set(answer_cache_key, {"verified": True, "answer": buffer}, ttl=180)
 
             # ── PHASE 6: DELIVER CONCURRENT RESULTS ───────────────────────
             try:
-                related = await follow_up_task
+                related = await follow_up_task if follow_up_task else []
                 if related:
                     yield _sse("related", {"questions": related})
             except Exception as e:
