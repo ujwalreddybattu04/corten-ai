@@ -38,11 +38,14 @@
 
 ## Hosting
 
+[Live app](https://corten-ai-web.onrender.com) · [Analyst Workspace](https://corten-ai-web.onrender.com/analyst-workspace) · [Backend health](https://corten-ai-api.onrender.com/health)
+
 [Deploy the full setup on Render](https://render.com/deploy?repo=https://github.com/ujwalreddybattu04/corten-ai)
 
 The repository includes a four-resource deployment: frontend, backend, PostgreSQL and Redis.
 See [deployment instructions and preview limits](docs/deployment.md) before creating it.
 Keep API keys in backend environment variables; local secrets are excluded from Git and Docker images.
+See the [hosted verification report](docs/hosted-verification.md) for completed checks and current integration limits.
 
 ## Tech Stack
 
