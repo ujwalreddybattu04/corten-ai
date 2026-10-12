@@ -1,16 +1,8 @@
-const fs = require("node:fs");
 const assert = require("node:assert/strict");
 const { test, after } = require("node:test");
-const ts = require("typescript");
-const Module = require("node:module");
 const path = require("node:path");
 const source = path.join(__dirname, "../src/app/api/v1/[[...path]]/route.ts");
-const compiled = ts.transpileModule(fs.readFileSync(source, "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-}).outputText;
-const instance = new Module(source, module);
-instance._compile(compiled, source);
-const api = instance.exports;
+const api = require("./load-ts")(source);
 const originalFetch = global.fetch;
 const originalBackend = process.env.BACKEND_URL;
 const originalRenderUrl = process.env.RENDER_EXTERNAL_URL;
@@ -35,6 +27,20 @@ const request = (method, query = "", body) => {
   req.nextUrl = new URL(req.url);
   return req;
 };
+
+test("a successful password reset clears every session cookie; a rejected link preserves them", async () => {
+  process.env.BACKEND_URL = "https://backend.example";
+  global.fetch = async () => Response.json({ message: "Password updated" });
+  const res = await api.POST(request("POST", "", JSON.stringify({ token: "a".repeat(43), password: "New-password-42" })), context(["auth", "reset-password"]));
+  const cookies = res.headers.get("set-cookie") || "";
+  assert.equal(res.status, 200);
+  for (const name of ["corten_access", "corten_refresh", "corten_remember"]) assert.ok(cookies.includes(name + "="));
+  assert.ok(cookies.includes("Max-Age=0"));
+  global.fetch = async () => Response.json({ detail: "Expired link" }, { status: 400 });
+  const failed = await api.POST(request("POST", "", "{}"), context(["auth", "reset-password"]));
+  assert.equal(failed.status, 400);
+  assert.equal(failed.headers.get("set-cookie"), null);
+});
 
 test("multipart interpolation uploads preserve Unicode CSV bytes and the generated boundary", async () => {
   const form = new FormData();

@@ -1,0 +1,10 @@
+[Unit]
+Description=Deliver Corten password recovery email with the host role
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/corten/current/deploy/aws/deliver-recovery-email.py
+TimeoutStartSec=75
+UMask=0077

@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { POST as executeCode } from "../../execute/route";
 
 export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ path?: string[] }> };
@@ -63,6 +64,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
         return Response.json({ detail: "Request origin is not allowed" }, { status: 403 });
     }
     const backend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+    if (path.length === 1 && path[0] === "execute" && request.method === "POST") return executeCode(request);
     const session = action === "session" && request.method === "GET";
     if (session && !cookie(request, ACCESS) && !cookie(request, REFRESH) && !request.headers.has("authorization")) {
         return Response.json(null, { headers: { "Cache-Control": "no-store", "Vary": "Cookie, Authorization" } });
@@ -154,6 +156,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
         }
         if (action === "refresh" && upstream.status === 401) clearSession(responseHeaders, request);
         if (logout && upstream.ok) clearSession(responseHeaders, request);
+        if (action === "reset-password" && upstream.ok) clearSession(responseHeaders, request);
         return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
     } catch {
         return Response.json({ detail: "Backend unavailable. Please try again shortly." }, { status: 502, headers: responseHeaders });

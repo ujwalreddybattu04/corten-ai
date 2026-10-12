@@ -41,9 +41,9 @@ async def revoke_session(sid, user_id):
     await _eval("if redis.call('HGET', KEYS[1], 'user') == ARGV[1] then return redis.call('DEL', KEYS[1]) end; return 0", [_key(sid)], user_id)
 
 
-async def limit_auth_attempts(action, email, client):
+async def limit_auth_attempts(action, email, client, email_limit=20, client_limit=1000):
     # Fixed windows, atomic expiry and bounded keys. Never store raw email addresses.
-    for kind, value, limit in (("email", email.strip().lower(), 20), ("client", client, 1000)):
+    for kind, value, limit in (("email", email.strip().lower(), email_limit), ("client", client, client_limit)):
         digest = hashlib.sha256(value.encode()).hexdigest()
         count = await _eval("local n = redis.call('INCR', KEYS[1]); if n == 1 then redis.call('EXPIRE', KEYS[1], 900) end; return n", [f"auth_limit:{action}:{kind}:{digest}"])
         if count > limit:

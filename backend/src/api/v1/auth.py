@@ -36,6 +36,27 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=1024)
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=128, repr=False)
+    password: str = Field(min_length=8, max_length=1024, repr=False)
+
+@router.post("/forgot-password", status_code=202)
+async def forgot_password(body: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    from src.services.password_recovery import request_reset
+    client = request.headers.get("X-Corten-Client-IP") or (request.client.host if request.client else "unknown")
+    await limit_auth_attempts("forgot", str(body.email), client, email_limit=3, client_limit=30)
+    return await request_reset(db, str(body.email))
+
+@router.post("/reset-password")
+async def recover_password(body: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    from src.services.password_recovery import reset_password
+    client = request.headers.get("X-Corten-Client-IP") or (request.client.host if request.client else "unknown")
+    await limit_auth_attempts("reset", body.token, client, email_limit=10, client_limit=50)
+    return await reset_password(db, body.token, body.password)
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=4096)

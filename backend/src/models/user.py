@@ -22,6 +22,7 @@ class User(Base):
     oauth_provider = Column(String(50), nullable=True)          # google | github | None
     oauth_provider_id = Column(String(255), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    auth_version = Column(Integer, nullable=False, default=0, server_default="0")
     last_active_at = Column(DateTime(timezone=True), nullable=True)
     search_count_today = Column(Integer, nullable=False, default=0)
     search_count_month = Column(Integer, nullable=False, default=0)

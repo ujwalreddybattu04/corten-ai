@@ -1,4 +1,5 @@
 "use client";
+import { api } from "@/lib/api";
 
 import {
   useState,
@@ -205,7 +206,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
 
         try {
           executionRef.current = new AbortController();
-          const res = await fetch("/api/execute", {
+          const res = await api.response("/api/v1/execute", {
             signal: AbortSignal.any([executionRef.current.signal, AbortSignal.timeout(45000)]),
             method: "POST",
             headers: { "Content-Type": "application/json" },

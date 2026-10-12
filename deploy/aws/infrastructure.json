@@ -212,6 +212,26 @@
                 }
               ]
             }
+          },
+          {
+            "PolicyName": "CortenRecoveryEmail",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "ses:SendEmail",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/ujwalreddybattu@gmail.com"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "ses:FromAddress": "ujwalreddybattu@gmail.com"
+                    }
+                  }
+                }
+              ]
+            }
           }
         ]
       }

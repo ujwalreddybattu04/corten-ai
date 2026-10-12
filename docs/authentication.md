@@ -1,109 +1,79 @@
-# Authentication review
+# Authentication and password recovery
 
-Email signup and login use PostgreSQL accounts, bcrypt-SHA256 password hashing,
-and Redis-backed sessions. Existing bcrypt hashes remain readable. New passwords
-are limited to 8–1024 characters and are never silently truncated to bcrypt's
-72-byte limit. Login errors do not distinguish unknown or disabled accounts.
+Public signup creates personal accounts. Sign-in is required for chat, Discover,
+reports, code execution, Spaces and both Analyst Workspace tools. Only auth pages
+and readiness endpoints remain public. Browser session verification happens before
+tools mount. App APIs independently require a valid session; auth pages do not mount
+the sidebar. Requested local return paths survive sign-in.
 
-## Browser sessions
+## Session security
 
-The Next.js API proxy keeps both JWTs in HttpOnly, SameSite=Lax cookies, with
-Secure on HTTPS. Browser API calls use the frontend origin. JWTs are removed from
-login/register/refresh JSON responses and are never saved in localStorage.
-Cookie-authenticated writes require the frontend Origin. The proxy never forwards
-browser cookies to the backend.
-On Render, the public origin comes from `RENDER_EXTERNAL_URL`, rather than the
-internal HTTP request URL. Set `APP_ORIGIN` to the full HTTPS origin when using a
-custom domain or another reverse proxy. This setting controls CSRF validation and
-the Secure cookie flag; never derive trust from arbitrary forwarded-host headers.
+Passwords use bcrypt-SHA256, with legacy bcrypt readable and no silent truncation.
+Passwords accept 8–1024 characters. Login errors do not reveal account existence.
+The proxy keeps JWTs in HttpOnly, SameSite=Lax cookies, Secure on HTTPS. APP_ORIGIN
+controls CSRF and cookie checks. Tokens never appear in browser login JSON or
+localStorage. Authenticated responses use no-store; source caching remains internal.
 
-Session restoration calls the proxy's `/api/v1/auth/session`, which verifies
-existing cookies through `/api/v1/auth/me` and returns null immediately for guests;
-a cached profile cannot authenticate a user. A 401 triggers one refresh and one
-retry. Concurrent requests share a
-refresh promise, and browsers supporting Web Locks coordinate rotation across
-tabs. Logout and account changes synchronize across tabs.
-An interrupted logout hides private views, persists a pending-logout marker, and
-retries on reconnect or explicitly; it cannot silently restore the old session.
-If the proxy cannot confirm backend revocation, it clears the access cookie and
-retains only the HttpOnly refresh credential needed for a real revocation retry.
-Remember me creates persistent cookies; otherwise cookies last for the browser
-session. Sessions have
-an absolute seven-day maximum; refreshing cannot extend that maximum.
+Redis tracks session IDs and one-use refresh JTIs, with atomic rotation, replay
+revocation and rate limits. Browser tabs coordinate refresh; logout revokes the
+whole session. Sessions have an absolute seven-day maximum. Protected requests also
+check the active PostgreSQL user and password version (pv). Legacy valid JWTs
+represent version zero. Database/security-store outages fail closed.
 
-Access and refresh JWTs have distinct types, issuer, audience, expiry, issue time,
-validated UUID subjects, and a session ID. Refresh has a one-use JTI. Redis Lua
-atomically rotates the JTI, verifies its owner, and preserves session expiry.
-Reusing an old refresh token revokes that session's active token family, following
-[RFC 9700 replay detection](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2).
-Clients must serialize refresh across tabs; concurrent direct API refreshes cause
-the session to require a new login.
-Logout deletes the entire session, so existing access tokens stop working too.
-Every protected request checks both the session and the active database account.
-Security-store outages fail with 503, rather than granting access. Auth attempts
-have atomic Redis limits and 429 responses with Retry-After.
+Private threads and PDFs require their owner; public threads still require sign-in.
+Personal histories, Spaces and preferences sync through owner-scoped PostgreSQL
+records with revisions. Account changes cancel work and isolate browser caches.
+Existing guest data stays separate and does not authenticate anyone.
 
-## Authorization and browser data
+## Recovery
 
-Private threads are available only to their owner. Public threads remain readable
-without signing in. Invalid credentials are rejected instead of being treated as
-anonymous. Malformed thread IDs return 422. Profile endpoints require authentication
-and return actual account data; updating a profile can change only its display name.
-Spaces and collections API placeholders now require authentication and return 501
-until server storage is implemented.
+The sign-in page links to /auth/forgot-password. Eligible requests atomically create
+a random token and encrypted mail outbox entry. The reset table stores only a SHA-256
+digest. Purpose-separated queue encryption derives from the existing JWT secret.
+Known and unknown eligible addresses get the same neutral reply. Sending restrictions
+produce an explicit error rather than a false delivery confirmation.
 
-The app remains available in guest mode. Browser histories, pins, analyst projects,
-Spaces, and Discover personalization use separate namespaces for each verified
-account. An account change remounts the app to discard stale component state and
-abort pending conversation work. Delayed title responses cannot write across an
-account change. Guest data stays separate.
+The responsive branded HTML email has a plain-text alternative, reset button,
+expiry and security notice. HTTPS links carry a URL fragment token outside server
+paths/queries. Reset UI checks matching passwords, handles expired links, clears
+sensitive fields and removes the token after success.
 
-This is browser storage, not centralized team storage or encryption. Anyone with
-access to the browser profile or its developer tools can inspect local records.
-Do not use this preview for confidential company data until server persistence,
-tenant membership, retention, and access policies are implemented.
+Links expire after 30 minutes and work once. A new request supersedes older links.
+Account-before-token PostgreSQL locks ensure one concurrent reset succeeds.
+Success increments the user password version, invalidating all previous access
+and refresh sessions across devices. Reset does not auto-login. Additive migration
+0003 preserves accounts and initializes their password version to zero.
 
-## Remaining deployment prerequisites
+## AWS sending and current restriction
 
-- Configure transactional email before adding email verification and password
-  recovery. Unavailable social-login buttons and broken recovery/policy links
-  have been removed; these capabilities are not presented as working.
-- Decide company membership/invitation rules; signup currently remains public.
-  SSO and MFA are not implemented.
-- Provide approved Terms and Privacy policy content before general release.
-- Use durable production PostgreSQL/Redis plans, backups, monitoring, and an
-  appropriate production authentication traffic policy. Redis session checks must
-  remain authoritative across every backend instance.
-- Locally, run PostgreSQL and Redis before testing email authentication. A running
-  Python process alone does not provide those services.
+ujwalreddybattu@gmail.com is individually verified in Sydney SES. The existing host
+role allows only ses:SendEmail for that identity, pinned with ses:FromAddress.
+Application containers get no AWS credentials or access to the host role.
 
-Existing browser JWT sessions must sign in again after this migration. Signup and
-login now create the new typed, server-revocable cookie session.
+The private host worker leases encrypted rows, submits via SES v2, acknowledges
+provider acceptance and clears payloads. Retries/backoff are bounded; stale leases
+recover. Expired, superseded or used links are cancelled. Daily maintenance prunes
+rows after seven days past expiry. Logs omit recipients, bodies and tokens.
+Delivery is at least once: a lost acknowledgement may resend the same link.
+Changing the JWT secret invalidates encrypted queued payloads as well as JWTs.
 
-## Verification
+SES production access is disabled. Sandbox permits (1) individually verified
+recipients, (2) SES mailbox simulator addresses, or (3) mailboxes at a verified domain.
+Runtime permits only the verified Gmail test recipient. Public delivery awaits
+sender authentication and SES production approval. SES MessageId means acceptance,
+not delivery or SPF/DKIM/DMARC alignment. No Gmail SMTP connection is assumed.
 
-Regression tests cover complete email auth, token-type confusion, concurrent
-refresh, logout revocation, disabled/deleted accounts, malformed/expired tokens,
-duplicate email casing, long-password collisions, storage outages, rate limiting,
-private-thread ownership, CSRF, cookie flags, session persistence, refresh retries,
-safe redirects, browser data separation, and truthful unsupported endpoints.
+Keep RECOVERY_EMAIL_ENABLED, EMAIL_FROM, EMAIL_PUBLIC_BASE_URL,
+EMAIL_ALLOWED_RECIPIENTS (JSON list), and PASSWORD_RESET_EXPIRE_MINUTES in
+corten-ai/runtime, excluded from Git. Remove the test restriction only after public
+sending approval and bounce/complaint/quotas monitoring are ready.
 
-Verified on 11 October 2026:
+## Verification and rollout
 
-- 89 backend tests and 104 subtests passed, including 12 authentication tests.
-- 44 frontend tests passed; TypeScript and production builds passed.
-- Seven local browser checks passed, including truthful errors with local
-  PostgreSQL and Redis unavailable.
-- Ten hosted API checks passed against real PostgreSQL and Redis. These included
-  eight concurrent refresh requests, another account attempting private-thread
-  reads/writes, public-share revocation, and account deactivation.
-- Fifteen hosted browser checks passed: actual signup/login, wrong passwords,
-  automatic expiry recovery, coordinated refresh from two tabs, cross-tab logout,
-  remember me, local redirects, separate account histories, signing out of a
-  stored conversation without resubmitting its query, interrupted logout
-  across reload with successful retry, mobile layout, and no runtime exceptions.
+193 backend tests plus 197 subtests and 104 frontend tests pass. Release verification
+also proves additive migrations, concurrent reset, version revocation and worker
+leases against isolated real PostgreSQL. See [hosted verification](hosted-verification.md).
 
-Synthetic audit records were used for database checks. Temporary database access
-was limited to the audit client's IP and the original rules were restored and
-verified. The application backend runs commit `00467d1`; frontend authentication
-and outage recovery run commit `7cd1030`.
+Email verification, SSO and MFA remain unimplemented. Authenticated public email,
+approved Terms/Privacy, monitoring and load-tested high availability remain rollout
+work. One preview host cannot support millions-of-users availability.

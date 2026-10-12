@@ -40,7 +40,8 @@ import json
 import sys
 result = json.loads(sys.argv[1])
 required = ('migration_preserved_existing_user', 'parallel_revisions_unique',
-    'concurrent_edit_conflict', 'deletion_protected', 'account_isolation', 'production_data_unchanged')
+    'concurrent_edit_conflict', 'deletion_protected', 'account_isolation', 'production_data_unchanged',
+    'recovery_single_use', 'recovery_sessions_revoked', 'recovery_delivery_leased')
 if any(result.get(key) is not True for key in required):
     raise RuntimeError('Isolated storage verification did not prove every required check')
 print(json.dumps(result))
@@ -49,12 +50,16 @@ if test -L /opt/corten/current; then
   /bin/bash /opt/corten/current/deploy/aws/backup.sh
 fi
 docker compose -f deploy/aws/compose.yaml run --rm backend python -m src.db.migrate
+systemctl stop corten-recovery-email.timer corten-recovery-email.service 2>/dev/null || true
 ln -sfn "$target" /opt/corten/current
 printf '%s\n' "$bucket" > /opt/corten/private/artifacts-bucket
 install -m 0644 deploy/aws/corten-backup.service deploy/aws/corten-backup.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now corten-backup.timer
+install -m 0644 deploy/aws/corten-recovery-email.service deploy/aws/corten-recovery-email.timer /etc/systemd/system/
+systemctl daemon-reload
 docker compose -f deploy/aws/compose.yaml up -d --wait --wait-timeout 180
+systemctl enable --now corten-recovery-email.timer
 curl --retry 3 --retry-all-errors --retry-delay 2 --fail --silent --show-error \
   --max-time 20 http://127.0.0.1/api/v1/search/status
 echo 'Corten release ready'

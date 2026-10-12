@@ -41,7 +41,7 @@ class AuthService:
         except IntegrityError:
             await db.rollback()
             raise ValueError("Email already registered") from None
-        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id))
+        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id), version=user.auth_version or 0)
         await create_session(sid, str(user.id), jti, settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
         # Do not issue a successful browser session before its user is durable.
         try:
@@ -52,12 +52,12 @@ class AuthService:
         return user, access_token, refresh_token
 
     async def login(self, db, email, password):
-        result = await db.execute(select(User).where(User.email == email.strip().lower()))
+        result = await db.execute(select(User).where(User.email == email.strip().lower()).with_for_update())
         user = result.scalar_one_or_none()
         valid = await asyncio.to_thread(verify_password, password, user.password_hash if user and user.password_hash else _DUMMY_HASH)
         if not user or not user.password_hash or not valid or not user.is_active:
             raise ValueError("Invalid email or password")
-        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id))
+        access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id), version=user.auth_version or 0)
         await create_session(sid, str(user.id), jti, settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
         return user, access_token, refresh_token
 
@@ -73,8 +73,10 @@ class AuthService:
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             raise ValueError("User not found or deactivated")
+        if payload.get("pv", 0) != (user.auth_version or 0):
+            raise ValueError("Password changed. Sign in again.")
         remaining = timedelta(seconds=payload["exp"] - datetime.now(timezone.utc).timestamp())
-        new_access, new_refresh, sid, new_jti = self._issue_tokens(str(user.id), payload["sid"], remaining)
+        new_access, new_refresh, sid, new_jti = self._issue_tokens(str(user.id), payload["sid"], remaining, user.auth_version or 0)
         if not await rotate_session(sid, str(user.id), jti, new_jti):
             raise ValueError("Refresh token revoked, expired or already used")
         return user, new_access, new_refresh
@@ -88,11 +90,11 @@ class AuthService:
         result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
         return result.scalar_one_or_none()
 
-    def _issue_tokens(self, user_id, sid=None, remaining=None):
+    def _issue_tokens(self, user_id, sid=None, remaining=None, version=0):
         sid = sid or uuid.uuid4().hex
         jti = uuid.uuid4().hex
-        access_token = create_access_token({"sub": user_id, "sid": sid})
-        refresh_token = create_refresh_token({"sub": user_id, "sid": sid, "jti": jti}, remaining)
+        access_token = create_access_token({"sub": user_id, "sid": sid, "pv": version})
+        refresh_token = create_refresh_token({"sub": user_id, "sid": sid, "jti": jti, "pv": version}, remaining)
         return access_token, refresh_token, sid, jti
 
 

@@ -16,6 +16,18 @@ function isRateLimited(ip: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  const access = req.headers.get("authorization") || (() => {
+    const raw = (req.headers.get("cookie") || "").split(";").find(value => value.trim().startsWith("corten_access="));
+    try { return raw ? "Bearer " + decodeURIComponent(raw.trim().slice("corten_access=".length)) : ""; } catch { return ""; }
+  })();
+  if (!access) return NextResponse.json({ error: "Sign in to run code." }, { status: 401 });
+  const expectedOrigin = process.env.APP_ORIGIN || req.nextUrl.origin;
+  if ((req.headers.get("origin") && req.headers.get("origin") !== expectedOrigin) || req.headers.get("sec-fetch-site") === "cross-site" || (!req.headers.get("authorization") && req.headers.get("cookie") && req.headers.get("origin") !== expectedOrigin)) return NextResponse.json({ error: "Request origin is not allowed." }, { status: 403 });
+  try {
+    const backend = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+    const session = await fetch(backend + "/api/v1/auth/me", { headers: { Authorization: access }, cache: "no-store", signal: AbortSignal.timeout(10000) });
+    if (!session.ok) return NextResponse.json({ error: session.status === 401 || session.status === 404 ? "Your session expired. Sign in again." : "Unable to verify your session. Please retry." }, { status: session.status === 401 || session.status === 404 ? 401 : 503 });
+  } catch { return NextResponse.json({ error: "Unable to verify your session. Please retry." }, { status: 503 }); }
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON content type is required." }, { status: 415 });
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??

@@ -31,6 +31,33 @@ class FakeDB:
     async def commit(self): pass
     async def rollback(self): pass
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path,body", [
+    ("POST","/api/v1/search/stream",{"query":"hello"}),
+    ("POST","/api/v1/search/title",{"query":"hello"}),
+    ("POST","/api/v1/report/stream",{"topic":"Research"}),
+    ("GET","/api/v1/report/download/"+"a"*32,None),
+    ("GET","/api/v1/discover",None),
+    ("GET","/api/v1/discover/sidebar",None),
+    ("GET","/api/v1/pharma/updates",None),
+    ("POST","/api/v1/interpolation/preview",{}),
+    ("GET","/api/v1/spaces",None),
+    ("GET","/api/v1/collections",None),
+    ("GET","/api/v1/personal/changes",None),
+])
+async def test_tool_endpoints_require_authentication(client,auth_state,method,path,body):
+    response=await client.request(method,path,**({"json":body} if body is not None else {}))
+    assert response.status_code==401
+
+@pytest.mark.asyncio
+async def test_password_version_invalidates_old_access_and_refresh(client,auth_state):
+    tokens=(await signup(client)).json();user=next(iter(auth_state[0].users.values()))
+    headers={"Authorization":"Bearer "+tokens["access_token"]}
+    assert (await client.get('/api/v1/auth/me',headers=headers)).status_code==200
+    user.auth_version=1
+    assert (await client.get('/api/v1/auth/me',headers=headers)).status_code==401
+    assert (await client.post('/api/v1/auth/refresh',json={'refresh_token':tokens['refresh_token']})).status_code==401
+
 
 class SecurityRedis:
     """Simulates Redis's serialized execution; live CAS is tested separately on deployment."""
@@ -171,13 +198,15 @@ async def test_private_threads_deny_anonymous_and_other_accounts(client, auth_st
     messages = AsyncMock(return_value=[])
     monkeypatch.setattr(thread_service, "get_messages", messages)
     path = f"/api/v1/threads/{thread.id}"
-    assert (await client.get(path)).status_code == 404
+    assert (await client.get(path)).status_code == 401
     assert (await client.get(path, headers={"Authorization": "Bearer " + outsider["access_token"]})).status_code == 404
     messages.assert_not_awaited()
     assert (await client.get(path, headers={"Authorization": "Bearer " + tokens["access_token"]})).status_code == 200
     thread.is_public = True
-    assert (await client.get(path)).status_code == 200
-    assert (await client.get("/api/v1/threads/not-a-uuid")).status_code == 422
+    assert (await client.get(path)).status_code == 401
+    assert (await client.get(path, headers={"Authorization": "Bearer " + outsider["access_token"]})).status_code == 200
+    assert (await client.get("/api/v1/threads/not-a-uuid")).status_code == 401
+    assert (await client.get("/api/v1/threads/not-a-uuid", headers={"Authorization": "Bearer " + tokens["access_token"]})).status_code == 422
 
 
 @pytest.mark.asyncio

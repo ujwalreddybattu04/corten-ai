@@ -48,6 +48,9 @@ def decode_token(token: str, expected_type: str = "access") -> dict | None:
                              options={"require": ["exp", "iat", "sub", "aud", "iss", "sid", "type"] + (["jti"] if expected_type == "refresh" else [])})
         if payload.get("type") != expected_type:
             return None
+        version = payload.get("pv", 0)
+        if type(version) is not int or not 0 <= version < 2**31:
+            return None
         for claim in ("sub", "sid") + (("jti",) if expected_type == "refresh" else ()):
             uuid.UUID(payload[claim])
         return payload

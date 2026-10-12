@@ -286,7 +286,7 @@ export default function LoginPage() {
                                 />
                                 <span className="auth-remember-label">Remember me</span>
                             </label>
-                            <span className="auth-forgot" title="Account recovery is not configured yet">Email sign-in</span>
+                            <Link className="auth-forgot" href="/auth/forgot-password">Forgot password?</Link>
                         </div>
 
                         {/* Submit */}

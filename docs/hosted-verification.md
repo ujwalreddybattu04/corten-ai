@@ -1,5 +1,20 @@
 # Hosted verification — 12 October 2026
 
+## Complete component audit release
+
+Source `9f24b1b3ae6c19a2252c7d6ef78071b8e22f53ce` is deployed to **https://d3a7ful0miola1.cloudfront.net**. [Both final CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38256796380). The route/control checklist and all 57 component files are inventoried in [component-audit.md](component-audit.md), including inactive scaffolding and external dependencies.
+
+- Backend: 174 tests and 197 subtests passed. Frontend: 100 tests passed, with TypeScript, production build and zero lint errors. Maintenance warnings remain.
+- Twenty expanded control cases and five widget fault cases passed on the AWS bundle. Nine additional cases passed with actual JavaScript/Python execution under the deployed CSP, sandboxed HTML preview, answer integrity, profile editing and article-to-Space saving. Two blocked-storage cases verified truthful sign-in status and successful sync reinitialization after storage access returned.
+- Fifteen real authentication browser cases passed on the final release, including signup/login, session cookies, two-tab refresh, account isolation and interrupted logout recovery.
+- Eighteen interpolation browser checks and seven live pharma checks passed on the final release, including actual exports, unrounded yearly constraints, Unicode PDFs and 320–1440px layouts. No client exceptions occurred.
+- Ten real cloud-account checks proved fresh-device restoration, competing offline edits preserved as separate copies, stale-write rejection, deletion propagation, Spaces/collections CRUD, account isolation and owner-only generated PDF access. These checks used actual temporary accounts, API writes and separate browser profiles rather than seeded browser histories.
+- All seven real Discover feeds returned 18 articles. The real sidebar returned four market indices, five stocks and weather for explicit coordinates. Actual identity and writing responses completed with no web search; current research completed with web search and ten sources. Four direct contextual-recall/long-note cases passed without model/search calls. A current article summary ended with a complete sentence and a terminal completion event.
+- The final release command `c4101247-765d-4d2a-8ee5-b50c063f4b85` succeeded. Its output explicitly reported all six isolated PostgreSQL verification flags before migration. The database backup `20261012T134049Z` completed, services started successfully and public readiness returned 200.
+- Release archive SHA-256: `8d641ee147a48448a723bdd5940b001ea9276ee2271644aeed4de749f890c262`. The archive contained 386 public source files; the credential scan found zero findings. Provider credentials and browser/audit artifacts remain excluded.
+
+Account email work remains deferred at the user's request. The optional Guardian pharma-news source still denies access and is labeled; FDA/clinical-trial records work independently. The current single-host AWS Free-plan preview is not a completed large-scale production infrastructure rollout.
+
 ## Pharma workspace design release
 
 Release `a1a5f3c` is live on AWS; [both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38220999298).

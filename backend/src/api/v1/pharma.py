@@ -19,5 +19,5 @@ async def updates(
         raise HTTPException(status_code=503, detail="Pharma sources are temporarily unavailable. Please retry shortly.", headers={"Retry-After": "60", "Cache-Control": "no-store"})
     # These are exclusively public records; no account-dependent fields. The
     # authenticated frontend proxy remains no-store for cookie-bearing requests.
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    response.headers["Cache-Control"] = "private, no-store"
     return feed

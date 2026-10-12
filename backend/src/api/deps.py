@@ -50,6 +50,8 @@ async def get_current_user_id(
     user = await auth_service.get_user_by_id(db, payload["sub"])
     if not user or not user.is_active:
         raise HTTPException(401, "Account unavailable", headers={"WWW-Authenticate": "Bearer"})
+    if payload.get("pv", 0) != (user.auth_version or 0):
+        raise HTTPException(401, "Password changed. Sign in again.", headers={"WWW-Authenticate": "Bearer"})
     return payload["sub"]
 
 

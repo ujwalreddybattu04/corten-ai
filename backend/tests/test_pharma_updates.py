@@ -137,7 +137,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                 get_feed.assert_not_awaited()
                 response = await client.get("/pharma/updates?days=30&topic=oncology")
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.headers["cache-control"], "public, max-age=60, s-maxage=60")
+                self.assertEqual(response.headers["cache-control"], "private, no-store")
                 get_feed.assert_awaited_once_with(topic="oncology", days=30)
 
     async def test_fda_is_shared_across_therapy_filters(self):

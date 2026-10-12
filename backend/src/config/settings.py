@@ -5,6 +5,8 @@ Application settings loaded from environment variables via Pydantic Settings.
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator, model_validator
 from typing import List, Literal
+from email_validator import validate_email
+from urllib.parse import urlsplit
 
 
 class Settings(BaseSettings):
@@ -37,6 +39,22 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    RECOVERY_EMAIL_ENABLED: bool = False
+    EMAIL_FROM: str = "ujwalreddybattu@gmail.com"
+    EMAIL_PUBLIC_BASE_URL: str = "https://d3a7ful0miola1.cloudfront.net"
+    # During SES sandbox testing only permitted recipients are accepted.
+    EMAIL_ALLOWED_RECIPIENTS: List[str] = Field(default_factory=list, repr=False)
+    PASSWORD_RESET_EXPIRE_MINUTES: int = Field(default=30, ge=10, le=60)
+
+    @field_validator("EMAIL_FROM")
+    @classmethod
+    def validate_sender(cls, value: str) -> str:
+        return validate_email(value, check_deliverability=False).normalized
+
+    @field_validator("EMAIL_ALLOWED_RECIPIENTS")
+    @classmethod
+    def validate_test_recipients(cls, values: List[str]) -> List[str]:
+        return list(dict.fromkeys(validate_email(value, check_deliverability=False).normalized.lower() for value in values))
 
     # --- OAuth ---
     GOOGLE_CLIENT_ID: str = ""
@@ -91,6 +109,11 @@ class Settings(BaseSettings):
     def require_production_secret(self):
         if self.APP_ENV == "production" and (len(self.JWT_SECRET_KEY) < 32 or self.JWT_SECRET_KEY == "change-me-in-production"):
             raise ValueError("Set a strong JWT_SECRET_KEY of at least 32 characters in production")
+        origin = urlsplit(self.EMAIL_PUBLIC_BASE_URL.rstrip("/"))
+        if origin.scheme not in ("http", "https") or not origin.hostname or origin.username or origin.password or origin.path or origin.query or origin.fragment:
+            raise ValueError("EMAIL_PUBLIC_BASE_URL must be the application's origin")
+        if self.APP_ENV == "production" and origin.scheme != "https":
+            raise ValueError("Recovery links require HTTPS in production")
         return self
 
     class Config:

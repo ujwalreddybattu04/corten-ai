@@ -2,7 +2,7 @@
 
 This review covers the running application's pages, controls, account boundaries, calculation/export paths and deployment. It also inventories dormant components so their existence is not mistaken for a working feature. Tests establish the behaviors below at review time; they do not establish unlimited provider availability or production capacity.
 
-The existing Plus Jakarta Sans font and dark design are preserved. Public signup with personal accounts remains the requested access policy. Account email work is explicitly deferred by the user until a sender domain is available.
+The existing Plus Jakarta Sans font and dark design are preserved. Public signup with personal accounts remains the policy; the latest instruction requires sign-in for every app tool. Password recovery is implemented with an encrypted outbox and branded email. Public delivery still requires SES setup/approval. See [authentication](authentication.md).
 
 ## Page and control checklist
 
@@ -48,7 +48,7 @@ Two temporary accounts and two independent browser profiles were used against AW
 
 ## Component source inventory
 
-All **57 component source files** were inspected for how they connect to the current routes. Some page-specific controls are implemented inline and are covered in the checklist above.
+All **58 component source files** were inspected for how they connect to the current routes. Some page-specific controls are implemented inline and are covered in the checklist above.
 
 The current mounted component groups are:
 
@@ -56,7 +56,7 @@ The current mounted component groups are:
 | --- | --- |
 | `analyst` | `WorkspaceTools`, `YearlyMonthlyWorkspace`, `CurveChart`, `PharmaWorkspace` |
 | `common` | `Favicon`, `PrivateToggle`, `PrivateNotice`, `StarField` |
-| `layout` | `Sidebar`, `HistoryModal`, `CloudSyncStatus` |
+| `layout` | `AppFrame`, `Sidebar`, `HistoryModal`, `CloudSyncStatus` |
 | `search` | `HomeHero`, `SearchBar`, `QuickActions` |
 | `spaces` | `SaveArticleModal` |
 | `thread` | `AnswerStream`, `AnswerSkeleton`, `ImagesGrid`, `ResearchProgress`, `ThreadMenu`, `ShareModal`, `CodeRunnerModal`, `HtmlPreviewModal` |
@@ -90,7 +90,7 @@ See [hosted verification](hosted-verification.md) for the published release and 
 
 | Dependency | Current state |
 | --- | --- |
-| Account emails | Gmail test identity is verified in SES. Sender-domain authentication, production delivery, signup verification and password reset are deferred by the user. |
+| Account emails | Password recovery and its encrypted email worker are implemented. Gmail is verified in SES; public delivery still requires sender setup/production approval. Signup email verification is not implemented. |
 | Optional industry news | Guardian API access is currently rejected. This tile reports provider denial; FDA/trial records continue working. A working, appropriately licensed news credential/provider is required to populate it. [Guardian RSS guidance](https://www.theguardian.com/help/feeds) specifies personal, non-commercial use, so it was not substituted for the company workspace. |
 | Large-scale operation | The present AWS Free-plan deployment is a single-host preview. Highly available infrastructure, load/capacity testing, operational alerts and adequate provider quotas remain production rollout work. |
 | Retention | Personal history/Spaces are persisted in PostgreSQL with backup/restore proof. Analyst uploads are session-only; PDFs have 24-hour access gates and retained EBS storage, without off-host artifact recovery yet. |

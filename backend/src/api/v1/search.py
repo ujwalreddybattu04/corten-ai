@@ -1,6 +1,7 @@
 import logging
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Depends
+from src.api.deps import get_current_user_id
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional
 
@@ -21,7 +22,7 @@ class SearchRequest(BaseModel):
     focus_mode: str = "all"
     messages: Optional[List[Dict[str, str]]] = Field(default=None, max_length=120)
 
-@router.post("/stream")
+@router.post("/stream", dependencies=[Depends(get_current_user_id)])
 async def search_stream(request: SearchRequest):
     """Submit a search query and receive a streaming AI-generated answer with citations."""
     try:
@@ -42,7 +43,7 @@ class TitleRequest(BaseModel):
     query: str = Field(min_length=1, max_length=16000)
     answer: str = Field(default="", max_length=2000)
 
-@router.post("/title")
+@router.post("/title", dependencies=[Depends(get_current_user_id)])
 async def generate_title(request: TitleRequest):
     """
     Generate a bounded topic heading without web search or blocking chat streaming.
@@ -61,7 +62,7 @@ async def generate_title(request: TitleRequest):
         from src.services.thread_titles import fallback_title
         return {"title": fallback_title(request.query), "source": "fallback"}
 
-@router.post("/suggestions")
+@router.post("/suggestions", dependencies=[Depends(get_current_user_id)])
 async def search_suggestions(query: str = ""):
     """Get auto-complete search suggestions."""
     # TODO: Implement suggestion engine

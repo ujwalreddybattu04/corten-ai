@@ -16,8 +16,7 @@ import "@/styles/discover.css";
 import "@/styles/history.css";
 import "@/styles/spaces.css";
 import "@/styles/report.css";
-import { Suspense } from "react";
-import { Sidebar } from "@/components/layout";
+import AppFrame from "@/components/layout/AppFrame";
 import { SITE_TITLE, SITE_DESCRIPTION, SITE_URL } from "@/config/constants";
 import { AuthProvider } from "@/contexts/AuthContext";
 
@@ -48,12 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </head>
             <body suppressHydrationWarning>
                 <AuthProvider>
-                <div className="app-shell">
-                    <Suspense fallback={<div style={{ width: "240px", backgroundColor: "var(--sidebar-bg)" }} />}>
-                        <Sidebar />
-                    </Suspense>
-                    <main className="main-content">{children}</main>
-                </div>
+                <AppFrame>{children}</AppFrame>
                 </AuthProvider>
             </body>
         </html>

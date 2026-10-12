@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { api, ApiRequestError, invalidateSessionRequests, SESSION_EXPIRED } from "@/lib/api";
 import { setStorageAccount, getStorageAccount, protectLegacyAccountData } from "@/lib/accountStorage";
 import { startCloudSync, stopCloudSync, markCloudStorageUnavailable, hasCloudSync } from "@/lib/cloudSync";
+import { usePathname, useRouter } from "next/navigation";
 
 export interface User { id: string; name: string; email: string; subscription_tier: string; avatar_url: string | null; }
 interface AuthContextValue {
@@ -28,6 +29,9 @@ async function completeLogout() {
 }
 const LOGOUT_ERROR = "Sign-out could not be completed. Private views are hidden. Retry when connected.";
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+    const pathname = usePathname();
+    const router = useRouter();
+    const publicPage = pathname?.startsWith("/auth/") === true;
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [sessionError, setSessionError] = useState("");
@@ -100,8 +104,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         catch { setSessionError(LOGOUT_ERROR); }
         finally { broadcast(); }
     }, [apply]);
+    useEffect(() => {
+        if (!isLoading && !user && !publicPage && !sessionError) {
+            const next = window.location.pathname + window.location.search;
+            router.replace(`/auth/login?next=${encodeURIComponent(next)}`);
+        }
+    }, [isLoading, user, publicPage, sessionError, router]);
     return <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, sessionError, login, register, logout, reloadSession }}>
         {isLoading ? <div role="status" style={{ padding: "32px", color: "var(--text-secondary)" }}>Loading Corten…</div> :
+            !user && !publicPage ? <div className="account-settings" role={sessionError ? "alert" : "status"}><p>{sessionError || "Taking you to sign in…"}</p>{sessionError && <button className="auth-submit" onClick={() => void reloadSession()}>Retry connection</button>}</div> :
             <div key={user?.id || "guest"} style={{ display: "contents" }}>{children}</div>}
     </AuthContext.Provider>;
 }
