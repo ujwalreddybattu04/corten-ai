@@ -30,6 +30,21 @@ function setup() {
     return { ...storage, ...sync, records, put(data, deleted = false) { const row = { namespace: 'threads', id: 'chat', data, deleted, revision: ++revision }; records.set('threads:chat', row); }, setOffline(value) { offline = value; } };
 }
 
+test('blocked device storage stops the sync engine and allows a clean retry after access returns', async () => {
+    const s = setup(), write = global.localStorage.setItem;
+    try {
+        global.localStorage.setItem = () => { throw new Error('Storage blocked'); };
+        await assert.rejects(() => s.startCloudSync('owner-a'), /Storage blocked/);
+        s.markCloudStorageUnavailable();
+        assert.equal(s.hasCloudSync('owner-a'), false);
+        assert.match(s.getCloudSyncError(), /Device storage is unavailable/);
+        global.localStorage.setItem = write;
+        await s.startCloudSync('owner-a');
+        assert.equal(s.hasCloudSync('owner-a'), true);
+        assert.equal(s.getCloudSyncStatus(), 'saved');
+    } finally { global.localStorage.setItem = write; s.stopCloudSync(); }
+});
+
 test('initial owned history uploads while guest histories stay separate', async () => {
     const s = setup();
     try {

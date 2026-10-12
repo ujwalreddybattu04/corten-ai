@@ -4,7 +4,7 @@ import { getCloudSyncStatus, getCloudSyncError, refreshCloudSync } from "@/lib/c
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function CloudSyncStatus() {
-    const { user } = useAuth();
+    const { user, reloadSession } = useAuth();
     const [status, setStatus] = useState(getCloudSyncStatus);
     const [error, setError] = useState(getCloudSyncError);
     useEffect(() => {
@@ -13,8 +13,9 @@ export default function CloudSyncStatus() {
         return () => window.removeEventListener("corten_sync_status", update);
     }, []);
     if (!user) return null;
-    const text = { guest: "Saved on this device", loading: "Loading your saved work…", saved: "Saved to your account", pending: "Saving changes…", offline: "Saved on this device. Cloud sync unavailable.", conflict: "Conflicting edits kept as separate copies." }[status];
+    const storageBlocked = error.startsWith("Device storage is unavailable.");
+    const text = storageBlocked ? error : { guest: "Saved on this device", loading: "Loading your saved work…", saved: "Saved to your account", pending: "Saving changes…", offline: "Saved on this device. Cloud sync unavailable.", conflict: "Conflicting edits kept as separate copies." }[status];
     return <div role="status" className="account-description" style={{ margin: "12px 0", fontSize: 12 }}>
-        {text} {error} {(status === "offline" || status === "conflict") && <button onClick={() => void refreshCloudSync()} style={{ marginLeft: 8 }}>Retry sync</button>}
+        {text} {!storageBlocked && error} {(status === "offline" || status === "conflict") && <button onClick={() => void (storageBlocked ? reloadSession() : refreshCloudSync())} style={{ marginLeft: 8 }}>Retry sync</button>}
     </div>;
 }

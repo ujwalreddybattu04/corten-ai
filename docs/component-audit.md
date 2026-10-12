@@ -77,9 +77,10 @@ Active hooks are `useSearch`, `useReport`, `usePyodideWorker` and `useModalFocus
 ## Verification and deployment gates
 
 - Backend: **174 tests plus 197 subtests passed**.
-- Frontend: **99 tests passed**, TypeScript and production build passed. Lint has no errors; migration/maintenance warnings remain.
+- Frontend: **100 tests passed**, TypeScript and production build passed. Lint has no errors; migration/maintenance warnings remain.
 - Added control audit: **20 browser checks**, including all eight focus modes, six quick menus, Chinese prompts, privacy, history, export contents, dialogs and mobile navigation.
-- Existing broader browser checks, actual JavaScript/Python checks, hosted authentication, Discover recovery, interpolation and pharma suites remain part of the release verification.
+- Five additional widget fault checks passed: missing Permissions API, superseded request cancellation, late-response rejection, retained values on refresh failure and retry recovery. The 17 broader browser cases, 12 Discover outage cases and nine chat startup cases passed again after the final navigation changes.
+- Actual JavaScript/Python checks, hosted authentication, interpolation and pharma suites remain part of the release verification.
 - Release verification now mounts and explicitly runs the isolated PostgreSQL check, then requires all six proof flags. A command that exits without executing that check cannot satisfy the gate. The six flags were independently verified against the current AWS image before this repair.
 - Public source is scanned for credentials before publishing. API keys and audit/browser artifacts remain outside the public repository.
 

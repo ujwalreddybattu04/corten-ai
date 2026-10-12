@@ -12,6 +12,7 @@ let status: SyncStatus = "guest";
 let syncError = "";
 export const getCloudSyncStatus = () => status;
 export const getCloudSyncError = () => syncError;
+export const hasCloudSync = (owner: string) => current?.owner === owner;
 function report(value: SyncStatus, message = "") { status = value; syncError = message; window.dispatchEvent(new Event("corten_sync_status")); }
 const ARRAY_KEYS: Record<string, Namespace> = { corten_threads: "threads", corten_spaces: "spaces" };
 const PREFERENCES = new Set(["corten_pinned_threads", "corten_answer_feedback", "discover_interactions_v2", "discover_affinities_v3", "discover_disliked_v2", "discover_liked_v2", "discover_bookmarked_v2", "discover_interests"]);
