@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import YearlyMonthlyWorkspace from "@/components/analyst/YearlyMonthlyWorkspace";
+import WorkspaceTools from "@/components/analyst/WorkspaceTools";
 import "@/styles/analyst-workspace.css";
+import "@/styles/pharma-workspace.css";
 
 export const metadata: Metadata = {
   title: "Analyst Workspace | Corten AI",
@@ -12,7 +13,7 @@ export default function AnalystWorkspace() {
       <header className="aw-header">
         <h1 id="analyst-workspace-title">Analyst Workspace</h1>
       </header>
-      <YearlyMonthlyWorkspace />
+      <WorkspaceTools />
     </section>
   );
 }

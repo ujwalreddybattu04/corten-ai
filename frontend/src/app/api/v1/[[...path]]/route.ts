@@ -5,6 +5,32 @@ type RouteContext = { params: Promise<{ path?: string[] }> };
 const ACCESS = "corten_access";
 const REFRESH = "corten_refresh";
 const PERSIST = "corten_remember";
+let identity: { audience: string; token: string; expires: number } | null = null;
+let identityPending: { audience: string; promise: Promise<string> } | null = null;
+async function cloudRunIdentity(backend: string): Promise<string | null> {
+    const audience = process.env.BACKEND_IDENTITY_AUDIENCE;
+    if (!audience) return null;
+    const target = new URL(backend);
+    if (target.protocol !== "https:" || !target.hostname.endsWith(".run.app") || target.username || target.password
+        || target.origin !== audience || target.pathname !== "/" || target.search || target.hash) throw new Error("Invalid Cloud Run backend configuration");
+    if (identity?.audience === audience && identity.expires > Date.now() + 60_000) return identity.token;
+    if (identityPending?.audience === audience) return identityPending.promise;
+    const promise = (async () => {
+        const response = await fetch(`http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(audience)}&format=full`, {
+            headers: { "Metadata-Flavor": "Google" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) throw new Error("Cloud Run service identity unavailable");
+        const token = await response.text();
+        if (token.length > 16_384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) throw new Error("Invalid service identity");
+        const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+        if (claims.aud !== audience || typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now() + 60_000) throw new Error("Expired service identity");
+        identity = { audience, token, expires: claims.exp * 1000 };
+        return token;
+    })();
+    identityPending = { audience, promise };
+    try { return await promise; }
+    finally { if (identityPending?.promise === promise) identityPending = null; }
+}
 // Render's internal request URL can be HTTP even when the public site uses HTTPS.
 function publicOrigin(request: Request) {
     return new URL(process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || request.url).origin;
@@ -56,6 +82,10 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     // actually revoke the server session. The client hides private views meanwhile.
     if (logout) setCookie(responseHeaders, request, ACCESS, "", 0);
     try {
+        const serviceToken = await cloudRunIdentity(backend);
+        // Cloud Run IAM and the application's user JWT have separate headers.
+        // Never forward a browser-supplied service identity header.
+        if (serviceToken) headers.set("X-Serverless-Authorization", `Bearer ${serviceToken}`);
         let body: BodyInit | undefined;
         if (mutation && path[0] === "interpolation") {
             const limit = 10 * 1024 * 1024 + 64 * 1024;

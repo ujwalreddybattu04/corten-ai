@@ -14,12 +14,16 @@ const api = instance.exports;
 const originalFetch = global.fetch;
 const originalBackend = process.env.BACKEND_URL;
 const originalRenderUrl = process.env.RENDER_EXTERNAL_URL;
+const originalAudience = process.env.BACKEND_IDENTITY_AUDIENCE;
+delete process.env.BACKEND_IDENTITY_AUDIENCE;
 after(() => {
   global.fetch = originalFetch;
   if (originalBackend === undefined) delete process.env.BACKEND_URL;
   else process.env.BACKEND_URL = originalBackend;
   if (originalRenderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
   else process.env.RENDER_EXTERNAL_URL = originalRenderUrl;
+  if (originalAudience === undefined) delete process.env.BACKEND_IDENTITY_AUDIENCE;
+  else process.env.BACKEND_IDENTITY_AUDIENCE = originalAudience;
 });
 const context = (parts) => ({ params: Promise.resolve({ path: parts }) });
 const request = (method, query = "", body) => {
@@ -108,6 +112,49 @@ test("proxy blocks path traversal and hides internal connection errors", async (
   res = await api.GET(request("GET"), context(["pharma", "updates"]));
   assert.equal(res.status, 502);
   assert.doesNotMatch(await res.text(), /private-hostname/);
+});
+
+test("Cloud Run service identity is cached and kept separate from the user's JWT", async () => {
+  const audience = "https://corten-api-review.run.app";
+  const oldBackend = process.env.BACKEND_URL;
+  process.env.BACKEND_URL = audience; process.env.BACKEND_IDENTITY_AUDIENCE = audience;
+  const token = `header.${Buffer.from(JSON.stringify({ aud: audience, exp: Math.floor(Date.now()/1000) + 3600 })).toString("base64url")}.signature`;
+  let metadataCalls = 0, backendCalls = 0;
+  global.fetch = async (url, options) => {
+    if (url.startsWith("http://metadata.google.internal/")) {
+      metadataCalls++; assert.equal(options.headers["Metadata-Flavor"], "Google");
+      assert.equal(new URL(url).searchParams.get("audience"), audience);
+      return new Response(token);
+    }
+    backendCalls++; assert.ok(url.startsWith(audience));
+    assert.equal(options.headers.get("Authorization"), "Bearer test-token");
+    assert.equal(options.headers.get("X-Serverless-Authorization"), `Bearer ${token}`);
+    return Response.json({ status: "ready" });
+  };
+  try {
+    const responses = await Promise.all([api.GET(request("GET"), context(["search","status"])), api.GET(request("GET"), context(["search","status"]))]);
+    assert.ok(responses.every(r => r.ok)); assert.equal(metadataCalls, 1); assert.equal(backendCalls, 2);
+    assert.ok((await api.GET(request("GET"), context(["search","status"]))).ok);
+    assert.equal(metadataCalls, 1);
+  } finally { process.env.BACKEND_URL = oldBackend; delete process.env.BACKEND_IDENTITY_AUDIENCE; }
+});
+
+test("invalid Cloud Run audience and metadata failures fail closed without leaking identity", async () => {
+  const oldBackend = process.env.BACKEND_URL;
+  for (const invalid of [true, false]) {
+    process.env.BACKEND_URL = invalid ? "https://untrusted.example" : "https://failing-api.run.app";
+    process.env.BACKEND_IDENTITY_AUDIENCE = process.env.BACKEND_URL;
+    let calls = 0;
+    global.fetch = async url => {
+      calls++; assert.ok(url.startsWith("http://metadata.google.internal/"));
+      return new Response("private identity failure", { status: 500 });
+    };
+    try {
+      const response = await api.GET(request("GET"), context(["search","status"]));
+      assert.equal(response.status, 502); assert.ok(!(await response.text()).includes("private"));
+      assert.equal(calls, invalid ? 0 : 1);
+    } finally { process.env.BACKEND_URL = oldBackend; delete process.env.BACKEND_IDENTITY_AUDIENCE; }
+  }
 });
 
 const authRequest = (action, body = {}, cookies = "", origin = "https://corten.example") => {

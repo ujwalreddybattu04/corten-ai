@@ -1,5 +1,6 @@
 """Deterministic provider, cache, failure, and endpoint checks; no external calls."""
 import asyncio
+import copy
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
@@ -54,7 +55,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     def source_result(self, source):
         today = datetime.now(timezone.utc).date().isoformat()
         return {"id": source, **SOURCES[source], "status": "available", "checked_at": datetime.now(timezone.utc).isoformat(), "source_updated_at": None,
-            "items": [{"id": f"{source}:example", "date": today}]}
+            "items": [{"id": f"{source}:example", "source": source, "date": today}], "limited": False}
 
     async def test_coalesces_concurrent_calls_and_does_not_share_mutable_results(self):
         service = PharmaUpdatesService()
@@ -74,8 +75,9 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             return self.source_result(source)
         service._source = AsyncMock(side_effect=provider)
         await service.get_feed()
-        previous = service._cache[("all", 7)][1]
-        service._cache[("all", 7)] = (0, previous)
+        previous = service._cache[("fda", "all", 7)]
+        previous["retry_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        original_time = previous["value"]["checked_at"]
         async def failing(client, source, *args):
             if source == "fda": raise httpx.ConnectError("Provider offline")
             return self.source_result(source)
@@ -83,9 +85,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         feed = await service.get_feed()
         self.assertEqual(feed["sources"][0]["status"], "stale")
         self.assertEqual(len(feed["items"]), 3)
-        previous = service._cache[("all", 7)][1]
-        previous["sources"][0]["checked_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
-        service._cache[("all", 7)] = (0, previous)
+        self.assertEqual(feed["sources"][0]["checked_at"], original_time)
+        previous = service._cache[("fda", "all", 7)]
+        previous["value"]["checked_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        previous["retry_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
         feed = await service.get_feed()
         self.assertEqual(feed["sources"][0]["status"], "unavailable")
         self.assertEqual(len(feed["items"]), 2)
@@ -107,12 +110,12 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.services.pharma_updates.settings.GUARDIAN_API_KEY", ""):
             result = await PharmaUpdatesService()._source(client, "news", "all", "2026-10-01", "2026-10-09")
         self.assertEqual(result["status"], "unconfigured")
-        client.get.assert_not_awaited()
+        client.stream.assert_not_called()
 
     async def test_fda_no_matches_is_empty_not_failure(self):
-        client = AsyncMock()
-        client.get.return_value = httpx.Response(404, json={"error": {"code": "NOT_FOUND"}}, request=httpx.Request("GET", "https://api.fda.gov"))
-        result = await PharmaUpdatesService()._source(client, "fda", "all", "2026-10-01", "2026-10-09")
+        transport = httpx.MockTransport(lambda request: httpx.Response(404, json={"error": {"code": "NOT_FOUND"}}))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await PharmaUpdatesService()._source(client, "fda", "all", "2026-10-01", "2026-10-09")
         self.assertEqual(result["status"], "empty")
 
     async def test_endpoint_validates_before_provider_requests(self):
@@ -124,8 +127,99 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                 get_feed.assert_not_awaited()
                 response = await client.get("/pharma/updates?days=30&topic=oncology")
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.headers["cache-control"], "no-store")
+                self.assertEqual(response.headers["cache-control"], "public, max-age=60, s-maxage=60")
                 get_feed.assert_awaited_once_with(topic="oncology", days=30)
+
+    async def test_fda_is_shared_across_therapy_filters(self):
+        service = PharmaUpdatesService()
+        service._source = AsyncMock(side_effect=lambda client, source, *args: self.source_result(source))
+        await asyncio.gather(*(service.get_feed(topic=topic) for topic in ("all", "oncology", "cns")))
+        self.assertEqual(sum(call.args[1] == "fda" for call in service._source.await_args_list), 1)
+        self.assertEqual(service._source.await_count, 7)
+
+    async def test_cancellation_does_not_cancel_shared_refresh(self):
+        service = PharmaUpdatesService()
+        gate = asyncio.Event()
+        async def provider(client, source, *args):
+            await gate.wait()
+            return self.source_result(source)
+        service._source = AsyncMock(side_effect=provider)
+        first = asyncio.create_task(service.get_feed())
+        second = asyncio.create_task(service.get_feed())
+        await asyncio.sleep(0.02)
+        first.cancel()
+        with self.assertRaises(asyncio.CancelledError): await first
+        gate.set()
+        self.assertEqual(len((await second)["items"]), 3)
+        self.assertEqual(service._source.await_count, 3)
+        self.assertEqual(len((await service.get_feed())["items"]), 3)
+
+    async def test_provider_rate_limit_cooldown_applies_to_other_filters(self):
+        service = PharmaUpdatesService()
+        async def provider(client, source, *args):
+            if source == "trials":
+                httpx.Response(429, headers={"Retry-After": "7200"}, request=httpx.Request("GET", "https://clinicaltrials.gov")).raise_for_status()
+            return self.source_result(source)
+        service._source = AsyncMock(side_effect=provider)
+        await service.get_feed()
+        feed = await service.get_feed(topic="oncology", days=30)
+        self.assertEqual(sum(call.args[1] == "trials" for call in service._source.await_args_list), 1)
+        self.assertEqual(feed["sources"][1]["status"], "unavailable")
+        self.assertGreater((datetime.fromisoformat(service._cooldowns["trials"]["until"]) - datetime.now(timezone.utc)).total_seconds(), 7190)
+
+    async def test_malformed_and_oversized_provider_payloads_are_unavailable(self):
+        for body in (b'{"unexpected":[]}', b' ' * 2_000_001):
+            with self.subTest(size=len(body)):
+                factory = lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=body)), **kwargs)
+                with patch("src.services.pharma_updates.settings.GUARDIAN_API_KEY", ""):
+                    feed = await PharmaUpdatesService(client_factory=factory).get_feed()
+                self.assertEqual(feed["status"], "unavailable")
+                self.assertEqual(feed["items"], [])
+
+    async def test_complete_failure_returns_retryable_503(self):
+        app = FastAPI(); app.include_router(router, prefix="/pharma")
+        with patch("src.api.v1.pharma.pharma_updates_service.get_feed", new=AsyncMock(return_value={"status": "unavailable"})):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/pharma/updates")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.headers["retry-after"], "60")
+                self.assertEqual(response.headers["cache-control"], "no-store")
+
+    async def test_shared_cache_coalesces_across_workers_and_reuses_snapshot(self):
+        class Shared:
+            def __init__(self): self.values = {}; self.leases = {}
+            async def get(self, key): return copy.deepcopy(self.values.get(key))
+            async def set(self, key, value, ttl): self.values[key] = copy.deepcopy(value)
+            async def acquire(self, key, token):
+                if key in self.leases: return False
+                self.leases[key] = token; return True
+            async def release(self, key, token):
+                if self.leases.get(key) == token: self.leases.pop(key)
+        cache = Shared()
+        first = PharmaUpdatesService(shared_cache=cache)
+        second = PharmaUpdatesService(shared_cache=cache)
+        async def provider(client, source, *args):
+            await asyncio.sleep(0.02)
+            return self.source_result(source)
+        first._source = AsyncMock(side_effect=provider)
+        second._source = AsyncMock(side_effect=provider)
+        a, b = await asyncio.gather(first.get_feed(), second.get_feed())
+        self.assertEqual(first._source.await_count + second._source.await_count, 3)
+        self.assertEqual(a["items"], b["items"])
+        self.assertEqual(cache.leases, {})
+        third = PharmaUpdatesService(shared_cache=cache)
+        third._source = AsyncMock(side_effect=AssertionError("Must read shared data"))
+        self.assertEqual(len((await third.get_feed())["items"]), 3)
+        third._source.assert_not_awaited()
+
+    async def test_100_readers_use_one_refresh_and_cache_cardinality_is_bounded(self):
+        service = PharmaUpdatesService()
+        service._source = AsyncMock(side_effect=lambda client, source, *args: self.source_result(source))
+        feeds = await asyncio.gather(*(service.get_feed() for _ in range(100)))
+        self.assertEqual(service._source.await_count, 3)
+        self.assertTrue(all(len(feed["items"]) == 3 for feed in feeds))
+        with self.assertRaises(ValueError): await service.get_feed(topic="unbounded-user-query")
+        self.assertEqual(len(service._cache), 3)
 
 
 if __name__ == "__main__":

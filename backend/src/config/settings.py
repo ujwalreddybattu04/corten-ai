@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://corten:corten_dev@localhost:5432/corten_ai"
+    DATABASE_POOL_SIZE: int = Field(default=5, ge=1, le=50)
+    DATABASE_MAX_OVERFLOW: int = Field(default=10, ge=0, le=50)
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

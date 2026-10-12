@@ -1,6 +1,6 @@
 # Project completion review
 
-Reviewed 11 October 2026. Access policy: **public signup with personal accounts**, as requested. Company invitations, SSO and team roles are outside this rollout.
+Reviewed 12 October 2026. Access policy: **public signup with personal accounts**, as requested. Company invitations, SSO and team roles are outside this rollout.
 
 The application works as a hosted preview. The defects below are repaired, but the remaining persistence, account recovery and hosting work prevents describing it as ready for a company production rollout.
 
@@ -8,6 +8,8 @@ The application works as a hosted preview. The defects below are repaired, but t
 
 | Area | Result |
 | --- | --- |
+| Pharma intelligence | Added a dedicated Analyst Workspace tool using real FDA approval actions and ClinicalTrials.gov drug/biologic record updates. Therapy/date/type filters, searchable source metadata, record details and CSV export; existing interpolation results survive tool switching. Shared Redis source snapshots/refresh leases, bounded provider requests/cooldowns and labeled 24-hour stale retention. Optional Guardian access is currently rejected, explicitly displayed. See [coverage and limits](pharma-updates.md). |
+| Google Cloud preparation | Created `corten-ai-ujwal-20261012` under the requested Google account. Prepared Cloud Build, Cloud Run preflight/deployment, private backend service identity, pinned Secret Manager bindings and a serialized migration release job. Project billing activation is pending; the GCP application has **not been deployed**. See [deployment status and configuration](gcp-deployment.md). |
 | Spaces | List, detail and templates use the same account-isolated browser storage. Questions started inside a Space save their thread association. Existing saved chats can be added to a chosen Space. |
 | Feature accuracy | Spaces identify browser storage, notes and reference links accurately. Public/team sharing is not offered. Discover's unfinished article-to-Space action is explicitly unavailable. |
 | Answer delivery | Chat/report readers handle Unicode, final unterminated SSE records, errors and premature EOF. Interrupted answers are not saved as successful conversations. |
@@ -24,8 +26,9 @@ The application works as a hosted preview. The defects below are repaired, but t
 
 ## Verification
 
-- **153 backend tests and 195 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports, citations, Discover recovery and the stateless chat startup endpoint.
-- **73 frontend tests passed**. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
+- **163 backend tests and 197 subtests passed**, including authentication, ownership, outages, JWT validation, calculations, reports, citations, Discover recovery, pharma caching and migration release jobs.
+- **83 frontend tests passed**, including Cloud Run service authentication and pharma feed validation/retries/exports. Production Next.js build passed; ESLint has no errors, with maintenance warnings remaining.
+- **13 isolated pharma browser checks and seven live-source browser checks** passed locally, covering filters, details, CSV export, pagination, partial outages/stale retention, retry, empty results, cancellation, reduced motion and five screen widths. FDA/ClinicalTrials.gov return real records; optional Guardian access is rejected and labeled. No client exceptions occurred. The 18 real interpolation/export checks were repeated successfully with the new tool tabs.
 - **12 isolated Discover browser checks**, repeated against the hosted frontend, verify saved-feed recovery, partial/delayed topic outages, automatic retries, correct pagination retries, stale notices, cancelled tab requests and mobile layout. Nine live browser checks cover all seven tabs, reload and mobile layout. Real category APIs and all seven RSS fallback mappings were also checked, including non-overlapping RSS pages. Fault injection uses synthetic headlines; live fallback checks use publisher data.
 - **Nine chat startup browser checks**, repeated against the hosted frontend, cover temporary 502 recovery before generation, single submission, manual Retry with unchanged context, failed/partial output persistence, persistent startup failure and mobile/reduced-motion states. The existing 17 browser regressions also pass with the startup check enabled. A real hosted identity conversation verified the startup GET followed by exactly one generation POST and completed without client errors.
 - **17 isolated browser checks** cover Spaces, account separation, headings, interrupted chat, image lightbox, report errors/completion/retry and mobile layout. These use synthetic account/API responses.

@@ -1,0 +1,20 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+# Cloud Build gets only reviewed source, never local credentials.
+**/.env
+**/.env.*
+**/.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/.local-run
+**/.local-tools
+**/*.pem
+**/*.key
+**/*credentials*.json
+**/*service-account*.json
+test_keys.py
+backend/test_keys.py
+test_gcp.py

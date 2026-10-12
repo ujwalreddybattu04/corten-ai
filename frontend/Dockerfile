@@ -29,6 +29,7 @@ COPY --from=builder /app/next.config.js ./next.config.js
 
 # Cloud Run injects PORT env var; Next.js defaults to 3000
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 EXPOSE ${PORT}
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "exec node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port \"${PORT:-3000}\""]

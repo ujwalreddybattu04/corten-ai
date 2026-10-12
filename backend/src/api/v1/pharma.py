@@ -14,5 +14,10 @@ async def updates(
 ):
     if days not in (7, 30, 90):
         raise HTTPException(status_code=422, detail="Choose a 7, 30 or 90 day window.")
-    response.headers["Cache-Control"] = "no-store"
-    return await pharma_updates_service.get_feed(topic=topic, days=days)
+    feed = await pharma_updates_service.get_feed(topic=topic, days=days)
+    if feed.get("status") == "unavailable":
+        raise HTTPException(status_code=503, detail="Pharma sources are temporarily unavailable. Please retry shortly.", headers={"Retry-After": "60", "Cache-Control": "no-store"})
+    # These are exclusively public records; no account-dependent fields. The
+    # authenticated frontend proxy remains no-store for cookie-bearing requests.
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    return feed

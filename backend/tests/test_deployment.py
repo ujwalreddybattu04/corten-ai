@@ -17,6 +17,12 @@ class DeploymentTests(unittest.TestCase):
         settings = Settings(_env_file=None, APP_ENV="production", JWT_SECRET_KEY="x" * 40)
         self.assertEqual(settings.APP_ENV, "production")
 
+    def test_pool_capacity_is_bounded_for_autoscaling(self):
+        settings = Settings(_env_file=None, DATABASE_POOL_SIZE=3, DATABASE_MAX_OVERFLOW=2)
+        self.assertEqual(settings.DATABASE_POOL_SIZE + settings.DATABASE_MAX_OVERFLOW, 5)
+        for values in ({"DATABASE_POOL_SIZE": 0}, {"DATABASE_MAX_OVERFLOW": -1}, {"DATABASE_POOL_SIZE": 10000}):
+            with self.assertRaises(ValidationError): Settings(_env_file=None, **values)
+
     def test_password_hash_round_trip(self):
         hashed = hash_password("deployment-test-password")
         self.assertTrue(verify_password("deployment-test-password", hashed))

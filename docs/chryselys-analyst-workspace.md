@@ -1,8 +1,10 @@
 # Analyst Workspace: yearly-to-monthly interpolation
 
-The current workspace implements the Chryselys requirements supplied by the
-project owner. The previous forecasting dashboard, project/scenario workflow,
-pharma feed and review-pack tools remain removed.
+The current workspace implements the Chryselys interpolation requirements supplied
+by the project owner. A separate [Pharma intelligence tab](pharma-updates.md) now
+provides dated public FDA and ClinicalTrials.gov records, as requested. The previous
+dummy forecasting dashboard, project/scenario workflow and review-pack tools remain
+removed. Switching tools preserves the current interpolation upload/result.
 
 ## Analyst flow
 
@@ -76,8 +78,8 @@ missing characters; CSV and JSON remain available. See [font provenance and
 licenses](../backend/assets/fonts/README.md).
 
 Uploads are processed statelessly, with temporary upload files closed after read.
-The workspace does not persist files/projects, call AI/search providers or modify
-company forecasts. Requests/responses use `no-store`. One calculation/export per
+The interpolation tool does not persist files/projects, call AI/search providers or
+modify company forecasts. Its requests/responses use `no-store`. One calculation/export per
 backend worker is allowed at a time; capacity exhaustion returns 503 with
 Retry-After. Exports recompute from the unchanged upload and reject a mismatched
 calculation fingerprint with 409 so stale engine results cannot be exported as
