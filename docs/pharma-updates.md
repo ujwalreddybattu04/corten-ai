@@ -27,6 +27,18 @@ CSV and calculation. The feed does not change forecasts or call an LLM.
   text with spreadsheet formula prefixes is neutralized.
 - Existing Corten font, dark colors and Lucide icons, keyboard tool tabs,
   explicit labels/statuses, responsive layouts and reduced-motion support.
+- The research desk adds source summary widgets, the latest dated FDA/study
+  highlights, a stacked UTC date histogram and exclusive study-phase groups.
+  All counts derive from the capped loaded records; they are not market totals
+  or evidence of efficacy. Combined phases stay in one group.
+- Card/list layouts retain filters and ordering. Highlight actions open the
+  corresponding source-filtered record details. Full record titles remain readable;
+  highlight previews offer the full title on hover and in the opened record.
+- FDA/study thumbnails are labeled illustrated record previews using real
+  application/study IDs. They do not pretend to be drug photographs. News uses
+  optional publisher-provided HTTPS thumbnails from `i.guim.co.uk`, loaded lazily
+  without a referrer; missing/failed images fall back to the labeled preview.
+  Unsafe or malformed optional image values never suppress valid news records.
 
 The recent feed is not an exhaustive regulatory archive. No generated events or
 dummy metrics are substituted. Analysts should review the original evidence.

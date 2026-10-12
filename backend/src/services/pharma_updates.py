@@ -147,11 +147,19 @@ def normalize_news(payload, since, until):
         title = clean_text(article.get("webTitle"), 240)
         if not title:
             continue
+        fields = article.get("fields") if isinstance(article.get("fields"), dict) else {}
+        thumbnail = fields.get("thumbnail")
+        try:
+            image = urlparse(thumbnail) if isinstance(thumbnail, str) and len(thumbnail) <= 2048 else None
+            thumbnail = thumbnail if image and image.scheme == "https" and image.hostname == "i.guim.co.uk" and not image.username and not image.password and image.port in (None, 443) else None
+        except ValueError:
+            thumbnail = None
         output.append({
             "id": "news:" + hashlib.sha256(url.encode()).hexdigest()[:20], "source": "news", "category": "Industry news",
-            "title": title, "summary": clean_text(article.get("fields", {}).get("trailText"), 450),
+            "title": title, "summary": clean_text(fields.get("trailText"), 450),
             "date": published, "date_label": "Published", "organization": "The Guardian",
             "url": url, "tags": ["Industry reporting"],
+            **({"thumbnail": thumbnail} if thumbnail else {}),
         })
     return output
 
@@ -210,7 +218,7 @@ class PharmaUpdatesService:
             query = 'pharmaceutical OR biotech OR "drug approval" OR "clinical trial"'
             if TOPICS[topic]:
                 query = f"({query}) AND ({TOPICS[topic]})"
-            response, payload = await self._json(client, NEWS_URL, params={"api-key": settings.GUARDIAN_API_KEY, "q": query, "from-date": since, "to-date": until, "order-by": "newest", "page-size": 20, "show-fields": "trailText"})
+            response, payload = await self._json(client, NEWS_URL, params={"api-key": settings.GUARDIAN_API_KEY, "q": query, "from-date": since, "to-date": until, "order-by": "newest", "page-size": 20, "show-fields": "trailText,thumbnail"})
             if not isinstance(payload, dict) or not isinstance(payload.get("response", {}).get("results"), list):
                 raise ValueError("Invalid news response")
             items = normalize_news(payload, since, until)

@@ -1,12 +1,31 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parsePharmaFeed, requestPharmaFeed, filterPharmaItems, pharmaCsv, retainPharmaFeed } = require("./load-ts")("src/lib/pharmaFeed.ts");
+const { parsePharmaFeed, requestPharmaFeed, filterPharmaItems, pharmaCsv, retainPharmaFeed, pharmaOverview, pharmaThumbnail } = require("./load-ts")("src/lib/pharmaFeed.ts");
 function payload() {
   const today = new Date().toISOString().slice(0, 10);
   const item = { id: "fda:example", source: "fda", title: "Drug update", summary: "Example Pharma. New action.", organization: "Example Pharma", date: today, date_label: "FDA action date", category: "Regulatory", url: "https://www.accessdata.fda.gov/example", tags: ["NDA123456"], details: { ingredients: ["Example ingredient"] } };
   const sources = ["fda", "trials", "news"].map(id => ({ id, name: id, url: "https://example.com", cadence: "Daily", scope: "US records", status: id === "fda" ? "available" : "empty", items: id === "fda" ? [item] : [], checked_at: new Date().toISOString(), source_updated_at: null }));
   return { topic: "all", days: 7, since: today, until: today, checked_at: new Date().toISOString(), next_check_at: new Date(Date.now() + 3600_000).toISOString(), status: "available", partial: false, limit_per_source: 20, items: [item], sources };
 }
+test("overview conserves all loaded records across UTC windows and does not double-count combined phases", () => {
+  const feed = payload(); feed.since = "2026-09-13"; feed.until = "2026-10-12"; feed.days = 30;
+  feed.items = [0, 1, 4, 7, 15, 25, 29].map((day, n) => ({ ...feed.items[0], id: String(n),
+    date: new Date(Date.UTC(2026, 8, 13 + day)).toISOString().slice(0, 10), source: n % 2 ? "trials" : "fda",
+    details: { phases: ["PHASE2", "PHASE3"] } }));
+  const result = pharmaOverview(feed);
+  assert.equal(result.bins.reduce((sum, b) => sum + b.fda + b.trials + b.news, 0), 7);
+  assert.deepEqual(result.phases, [{ label: "Phase 2 / Phase 3", count: 3 }]);
+  assert.equal(result.organizations, 1);
+  for (const item of feed.items) {
+    const matching = result.bins.filter((bin, i) => item.date >= bin.date && (!result.bins[i + 1] || item.date < result.bins[i + 1].date));
+    assert.equal(matching.length, 1);
+  }
+  const single = pharmaOverview(payload()); assert.equal(single.bins.length, 1);
+});
+test("publisher thumbnails reject private hosts, embedded credentials and malformed values", () => {
+  assert.equal(pharmaThumbnail("https://i.guim.co.uk/img/media/photo.jpg"), "https://i.guim.co.uk/img/media/photo.jpg");
+  for (const value of [undefined, false, "http://i.guim.co.uk/image", "https://i.guim.co.uk.evil.test/image", "https://user:pass@i.guim.co.uk/image", "https://127.0.0.1/photo", "https://i.guim.co.uk:8443/image", "data:image/svg+xml,test", "https://i.guim.co.uk/" + "x".repeat(2100)]) assert.equal(pharmaThumbnail(value), null);
+});
 test("rejects wrong therapy, inconsistent source records, unsafe URLs and invalid dates", () => {
   assert.equal(parsePharmaFeed(payload(), "all", 7).items.length, 1);
   for (const mutate of [f => f.topic = "oncology", f => f.items[0].url = "javascript:alert(1)", f => f.items[0].url = "https://user:password@example.com", f => f.items[0].date = "2026-99-01", f => f.sources[0].items = [], f => f.sources[1] = null, f => f.items.push(f.items[0])]) {

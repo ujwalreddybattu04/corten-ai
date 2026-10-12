@@ -12,6 +12,7 @@ export interface PharmaItem {
   id: string; source: PharmaSourceId; title: string; summary: string;
   date: string; date_label: string; category: string; organization: string;
   url: string; tags: string[];
+  thumbnail?: string;
   details?: { application?: string; action?: string; ingredients?: string[]; study_id?: string; status?: string; phases?: string[]; conditions?: string[]; interventions?: string[] };
 }
 export interface PharmaSource {
@@ -27,6 +28,34 @@ export interface PharmaFeed {
 }
 const SOURCES = ["fda", "trials", "news"];
 const STATUSES = ["available", "empty", "stale", "unavailable", "unconfigured", "authentication_required"];
+/** Only publisher-owned images; optional/malformed images never block records. */
+export function pharmaThumbnail(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "i.guim.co.uk" && !url.username && !url.password && !url.port ? url.href : null;
+  } catch { return null; }
+}
+/** Counts describe the loaded sample, with UTC date buckets and exclusive phase groups. */
+export function pharmaOverview(feed: PharmaFeed) {
+  const start = Date.parse(feed.since + "T00:00:00Z");
+  const length = Math.floor((Date.parse(feed.until + "T00:00:00Z") - start) / 86400000) + 1;
+  const bins = Array.from({ length: Math.min(7, length) }, (_, index) => ({
+    date: new Date(start + Math.ceil(index * length / Math.min(7, length)) * 86400000).toISOString().slice(0, 10), fda: 0, trials: 0, news: 0,
+  }));
+  const phases = new Map<string, number>();
+  for (const item of feed.items) {
+    const day = Math.floor((Date.parse(item.date + "T00:00:00Z") - start) / 86400000);
+    if (day >= 0 && day < length) bins[Math.min(bins.length - 1, Math.floor(day * bins.length / length))][item.source]++;
+    if (item.source === "trials") {
+      const label = item.details?.phases?.length ? item.details.phases.map(p => p.replace(/^PHASE/, "Phase ").replaceAll("_", " ")).join(" / ") : "Not specified";
+      phases.set(label, (phases.get(label) ?? 0) + 1);
+    }
+  }
+  return { bins, phases: [...phases].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    organizations: new Set(feed.items.map(i => i.organization.trim()).filter(Boolean)).size,
+    trials: feed.items.filter(i => i.source === "trials").length };
+}
 function safeLink(value: unknown) {
   try {
     const url = new URL(String(value));

@@ -16,6 +16,16 @@ from src.services.pharma_updates import (
 
 
 class NormalizationTests(unittest.TestCase):
+    def test_optional_news_thumbnails_cannot_inject_untrusted_image_hosts(self):
+        article = {"webPublicationDate": "2026-10-10T12:00:00Z", "webUrl": "https://www.theguardian.com/science/example", "webTitle": "Pharma evidence", "fields": {"thumbnail": "https://i.guim.co.uk/img/media/example.jpg"}}
+        data = {"response": {"results": [article]}}
+        self.assertEqual(normalize_news(data, "2026-10-01", "2026-10-12")[0]["thumbnail"], article["fields"]["thumbnail"])
+        for thumbnail in ["https://127.0.0.1/image", "http://i.guim.co.uk/image", "https://user:password@i.guim.co.uk/image", "https://i.guim.co.uk.evil.test/image", "https://i.guim.co.uk:invalid/image", None]:
+            article["fields"]["thumbnail"] = thumbnail
+            self.assertNotIn("thumbnail", normalize_news(data, "2026-10-01", "2026-10-12")[0])
+        article["fields"] = None
+        self.assertEqual(len(normalize_news(data, "2026-10-01", "2026-10-12")), 1)
+
     def test_fda_filters_each_nested_submission_not_entire_application(self):
         payload = {"results": [{"application_number": "NDA123456", "products": [{"brand_name": "Example"}],
             "submissions": [
