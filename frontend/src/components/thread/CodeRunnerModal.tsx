@@ -7,6 +7,7 @@ import {
   useRef,
   memo,
 } from "react";
+import { useModalFocus } from "@/hooks/useModalFocus";
 import { createPortal } from "react-dom";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -92,6 +93,8 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   const [elapsed, setElapsed] = useState(0);
   const [showCode, setShowCode] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, mounted, onClose);
 
   const outputRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -118,7 +121,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   }, [onClose]);
 
   // Cleanup timer
-  useEffect(() => () => { clearInterval(timerRef.current); executionRef.current?.abort(); }, []);
+  useEffect(() => () => { clearInterval(timerRef.current); executionRef.current?.abort(); if (isPython) stopPython(); }, [isPython, stopPython]);
 
   const append = useCallback((line: OutputLine) => {
     setOutput((p) => [...p.slice(-499), line]);
@@ -283,7 +286,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   if (!mounted) return null;
 
   const modal = (
-    <div className="cr-overlay" role="dialog" aria-modal="true" aria-label="Code Runner">
+    <div ref={dialogRef} className="cr-overlay" role="dialog" aria-modal="true" aria-label="Code Runner">
       {/* Header */}
       <div className="cr-header">
         <div className="cr-header-left">

@@ -130,7 +130,7 @@ export default function Sidebar() {
                         </svg>
                     </div>
                     <span className="sidebar-brand-name">Corten</span>
-                    <button className="mobile-close-btn" onClick={() => setIsMobileOpen(false)} suppressHydrationWarning>
+                    <button className="mobile-close-btn" aria-label="Close menu" onClick={() => setIsMobileOpen(false)} suppressHydrationWarning>
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" x2="6" y1="6" y2="18" /><line x1="6" x2="18" y1="6" y2="18" /></svg>
                     </button>
                 </div>
@@ -181,7 +181,7 @@ export default function Sidebar() {
                                 recentThreads.map((thread) => (
                                     <Link
                                         key={thread.id}
-                                        href={`/search?q=${encodeURIComponent(thread.query)}&id=${thread.id}`}
+                                        href={`/search?id=${encodeURIComponent(thread.id)}`}
                                         className={`sidebar-history-item ${thread.id === activeThreadId ? "active" : ""}`}
                                     >
                                         {pinnedThreadIds.includes(thread.id) && (

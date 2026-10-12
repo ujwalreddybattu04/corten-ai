@@ -5,7 +5,8 @@ import CloudSyncStatus from "@/components/layout/CloudSyncStatus";
 import { accountStorage } from "@/lib/accountStorage";
 
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useModalFocus } from "@/hooks/useModalFocus";
 import Link from "next/link";
 import {
     Search, Plus, MoreHorizontal, Edit3, Trash2, Lock, Globe,
@@ -93,6 +94,8 @@ export default function SpacesPage() {
     const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [editingSpace, setEditingSpace] = useState<LocalSpace | null>(null);
+    const deleteRef = useRef<HTMLDivElement>(null);
+    useModalFocus(deleteRef, !!deleteId, () => setDeleteId(null));
 
     useEffect(() => {
         const load = () => { try { setSpaces(JSON.parse(accountStorage.getItem(STORAGE_KEY) || "[]")); } catch { /* Keep the loaded list. */ } };
@@ -297,7 +300,7 @@ export default function SpacesPage() {
             {/* ── Delete Confirm ── */}
             {deleteId && (
                 <div className="sp-spaces-overlay" onClick={() => setDeleteId(null)}>
-                    <div className="sp-spaces-delete-modal" onClick={e => e.stopPropagation()}>
+                    <div ref={deleteRef} className="sp-spaces-delete-modal" role="dialog" aria-modal="true" aria-label="Delete Space" onClick={e => e.stopPropagation()}>
                         <h3>Delete space?</h3>
                         <p>Threads inside this space won&apos;t be deleted, but they&apos;ll be unorganized.</p>
                         <div className="sp-spaces-delete-actions">
@@ -327,6 +330,8 @@ function SpaceFormModal({
     const [icon, setIcon] = useState(initial?.icon || "bookmark");
     const [color, setColor] = useState(initial?.color || SPACE_COLORS[0]);
     const isPrivate = true;
+    const dialogRef = useRef<HTMLDivElement>(null);
+    useModalFocus(dialogRef, true, onClose);
 
     const canSave = name.trim().length > 0;
 
@@ -338,10 +343,10 @@ function SpaceFormModal({
 
     return (
         <div className="sp-spaces-overlay" onClick={onClose}>
-            <div className="sp-spaces-form-modal" onClick={e => e.stopPropagation()}>
+            <div ref={dialogRef} className="sp-spaces-form-modal" role="dialog" aria-modal="true" aria-label={initial ? "Edit Space" : "Create Space"} onClick={e => e.stopPropagation()}>
                 <div className="sp-spaces-form-header">
                     <h2>{initial ? "Edit Space" : "Create New Space"}</h2>
-                    <button className="sp-spaces-form-close" onClick={onClose}>
+                    <button className="sp-spaces-form-close" aria-label="Close Space editor" onClick={onClose}>
                         <X size={18} />
                     </button>
                 </div>

@@ -32,7 +32,19 @@ cd "$target"
 python3 deploy/aws/prepare-runtime.py
 docker compose -f deploy/aws/compose.yaml config --quiet
 docker compose -f deploy/aws/compose.yaml build backend frontend
-docker compose -f deploy/aws/compose.yaml run --rm -T backend python - < deploy/aws/verify-personal-storage.py
+verification=$(docker compose -f deploy/aws/compose.yaml run --rm -T \
+  -v "$target/deploy/aws/verify-personal-storage.py:/tmp/corten-storage-verify.py:ro" \
+  backend python -c "import runpy; runpy.run_path('/tmp/corten-storage-verify.py', run_name='__main__')")
+python3 - "$verification" <<'PY'
+import json
+import sys
+result = json.loads(sys.argv[1])
+required = ('migration_preserved_existing_user', 'parallel_revisions_unique',
+    'concurrent_edit_conflict', 'deletion_protected', 'account_isolation', 'production_data_unchanged')
+if any(result.get(key) is not True for key in required):
+    raise RuntimeError('Isolated storage verification did not prove every required check')
+print(json.dumps(result))
+PY
 if test -L /opt/corten/current; then
   /bin/bash /opt/corten/current/deploy/aws/backup.sh
 fi

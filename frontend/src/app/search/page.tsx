@@ -3,6 +3,8 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
+import { readQuestionDraft, questionPath } from "@/lib/questionDrafts";
+import Link from "next/link";
 import { useSearch } from "@/hooks/useSearch";
 import AnswerStream from "@/components/thread/AnswerStream";
 import AnswerSkeleton from "@/components/thread/AnswerSkeleton";
@@ -54,7 +56,9 @@ function cleanTitle(text: string): string {
 function SearchPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const query = searchParams.get("q") || "";
+    const draftId = searchParams.get("draft");
+    const draft = readQuestionDraft(draftId);
+    const query = searchParams.get("q") || draft?.query || "";
     const focusMode = searchParams.get("focus") || "all";
     const threadId = searchParams.get("id") || undefined;
     const fromArticle = searchParams.get("fromArticle") || "";
@@ -151,7 +155,7 @@ function SearchPageContent() {
         setEditingQueryId(null);
         setEditingQueryText("");
         // Navigate to a fresh search with the edited query — this REPLACES the current answer
-        router.push(`/search?q=${encodeURIComponent(newText)}`);
+        router.push(questionPath(newText, focusMode));
     }, [editingQueryText, router]);
 
 
@@ -184,6 +188,7 @@ function SearchPageContent() {
         }
     }, [currentQuery, isConnecting, isStreaming, history.length]);
 
+    if (!query && !threadId) return <div className="account-settings" role="status"><h1>{draftId ? "Question unavailable" : "Start a conversation"}</h1><p className="account-description">{draftId ? "This question belongs to another account or its temporary draft has expired." : "Enter a question on Search to begin."}</p><Link href="/">Return to Search</Link></div>;
     return (
         <>
         <div className="sp-page">
@@ -634,7 +639,7 @@ function SearchPageSkeleton() {
 function SearchPageSession() {
     const params = useSearchParams();
     // Navigation between saved threads must create an independent hook session.
-    const sessionKey = `${params.get("id") || params.get("q") || "new"}:${params.get("focus") || "all"}`;
+    const sessionKey = `${params.get("id") || params.get("draft") || params.get("q") || "new"}:${params.get("focus") || "all"}`;
     return <SearchPageContent key={sessionKey} />;
 }
 

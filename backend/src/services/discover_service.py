@@ -703,7 +703,7 @@ async def get_weather(city: str = "") -> dict:
         return weather
 
     except Exception as exc:
-        logger.warning(f"OpenWeatherMap failed for location={location!r}: {exc}")
+        logger.warning("Weather provider failed (%s)", type(exc).__name__)
         return {}
 
 

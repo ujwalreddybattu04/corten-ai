@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useModalFocus } from "@/hooks/useModalFocus";
 import { createPortal } from "react-dom";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -82,6 +83,8 @@ const DEVICE_ICONS = { desktop: <IconDesktop />, tablet: <IconTablet />, mobile:
 // ─── Component ────────────────────────────────────────────────────────────────
 const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlPreviewModalProps) {
   const [mounted,       setMounted]       = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, mounted, onClose);
   const [showCode,      setShowCode]      = useState(true);
   const [device,        setDevice]        = useState<DeviceMode>("desktop");
   const [consoleLines,  setConsoleLines]  = useState<ConsoleLine[]>([]);
@@ -159,7 +162,7 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
   ) : null;
 
   const modal = (
-    <div className="hp-overlay" role="dialog" aria-modal="true" aria-label="HTML Preview">
+    <div ref={dialogRef} className="hp-overlay" role="dialog" aria-modal="true" aria-label="HTML Preview">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="hp-header">

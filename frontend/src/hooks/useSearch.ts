@@ -1,4 +1,5 @@
 "use client";
+import { isPrivateChat } from "@/lib/questionDrafts";
 import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { openSearchStream } from "@/lib/searchConnection";
@@ -182,7 +183,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         if (!state.isStreaming && !state.isConnecting && !state.error && state.answer) {
             if (typeof window === "undefined") return;
 
-            const isPrivate = sessionStorage.getItem("corten_private_mode") === "true";
+            const isPrivate = isPrivateChat();
             if (isPrivate) return;
 
             try {
@@ -231,6 +232,8 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 const url = new URL(window.location.href);
                 if (url.pathname === "/search" && url.searchParams.get("id") !== currentThreadId) {
                     url.searchParams.set("id", currentThreadId);
+                    url.searchParams.delete("q");
+                    url.searchParams.delete("draft");
                     // Next.js copies its router state for native navigation. Passing
                     // its internal state back would bypass the search-param update.
                     window.history.replaceState(null, "", url.toString());
@@ -418,7 +421,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         // If we are passing an existing threadId, DO NOT run search, hydrate instead
         if (existingThreadId && !hasStarted.current) {
             if (typeof window !== "undefined") {
-                const isPrivate = sessionStorage.getItem("corten_private_mode") === "true";
+                const isPrivate = isPrivateChat();
                 if (!isPrivate) {
                     try {
                         const threadsJson = accountStorage.getItem("corten_threads") || accountStorage.getItem("orivanta_threads");
@@ -455,7 +458,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 setState(prev => ({
                     ...prev,
                     isConnecting: false,
-                    error: "This saved conversation isn't available in this browser. Open it in the browser where it was created, or start a new thread."
+                    error: "This conversation is unavailable. Sign in to its account, retry cloud sync, or start a new thread."
                 }));
             }
         }

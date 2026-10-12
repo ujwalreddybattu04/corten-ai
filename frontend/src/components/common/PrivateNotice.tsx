@@ -37,7 +37,7 @@ export default function PrivateNotice({ isVisible, onClose }: PrivateNoticeProps
 
                     <div className="private-toast-content">
                         <h3 className="private-toast-title">Private Session Active</h3>
-                        <p className="private-toast-msg">History and threads will not be saved.</p>
+                        <p className="private-toast-msg">New chat messages will not be saved to history. AI and search providers still process your requests.</p>
                     </div>
 
                     <button className="private-toast-close" onClick={onClose} aria-label="Close">

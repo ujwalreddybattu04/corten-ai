@@ -10,6 +10,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
+import { questionPath } from "@/lib/questionDrafts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,7 @@ export default function ArticleDetailPage() {
     const [article, setArticle] = useState<Article | null>(null);
     const [related, setRelated] = useState<Article[]>([]);
     const [followUp, setFollowUp] = useState("");
+    const [followUpError, setFollowUpError] = useState("");
     const [copied, setCopied] = useState(false);
     const [sourcesPanelOpen, setSourcesPanelOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -295,12 +297,14 @@ export default function ArticleDetailPage() {
         // Build a context-aware query so the search page LLM knows which article
         const contextQuery = `Regarding the article "${article.title}": ${q}`;
 
-        const sp = new URLSearchParams({
-            q: contextQuery,
-            fromArticle: article.title,
-            fromArticleImg: article.image ?? "",
-        });
-        router.push(`/search?${sp.toString()}`);
+        try {
+            setFollowUpError("");
+            const path = questionPath(contextQuery);
+            const destination = new URL(path, window.location.origin);
+            destination.searchParams.set("fromArticle", article.title);
+            destination.searchParams.set("fromArticleImg", article.image ?? "");
+            router.push(destination.pathname + destination.search);
+        } catch (error) { setFollowUpError(error instanceof Error ? error.message : "Unable to open this question."); }
     };
 
     const handleShare = () => {
@@ -582,6 +586,7 @@ export default function ArticleDetailPage() {
 
                 {/* ── Fixed follow-up bar ── */}
                 <div className="article-followup-bar">
+                    {followUpError && <p role="alert">{followUpError}</p>}
                     <form className="article-followup-form" onSubmit={handleFollowUp}>
                         <input
                             ref={inputRef}

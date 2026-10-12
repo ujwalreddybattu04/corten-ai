@@ -1,8 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { readQuestionDraft, questionPath } from "@/lib/questionDrafts";
 import { api } from "@/lib/api";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useReport, ReportSection, ReportStep } from "@/hooks/useReport";
 import ReactMarkdown from "react-markdown";
@@ -19,10 +20,13 @@ export default function ReportPage() {
 }
 
 function ReportContent() {
+    const router = useRouter();
+    const [newTopic, setNewTopic] = useState("");
+    const [topicError, setTopicError] = useState("");
     const [downloadError, setDownloadError] = useState("");
     const [downloading, setDownloading] = useState(false);
     const searchParams = useSearchParams();
-    const topic = searchParams.get("topic") || "";
+    const topic = searchParams.get("topic") || readQuestionDraft(searchParams.get("draft"))?.query || "";
     const focus = searchParams.get("focus") || "all";
 
     const {
@@ -82,6 +86,7 @@ function ReportContent() {
         finally { setDownloading(false); }
     };
 
+    if (!topic) return <div className="account-settings"><h1>Create a research report</h1><p className="account-description">Enter a topic to research evidence and generate a downloadable PDF.</p><form onSubmit={event => { event.preventDefault(); try { router.push(questionPath(newTopic, focus, undefined, "report")); } catch (error) { setTopicError(error instanceof Error ? error.message : "Unable to start this report."); } }}><label htmlFor="report-topic">Research topic</label><textarea id="report-topic" className="auth-input" value={newTopic} onChange={event => setNewTopic(event.target.value)} required maxLength={16000} />{topicError && <p role="alert">{topicError}</p>}<button className="auth-submit" disabled={!newTopic.trim()}>Generate report</button></form></div>;
     return (
         <div className="rpt-page">
             {/* ── Left Panel: Progress ── */}

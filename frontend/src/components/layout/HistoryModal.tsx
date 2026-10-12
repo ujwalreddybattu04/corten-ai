@@ -1,4 +1,5 @@
 "use client";
+import { useModalFocus } from "@/hooks/useModalFocus";
 import { accountStorage } from "@/lib/accountStorage";
 
 
@@ -68,7 +69,7 @@ function formatDate(timestamp: number): string {
 }
 
 function stripCitations(text: string): string {
-    return text.replace(/\s*\[\d+\]/g, "");
+    return text;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -84,14 +85,23 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     const [editingTitle, setEditingTitle] = useState("");
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const deleteRef = useRef<HTMLDivElement>(null);
+    const cancellingRename = useRef(false);
+    useModalFocus(dialogRef, isOpen, () => {
+        if (editingId) { cancellingRename.current = true; setEditingId(null); }
+        else if (activeMenuId) setActiveMenuId(null);
+        else onClose();
+    });
+    useModalFocus(deleteRef, !!deleteConfirmId, () => setDeleteConfirmId(null));
 
     // Load threads from localStorage
     const loadData = useCallback(() => {
         try {
             const raw = accountStorage.getItem(STORAGE_KEYS.THREADS);
-            if (raw) setThreads(JSON.parse(raw));
+            setThreads(raw ? JSON.parse(raw) : []);
             const pins = accountStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
-            if (pins) setPinnedIds(JSON.parse(pins));
+            setPinnedIds(pins ? JSON.parse(pins) : []);
         } catch { /* ignore */ }
     }, []);
 
@@ -185,7 +195,7 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
 
     const openThread = (thread: ThreadItem) => {
         onClose();
-        router.push(`/search?q=${encodeURIComponent(thread.query)}&id=${thread.id}`);
+        router.push(`/search?id=${encodeURIComponent(thread.id)}`);
     };
 
     const togglePin = (id: string) => {
@@ -198,12 +208,14 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     };
 
     const startRename = (t: ThreadItem) => {
+        cancellingRename.current = false;
         setEditingId(t.id);
         setEditingTitle(t.title || t.query);
         setActiveMenuId(null);
     };
 
     const saveRename = () => {
+        if (cancellingRename.current) return;
         if (!editingId || !editingTitle.trim()) return;
         // A generated title may arrive while the rename dialog is open.
         const latest: ThreadItem[] = JSON.parse(accountStorage.getItem(STORAGE_KEYS.THREADS) || "[]");
@@ -218,7 +230,8 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
     };
 
     const confirmDelete = (id: string) => {
-        const updated = threads.filter(t => t.id !== id);
+        const latest: ThreadItem[] = JSON.parse(accountStorage.getItem(STORAGE_KEYS.THREADS) || "[]");
+        const updated = latest.filter(t => t.id !== id);
         setThreads(updated);
         accountStorage.setItem(STORAGE_KEYS.THREADS, JSON.stringify(updated));
 
@@ -236,7 +249,7 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
 
     return (
         <div className="hm-overlay" onClick={onClose}>
-            <div className="hm-container" onClick={e => e.stopPropagation()}>
+            <div ref={dialogRef} className="hm-container" role="dialog" aria-modal="true" aria-label="Conversation history" onClick={e => e.stopPropagation()}>
                 {/* ── LEFT PANEL: Search + Thread List ── */}
                 <div className="hm-left">
                     {/* Search bar */}
@@ -428,7 +441,7 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
             {/* Delete confirmation overlay */}
             {deleteConfirmId && (
                 <div className="hm-delete-overlay" onClick={() => setDeleteConfirmId(null)}>
-                    <div className="hm-delete-modal" onClick={e => e.stopPropagation()}>
+                    <div ref={deleteRef} className="hm-delete-modal" role="dialog" aria-modal="true" aria-label="Delete conversation" onClick={e => e.stopPropagation()}>
                         <h3>Delete conversation?</h3>
                         <p>This action cannot be undone.</p>
                         <div className="hm-delete-actions">

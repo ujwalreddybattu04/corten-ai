@@ -22,6 +22,7 @@ export default function StarField() {
 
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
+        const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
         const resize = () => {
             canvas.width = window.innerWidth;
@@ -71,21 +72,29 @@ export default function StarField() {
                 }
             });
 
-            animationRef.current = requestAnimationFrame(animate);
+            if (!motion.matches && !document.hidden) animationRef.current = requestAnimationFrame(animate);
         };
 
         resize();
         createStars();
         animate();
 
-        window.addEventListener("resize", () => {
+        const handleResize = () => {
             resize();
             createStars();
-        });
+            cancelAnimationFrame(animationRef.current);
+            animate();
+        };
+        const resume = () => { cancelAnimationFrame(animationRef.current); if (!document.hidden) animate(); };
+        window.addEventListener("resize", handleResize);
+        document.addEventListener("visibilitychange", resume);
+        motion.addEventListener("change", resume);
 
         return () => {
             cancelAnimationFrame(animationRef.current);
-            window.removeEventListener("resize", resize);
+            window.removeEventListener("resize", handleResize);
+            document.removeEventListener("visibilitychange", resume);
+            motion.removeEventListener("change", resume);
         };
     }, []);
 

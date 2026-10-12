@@ -171,6 +171,7 @@ const AnswerStream = memo(({
         try {
             const stored = JSON.parse(accountStorage.getItem("corten_answer_feedback") || "{}");
             const next = feedback === value ? null : value;
+            if (sessionStorage.getItem("corten_private_mode") === "true") { setFeedback(next); return; }
             if (next) stored[feedbackKey] = next; else delete stored[feedbackKey];
             accountStorage.setItem("corten_answer_feedback", JSON.stringify(Object.fromEntries(Object.entries(stored).slice(-500))));
             setFeedback(next);

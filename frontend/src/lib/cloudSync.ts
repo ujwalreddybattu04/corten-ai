@@ -40,6 +40,7 @@ export function conflictCopy(record: Pending, remote: CloudRecord | null): Pendi
 }
 
 export function stopCloudSync() { current?.stop(); current = null; report("guest"); }
+export function markCloudStorageUnavailable() { stopCloudSync(); report("offline", "Device storage is unavailable. Allow site storage to open and save your work."); }
 export async function refreshCloudSync() { await current?.refresh(); }
 export async function startCloudSync(owner: string): Promise<void> {
     if (current?.owner === owner) return;
@@ -54,7 +55,7 @@ export async function startCloudSync(owner: string): Promise<void> {
     const controller = new AbortController();
     const identity = (namespace: string, id: string) => namespace + ":" + id;
     const valid = () => !stopped && owner === getStorageAccount();
-    const privateMode = () => sessionStorage.getItem("corten_private_mode") === "true";
+    const privateMode = () => { try { return sessionStorage.getItem("corten_private_mode") === "true"; } catch { return true; } };
     const persist = () => { if (valid()) { accountStorage.setItem(draftKey, JSON.stringify([...pending.values()])); accountStorage.setItem(revisionKey, JSON.stringify([...revisions])); } };
     try {
         const saved = JSON.parse(accountStorage.getItem(revisionKey) || "[]");
@@ -105,10 +106,11 @@ export async function startCloudSync(owner: string): Promise<void> {
         throw new Error("Cloud pagination limit reached");
     };
     const flush = async () => {
-        if (!valid() || privateMode()) return;
+        if (!valid()) return;
         // One bounded batch per pass; additional edits remain queued durably.
         const batch: Pending[] = []; let bytes = 0;
         for (const entry of pending.values()) {
+            if (entry.namespace === "threads" && privateMode()) continue;
             const size = new TextEncoder().encode(JSON.stringify(entry)).byteLength;
             if (batch.length && (batch.length >= 16 || bytes + size > 500000)) break;
             bytes += size; batch.push(entry);
@@ -141,7 +143,7 @@ export async function startCloudSync(owner: string): Promise<void> {
     };
     const schedule = (delay = 700) => { clearTimeout(timer); timer = setTimeout(() => void refresh(), delay); };
     const observe = (name: string, before: string | null, after: string | null) => {
-        if (!valid() || applying || privateMode() || (!ARRAY_KEYS[name] && !PREFERENCES.has(name))) return;
+        if (!valid() || applying || (ARRAY_KEYS[name] === "threads" && privateMode()) || (!ARRAY_KEYS[name] && !PREFERENCES.has(name))) return;
         if (after !== null) { try { JSON.parse(after); } catch { report("offline"); return; } }
         const namespace = ARRAY_KEYS[name] || "preferences";
         const prior = cloudRecords(name, before), next = cloudRecords(name, after);
@@ -178,15 +180,15 @@ export async function startCloudSync(owner: string): Promise<void> {
             await flush();
             if (valid() && status !== "conflict") report(pending.size ? "pending" : "saved");
         } catch (error) { if (valid()) report("offline", error instanceof ApiRequestError && error.status < 500 ? error.message : ""); }
-        finally { busy = false; if (valid()) schedule(pending.size && status !== "offline" ? 1000 : 60000); }
+        finally { busy = false; if (valid()) schedule([...pending.values()].some(item => item.namespace !== "threads" || !privateMode()) && status !== "offline" ? 1000 : 60000); }
     };
     const wake = () => { if (document.visibilityState !== "hidden") void refresh(); };
-    window.addEventListener("online", wake); window.addEventListener("focus", wake); window.addEventListener("storage", storage); document.addEventListener("visibilitychange", wake);
-    current = { owner, refresh, stop: () => { stopped = true; controller.abort(); clearTimeout(timer); unsubscribe(); window.removeEventListener("online", wake); window.removeEventListener("focus", wake); window.removeEventListener("storage", storage); document.removeEventListener("visibilitychange", wake); } };
+    window.addEventListener("online", wake); window.addEventListener("focus", wake); window.addEventListener("storage", storage); window.addEventListener("corten_private_mode_toggle", wake); document.addEventListener("visibilitychange", wake);
+    current = { owner, refresh, stop: () => { stopped = true; controller.abort(); clearTimeout(timer); unsubscribe(); window.removeEventListener("online", wake); window.removeEventListener("focus", wake); window.removeEventListener("storage", storage); window.removeEventListener("corten_private_mode_toggle", wake); document.removeEventListener("visibilitychange", wake); } };
     // Import only this authenticated account's pre-existing browser records.
     const local = new Map<string, { namespace: Namespace; id: string; data: unknown }>();
     for (const name of [...Object.keys(ARRAY_KEYS), ...PREFERENCES]) for (const [id, data] of cloudRecords(name, accountStorage.getItem(name))) local.set(identity(ARRAY_KEYS[name] || "preferences", id), { namespace: ARRAY_KEYS[name] || "preferences", id, data });
-    if (!privateMode()) for (const [key, item] of local) if (!revisions.has(key) && !pending.has(key)) pending.set(key, { ...item, expected_revision: 0, deleted: false });
+    for (const [key, item] of local) if ((item.namespace !== "threads" || !privateMode()) && !revisions.has(key) && !pending.has(key)) pending.set(key, { ...item, expected_revision: 0, deleted: false });
     persist();
     busy = true;
     try {

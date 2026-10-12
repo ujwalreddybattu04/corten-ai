@@ -88,6 +88,16 @@ test('private mode never uploads private browser records', async () => {
     } finally { s.stopCloudSync(); }
 });
 
+test('private chat mode does not silently prevent saving independent Spaces', async () => {
+    const s = setup(); global.sessionStorage = { getItem: () => 'true' };
+    try {
+        s.accountStorage.setItem('corten_spaces', JSON.stringify([{id:'space',name:'Research'}]));
+        await s.startCloudSync('owner-a');
+        assert.equal(s.records.get('spaces:space').data.name, 'Research');
+        assert.equal(s.records.has('threads:chat'), false);
+    } finally { s.stopCloudSync(); }
+});
+
 test('switching account during hydration cannot copy old-account data into the next account', async () => {
     const s = setup(); let release;
     global.fetch = () => new Promise(resolve => { release = resolve; });

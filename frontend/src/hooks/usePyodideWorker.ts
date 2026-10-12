@@ -117,8 +117,7 @@ function _recreateWorker() {
 
   _dispatch(false);
 
-  // Recreate and re-init
-  _worker = _createWorker();
+  // Reinitialize lazily on the next explicit execution.
 }
 
 /** Call this early to pre-warm Pyodide (background download ~8MB). */

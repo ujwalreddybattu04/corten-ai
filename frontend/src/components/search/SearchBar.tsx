@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { questionPath } from "@/lib/questionDrafts";
 import { FOCUS_MODES } from "@/config/focusModes";
 import { Code, MessageSquare, Play, Users, FileText } from "lucide-react";
 
@@ -24,6 +25,7 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
     const [query, setQuery] = useState("");
     const [focusMode, setFocusMode] = useState("all");
     const [moreOpen, setMoreOpen] = useState(false);
+    const [submitError, setSubmitError] = useState("");
     const router = useRouter();
     const inputRef = useRef<HTMLInputElement>(null);
     const moreRef = useRef<HTMLDivElement>(null);
@@ -34,7 +36,7 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
             inputRef.current?.focus();
             // Short delay so React flushes the new value before navigation
             setTimeout(() => {
-                router.push(`/search?q=${encodeURIComponent(q)}&focus=all`);
+                try { router.push(questionPath(q)); } catch (error) { setSubmitError(error instanceof Error ? error.message : "Unable to open this question."); }
             }, 60);
         },
     }));
@@ -65,12 +67,13 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         if (!query.trim()) return;
-        router.push(`/search?q=${encodeURIComponent(query)}&focus=${focusMode}`);
+        try { setSubmitError(""); router.push(questionPath(query, focusMode)); } catch (error) { setSubmitError(error instanceof Error ? error.message : "Unable to submit this question."); }
     };
 
     return (
         <form className="search-bar" onSubmit={handleSubmit} id="search-bar">
             <div className="search-bar-container">
+                {submitError && <p role="alert">{submitError}</p>}
                 {/* Input Row */}
                 <div className="search-input-row">
                     <input
@@ -153,10 +156,11 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
                         <button
                             type="button"
                             className="search-report-btn"
+                            disabled={!query.trim()}
                             title="Generate detailed report"
                             onClick={() => {
                                 if (!query.trim()) return;
-                                router.push(`/report?topic=${encodeURIComponent(query)}&focus=${focusMode}`);
+                                try { router.push(questionPath(query, focusMode, undefined, "report")); } catch (error) { setSubmitError(error instanceof Error ? error.message : "Unable to open the report."); }
                             }}
                         >
                             <FileText size={15} />

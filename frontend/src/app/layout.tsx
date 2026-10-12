@@ -18,16 +18,17 @@ import "@/styles/spaces.css";
 import "@/styles/report.css";
 import { Suspense } from "react";
 import { Sidebar } from "@/components/layout";
-import { SITE_TITLE, SITE_DESCRIPTION } from "@/config/constants";
+import { SITE_TITLE, SITE_DESCRIPTION, SITE_URL } from "@/config/constants";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
+    metadataBase: new URL(SITE_URL),
     title: `${SITE_TITLE} — AI-Powered Answer Engine`,
     description: SITE_DESCRIPTION,
     openGraph: {
         title: SITE_TITLE,
         description: "AI-Powered Answer Engine",
-        url: "https://corten.ai",
+        url: "/",
         siteName: SITE_TITLE,
         type: "website",
     },

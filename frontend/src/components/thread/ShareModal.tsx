@@ -1,5 +1,6 @@
 "use client";
 
+import { useModalFocus } from "@/hooks/useModalFocus";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Link2, Check } from "lucide-react";
@@ -39,17 +40,18 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
     const [copied, setCopied] = useState(false);
     const [copyError, setCopyError] = useState("");
     const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef, isOpen, onClose);
 
-    const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/search?q=${encodeURIComponent(query)}` : "";
-    const previewText = answer ? answer.slice(0, 120).trim() + (answer.length > 120 ? "…" : "") : "";
+    const proposedUrl = typeof window !== "undefined" ? `${window.location.origin}/search?q=${encodeURIComponent(query)}` : "";
+    const shareUrl = proposedUrl.length <= 7600 ? proposedUrl : "";
 
     const handleCopyLink = useCallback(() => {
         setCopyError("");
-        navigator.clipboard.writeText(shareUrl).then(() => {
+        (navigator.clipboard ? navigator.clipboard.writeText(shareUrl || query) : Promise.reject()).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2500);
         }).catch(() => setCopyError("Copy was blocked. Select and copy the link below."));
-    }, [shareUrl]);
+    }, [shareUrl, query]);
 
     const handleXShare = useCallback(() => {
         window.open(
@@ -117,10 +119,10 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
                     />
 
                     {/* Modal */}
-                    <div className="sm-positioner" role="dialog" aria-modal="true" aria-label="Share question">
+                    <div className="sm-positioner" >
                         <motion.div
                             ref={modalRef}
-                            className="sm-modal"
+                            className="sm-modal" role="dialog" aria-modal="true" aria-label="Share question"
                             initial={{ opacity: 0, scale: 0.96, y: 12 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -160,39 +162,40 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
                                 <div className="sm-preview-brand">Corten</div>
                             </div>
 
+                            {!shareUrl && <p role="status">This question is too long for a share link. Copy the full question text instead.</p>}
                             {copyError && <p role="alert">{copyError}</p>}
-                            <input aria-label="Question link" readOnly value={shareUrl} onFocus={event => event.target.select()} style={{ width: "100%", padding: 12, color: "var(--text-secondary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 8 }} />
+                            <input aria-label={shareUrl ? "Question link" : "Question text"} readOnly value={shareUrl || query} onFocus={event => event.target.select()} style={{ width: "100%", padding: 12, color: "var(--text-secondary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 8 }} />
                             {/* Share buttons */}
                             <div className="sm-actions">
                                 <button className="sm-action" onClick={handleCopyLink} title="Copy link">
                                     <div className={`sm-action-icon ${copied ? "sm-action-icon--copied" : ""}`}>
                                         {copied ? <Check size={20} strokeWidth={2.5} /> : <Link2 size={20} strokeWidth={2} />}
                                     </div>
-                                    <span className="sm-action-label">{copied ? "Copied!" : "Copy link"}</span>
+                                    <span className="sm-action-label">{copied ? "Copied!" : shareUrl ? "Copy link" : "Copy question"}</span>
                                 </button>
 
-                                <button className="sm-action" onClick={handleXShare} title="Share on X">
+                                <button className="sm-action" disabled={!shareUrl} onClick={handleXShare} title="Share on X">
                                     <div className="sm-action-icon">
                                         <XIcon />
                                     </div>
                                     <span className="sm-action-label">X</span>
                                 </button>
 
-                                <button className="sm-action" onClick={handleLinkedInShare} title="Share on LinkedIn">
+                                <button className="sm-action" disabled={!shareUrl} onClick={handleLinkedInShare} title="Share on LinkedIn">
                                     <div className="sm-action-icon sm-action-icon--linkedin">
                                         <LinkedInIcon />
                                     </div>
                                     <span className="sm-action-label">LinkedIn</span>
                                 </button>
 
-                                <button className="sm-action" onClick={handleRedditShare} title="Share on Reddit">
+                                <button className="sm-action" disabled={!shareUrl} onClick={handleRedditShare} title="Share on Reddit">
                                     <div className="sm-action-icon sm-action-icon--reddit">
                                         <RedditIcon />
                                     </div>
                                     <span className="sm-action-label">Reddit</span>
                                 </button>
 
-                                <button className="sm-action" onClick={handleWhatsAppShare} title="Share on WhatsApp">
+                                <button className="sm-action" disabled={!shareUrl} onClick={handleWhatsAppShare} title="Share on WhatsApp">
                                     <div className="sm-action-icon sm-action-icon--whatsapp">
                                         <WhatsAppIcon />
                                     </div>

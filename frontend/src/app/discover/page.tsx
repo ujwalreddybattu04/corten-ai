@@ -313,6 +313,9 @@ export default function DiscoverPage() {
     const [activeTab, setActiveTab] = useState<TabId>("for-you");
     const [articles, setArticles] = useState<Article[]>([]);
     const [sidebar, setSidebar] = useState<SidebarData | null>(null);
+    const [sidebarError, setSidebarError] = useState("");
+    const sidebarRequestRef = useRef(0);
+    const sidebarAbortRef = useRef<AbortController | null>(null);
     const [loadingArticles, setLoadingArticles] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [feedError, setFeedError] = useState<string | null>(null);
@@ -484,20 +487,28 @@ export default function DiscoverPage() {
     useEffect(() => () => {
         ++feedRequestRef.current;
         feedAbortRef.current?.abort();
+        ++sidebarRequestRef.current;
+        sidebarAbortRef.current?.abort();
     }, []);
 
     const fetchSidebar = useCallback(async (lat?: number, lon?: number) => {
+        const requestId = ++sidebarRequestRef.current;
+        sidebarAbortRef.current?.abort();
+        const controller = new AbortController();
+        sidebarAbortRef.current = controller;
         setLoadingSidebar(true);
+        setSidebarError("");
         try {
             const params = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : "";
-            const res = await fetch(`${API_BASE}/api/v1/discover/sidebar${params}`);
+            const res = await fetch(`${API_BASE}/api/v1/discover/sidebar${params}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(35000)]) });
             if (!res.ok) throw new Error("Failed");
             const data = await res.json();
+            if (requestId !== sidebarRequestRef.current) return;
             setSidebar(data);
         } catch {
-            setSidebar(null);
+            if (requestId === sidebarRequestRef.current && !controller.signal.aborted) setSidebarError("Widget updates are unavailable. Previously loaded values are retained. Retry for current data.");
         } finally {
-            setLoadingSidebar(false);
+            if (requestId === sidebarRequestRef.current) setLoadingSidebar(false);
         }
     }, []);
 
@@ -510,6 +521,7 @@ export default function DiscoverPage() {
 
     const requestLocation = () => {
         setLoadingSidebar(true);
+        if (!navigator.geolocation) { void fetchSidebar(); return; }
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const { latitude, longitude } = pos.coords;
@@ -579,7 +591,8 @@ export default function DiscoverPage() {
                 );
             }
         } else if (typeof navigator !== "undefined" && navigator.geolocation) {
-            navigator.permissions?.query({ name: "geolocation" }).then((perm) => {
+            if (!navigator.permissions) { void fetchSidebar(); return; }
+            navigator.permissions.query({ name: "geolocation" }).then((perm) => {
                 if (perm.state === "granted") {
                     // Already granted — get precise location silently
                     navigator.geolocation.getCurrentPosition(
@@ -940,6 +953,7 @@ export default function DiscoverPage() {
 
                 {/* ── Sidebar ── */}
                 <aside className="discover-sidebar">
+                    {sidebarError && <div className="discover-widget" role="status"><p>{sidebarError}</p><button className="discover-save-btn" onClick={() => void fetchSidebar()}>Retry widgets</button></div>}
                     {/* Make it yours */}
                     <div className="discover-widget">
                         <p className="discover-interests-title">Make it yours</p>
@@ -1024,11 +1038,11 @@ export default function DiscoverPage() {
                                 </div>
                             )}
                             {/* Hover overlay — "Use precise location" like Perplexity */}
-                            {!coords && (
+                            {(
                                 <div className="discover-weather-overlay">
                                     <button className="discover-location-btn" onClick={requestLocation}>
                                         <MapPin size={13} />
-                                        Use precise location
+                                        {coords ? "Update location" : "Use precise location"}
                                     </button>
                                 </div>
                             )}

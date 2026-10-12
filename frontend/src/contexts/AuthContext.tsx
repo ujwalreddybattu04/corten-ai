@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiRequestError, invalidateSessionRequests, SESSION_EXPIRED } from "@/lib/api";
 import { setStorageAccount, getStorageAccount, protectLegacyAccountData } from "@/lib/accountStorage";
-import { startCloudSync, stopCloudSync } from "@/lib/cloudSync";
+import { startCloudSync, stopCloudSync, markCloudStorageUnavailable } from "@/lib/cloudSync";
 
 export interface User { id: string; name: string; email: string; subscription_tier: string; avatar_url: string | null; }
 interface AuthContextValue {
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const changed = getStorageAccount() !== (next?.id || null);
         if (changed || !next) stopCloudSync();
         setStorageAccount(next?.id || null);
-        if (next && changed) { setIsLoading(true); await startCloudSync(next.id); }
+        if (next && changed) { setIsLoading(true); try { await startCloudSync(next.id); } catch { markCloudStorageUnavailable(); } }
         if (generation !== version.current) return;
         setUser(next);
         setIsLoading(false);

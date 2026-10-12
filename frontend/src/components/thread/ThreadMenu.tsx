@@ -2,6 +2,7 @@
 import { accountStorage } from "@/lib/accountStorage";
 import { associateSpaceThread } from "@/lib/spaces";
 import Link from "next/link";
+import { useModalFocus } from "@/hooks/useModalFocus";
 
 
 import { useState, useRef, useEffect } from "react";
@@ -54,6 +55,10 @@ export default function ThreadMenu({
     const menuRef = useRef<HTMLDivElement>(null);
     const renameInputRef = useRef<HTMLInputElement>(null);
     const spacePickerRef = useRef<HTMLDivElement>(null);
+    const renameDialogRef = useRef<HTMLDivElement>(null);
+    const deleteDialogRef = useRef<HTMLDivElement>(null);
+    useModalFocus(renameDialogRef, showRename, () => setShowRename(false));
+    useModalFocus(deleteDialogRef, showDeleteModal, () => setShowDeleteModal(false));
 
     useEffect(() => {
         if (!showSpacePicker) return;
@@ -215,7 +220,7 @@ export default function ThreadMenu({
             s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
         const mdToHtml = (md: string) =>
-            md
+            escapeHtml(md)
                 .replace(/^### (.+)$/gm, "<h3>$1</h3>")
                 .replace(/^## (.+)$/gm, "<h2>$1</h2>")
                 .replace(/^# (.+)$/gm, "<h1>$1</h1>")
@@ -399,7 +404,7 @@ export default function ThreadMenu({
                                     onClick={handleExportPDF}
                                 >
                                     <FileText size={14} strokeWidth={1.75} />
-                                    <span>Export as PDF</span>
+                                    <span>Print / save PDF</span>
                                 </button>
 
                                 <button
@@ -417,7 +422,7 @@ export default function ThreadMenu({
                                     onClick={handleExportDocx}
                                 >
                                     <FileDown size={14} strokeWidth={1.75} />
-                                    <span>Export as DOCX</span>
+                                    <span>Export as Word (.doc)</span>
                                 </button>
                             </div>
 
@@ -454,6 +459,7 @@ export default function ThreadMenu({
                         onClick={() => setShowRename(false)}
                     >
                         <motion.div
+                            ref={renameDialogRef} role="dialog" aria-modal="true" aria-label="Rename conversation"
                             className="tdm-modal"
                             initial={{ opacity: 0, scale: 0.96, y: 8 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -507,6 +513,7 @@ export default function ThreadMenu({
                         onClick={() => setShowDeleteModal(false)}
                     >
                         <motion.div
+                            ref={deleteDialogRef} role="dialog" aria-modal="true" aria-label="Delete conversation"
                             className="tdm-modal"
                             initial={{ opacity: 0, scale: 0.96, y: 8 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}

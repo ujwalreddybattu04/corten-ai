@@ -1,5 +1,6 @@
 "use client";
 import { useAuth } from "@/contexts/AuthContext";
+import { questionPath } from "@/lib/questionDrafts";
 import { mergeSpaceEdits } from "@/lib/spaces";
 import { accountStorage } from "@/lib/accountStorage";
 
@@ -97,11 +98,13 @@ export default function SpaceDetailPage() {
 
     // Query input
     const [query, setQuery] = useState("");
+    const [queryError, setQueryError] = useState("");
     const [searchFocused, setSearchFocused] = useState(false);
 
     // Right panel
     const [showLinkInput, setShowLinkInput] = useState(false);
     const [newLink, setNewLink] = useState("");
+    const [linkError, setLinkError] = useState("");
     const [showInstructions, setShowInstructions] = useState(false);
     const [instructionsValue, setInstructionsValue] = useState("");
 
@@ -160,13 +163,21 @@ export default function SpaceDetailPage() {
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         if (!query.trim() || !space) return;
-        router.push(`/search?q=${encodeURIComponent(query)}&space=${space.id}`);
+        try { setQueryError(""); router.push(questionPath(query, "all", space.id)); } catch (error) { setQueryError(error instanceof Error ? error.message : "Unable to open this question."); }
     };
 
     const addLink = () => {
         if (!space || !newLink.trim()) return;
         let url = newLink.trim();
-        if (!url.startsWith("http")) url = "https://" + url;
+        if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = "https://" + url;
+        try {
+            const parsed = new URL(url);
+            if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || url.length > 2048) throw new Error();
+            url = parsed.href;
+        } catch { setLinkError("Enter a valid HTTP or HTTPS reference URL without login details."); return; }
+        if (space.links.length >= 100) { setLinkError("A Space can contain up to 100 reference links."); return; }
+        setLinkError("");
+        if (space.links.includes(url)) { setShowLinkInput(false); setNewLink(""); return; }
         const updated = { ...space, links: [...space.links, url], updatedAt: Date.now() };
         saveSpace(updated);
         setNewLink("");
@@ -232,6 +243,7 @@ export default function SpaceDetailPage() {
                                     <input
                                         autoFocus
                                         className="sd-name-input"
+                                        maxLength={100}
                                         value={nameValue}
                                         onChange={e => setNameValue(e.target.value)}
                                         onBlur={saveName}
@@ -249,6 +261,7 @@ export default function SpaceDetailPage() {
                                     <input
                                         autoFocus
                                         className="sd-desc-input"
+                                        maxLength={2000}
                                         placeholder="Add a description..."
                                         value={descValue}
                                         onChange={e => setDescValue(e.target.value)}
@@ -286,6 +299,7 @@ export default function SpaceDetailPage() {
                             <ArrowRight size={16} />
                         </button>
                     </form>
+                    {queryError && <p role="alert">{queryError}</p>}
                 </div>
             </div>
 
@@ -312,7 +326,7 @@ export default function SpaceDetailPage() {
                                 {threads.map(thread => (
                                     <div key={thread.id} className="sd-thread">
                                         <Link
-                                            href={`/search?q=${encodeURIComponent(thread.query)}&id=${thread.id}`}
+                                            href={`/search?id=${encodeURIComponent(thread.id)}`}
                                             className="sd-thread-link"
                                         >
                                             <div className="sd-thread-dot" style={{ background: space.color }} />
@@ -403,6 +417,7 @@ export default function SpaceDetailPage() {
                             )}
                         </div>
 
+                        {linkError && <p role="alert">{linkError}</p>}
                         {/* Instructions */}
                         <div className="sd-card">
                             <div className="sd-card-header">
