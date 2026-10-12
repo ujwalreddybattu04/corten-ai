@@ -1,5 +1,15 @@
 # Hosted verification — 12 October 2026
 
+## Pharma workspace design release
+
+Release `a1a5f3c` is live on AWS; [both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38220999298).
+
+- Preserves Corten's Plus Jakarta Sans font and dark theme, adding source widgets, latest-record previews, loaded-date/phase charts and card/list controls. Charts use the capped source sample, with no fabricated trends or market totals.
+- 17 targeted backend tests (two subtests), ten frontend feed/widget checks, TypeScript, scoped ESLint and production compilation passed. Both full CI jobs also passed.
+- Existing 14 isolated pharma browser checks passed locally. Seven existing live checks and five new live design checks passed on AWS, covering real records, filters, details, highlights, layout switching, 320–1440px widths and reduced motion; no browser exceptions.
+- Six additional isolated design checks passed locally and on the AWS bundle, including intentionally blocked publisher images recovering to labeled illustrations. Fixtures are browser-only; real API data was not changed.
+- Optional news photos use publisher thumbnails when provided. FDA/trial visuals are labeled illustrated previews with real identifiers. The current news provider still lacks access; the UI states this explicitly and keeps available primary-source records usable.
+
 ## AWS full-stack deployment
 
 Application: **https://d3a7ful0miola1.cloudfront.net**. Sydney Free-plan deployment includes Next.js, FastAPI, PostgreSQL, Redis, a private CloudFront origin and encrypted persistent storage. At the user's subsequent request, all four Render resources were deleted and the undeployed GCP project was marked DELETE_REQUESTED. AWS pages and readiness were verified again after retirement. The Render releases below are historical verification.
