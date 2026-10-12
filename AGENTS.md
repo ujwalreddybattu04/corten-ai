@@ -81,5 +81,5 @@ Constraints for each level:
 - Help level: **HIGH**, explicitly selected by the user. Do not ask for this preference again.
 - User requested the AWS Free plan. Verify `freetier get-account-plan-state` before provisioning; do not upgrade to a Paid Plan or activate advanced features without explicit authorization.
 - Existing AWS MCP configuration and login credentials are private local state. Never include them, provider keys, browser profiles, or generated report artifacts in the public repository.
-- Preserve the existing Render preview until the AWS deployment is verified and any data cutover is addressed.
+- AWS is the only active hosting provider as requested on 12 October 2026. Render's four Corten resources were deleted after AWS verification; the undeployed GCP project is marked for deletion. Do not recreate either hosting setup without a new user request.
 <!-- END AWS Agent Toolkit rules -->

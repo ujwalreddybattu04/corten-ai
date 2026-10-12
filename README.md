@@ -41,13 +41,11 @@
 
 See the [completion review and remaining rollout work](docs/project-completion-review.md) before treating this preview as a production deployment.
 
-[Live app](https://corten-ai-web.onrender.com) · [Analyst Workspace](https://corten-ai-web.onrender.com/analyst-workspace) · [Backend health](https://corten-ai-api.onrender.com/health)
+[Live app](https://d3a7ful0miola1.cloudfront.net) · [Analyst Workspace](https://d3a7ful0miola1.cloudfront.net/analyst-workspace) · [Application readiness](https://d3a7ful0miola1.cloudfront.net/api/v1/search/status)
 
-[Deploy the full setup on Render](https://render.com/deploy?repo=https://github.com/ujwalreddybattu04/corten-ai)
-
-The repository includes a four-resource deployment: frontend, backend, PostgreSQL and Redis.
-See [deployment instructions and preview limits](docs/deployment.md) before creating it.
-Keep API keys in backend environment variables; local secrets are excluded from Git and Docker images.
+**AWS is the only active hosting provider.** The Render frontend, backend, PostgreSQL and Redis were deleted on 12 October 2026. The undeployed GCP project is marked for deletion.
+See [AWS deployment, operations and preview limits](docs/aws-deployment.md). The complete setup includes frontend, backend, PostgreSQL, Redis, HTTPS and verified daily database backups.
+Provider keys are stored in AWS Secrets Manager; local secrets are excluded from Git and Docker images.
 See the [hosted verification report](docs/hosted-verification.md) for completed checks and current integration limits.
 
 ## Tech Stack

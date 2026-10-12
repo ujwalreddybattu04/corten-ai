@@ -1,10 +1,9 @@
 # Deploy Corten AI
 
-For the requested Google Cloud migration, see [GCP deployment status and setup](gcp-deployment.md).
-The GCP project is created; billing activation and infrastructure provisioning
-are pending. The Render preview below remains the currently deployed application.
+**AWS is the only active hosting provider.** Use [AWS deployment and operations](aws-deployment.md).
+The Render resources were deleted and the undeployed GCP project was marked for deletion on 12 October 2026 at the user's request. The Render setup below is archived reference material and must not be recreated without a new request.
 
-[Deploy the full preview on Render](https://render.com/deploy?repo=https://github.com/ujwalreddybattu04/corten-ai)
+[Current live AWS app](https://d3a7ful0miola1.cloudfront.net)
 
 The root `render.yaml` defines four resources in Singapore: a Next.js frontend,
 a FastAPI backend, PostgreSQL 17 with pgvector, and a Redis-compatible Key Value cache.

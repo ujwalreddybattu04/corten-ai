@@ -1,8 +1,10 @@
 # Google Cloud deployment
 
+**Retired on 12 October 2026 at the user's request.** Project `corten-ai-ujwal-20261012` is verified in `DELETE_REQUESTED` state. It had billing disabled and no deployed Corten application. AWS is the only active hosting provider; use [AWS deployment instructions](aws-deployment.md). The configuration below is historical preparation, not pending deployment work.
+
 On 12 October 2026, the account owner requested hosting on Google Cloud and a
 dedicated project. Project `corten-ai-ujwal-20261012` was created successfully.
-Google sign-in is complete. **Deployment is pending project billing activation.**
+Google sign-in was completed. Deployment was blocked by project billing activation and has now been cancelled.
 No paid infrastructure or live GCP application exists yet.
 
 Google's API cannot reopen billing accounts (`open` is output-only). The billing
@@ -72,7 +74,7 @@ session store invalidates existing sessions. Verify auth, chat streaming, Discov
 pharma, interpolation and downloads at the new origin before changing traffic.
 Render should be retired only after verification and an approved data cutover.
 
-## Remaining live work
+## Historical deployment prerequisites (cancelled)
 
 1. Billing owner reopens/creates a usable account and enables project billing.
 2. Confirm baseline infrastructure capacity/budget; provision persistent services

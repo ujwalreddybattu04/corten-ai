@@ -2,7 +2,7 @@
 
 ## AWS full-stack deployment
 
-Application: **https://d3a7ful0miola1.cloudfront.net**. Sydney Free-plan deployment includes Next.js, FastAPI, PostgreSQL, Redis, a private CloudFront origin and encrypted persistent storage. Render remains a separate preview; later writes are not synchronized automatically.
+Application: **https://d3a7ful0miola1.cloudfront.net**. Sydney Free-plan deployment includes Next.js, FastAPI, PostgreSQL, Redis, a private CloudFront origin and encrypted persistent storage. At the user's subsequent request, all four Render resources were deleted and the undeployed GCP project was marked DELETE_REQUESTED. AWS pages and readiness were verified again after retirement. The Render releases below are historical verification.
 
 - 15 real authentication browser checks passed, including Secure/HttpOnly cookies, two-tab refresh, account isolation and interrupted logout recovery. Exactly two newly created synthetic AWS accounts were removed; the imported account was retained.
 - 18 interpolation checks and seven live pharma browser checks passed. All seven Discover API categories and browser tabs rendered real articles; no mobile overflow or client exceptions occurred.

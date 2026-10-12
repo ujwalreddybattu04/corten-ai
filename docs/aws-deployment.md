@@ -4,7 +4,9 @@ Deployed and verified on **12 October 2026** in the **Moonshot Mode** project, S
 
 **Application: https://d3a7ful0miola1.cloudfront.net**
 
-The complete application runs on AWS: Next.js frontend, Python backend, PostgreSQL, Redis and HTTPS gateway. The original Render preview remains available. Database records were copied once; future writes in the two deployments are independent. Browser-only history and Spaces remain in the original domain's browser storage and do not automatically move to the new site.
+The complete application runs on AWS: Next.js frontend, Python backend, PostgreSQL, Redis and HTTPS gateway. **AWS is now the only active hosting provider.** On 12 October 2026, the user requested retirement of the other hosting: all four Corten Render resources were deleted and their absence verified; the undeployed dedicated GCP project was marked DELETE_REQUESTED. There were no Render Blueprints that could recreate the resources automatically. AWS remained healthy after retirement.
+
+Database records were copied once before retirement, with verified backups retained on AWS. Browser-only history and Spaces belong to their original domain and do not automatically move to the new site.
 
 ## Architecture and capacity
 
@@ -73,6 +75,6 @@ Never print full Docker Compose configuration, runtime environments or secret re
 
 At deployment, AWS reported **FREE / ACTIVE**, **USD 100** credits, expiring **12 April 2027, 09:55 IST**. No Paid Plan/advanced features were activated. Recheck remaining credits in AWS Settings; this balance is time-specific.
 
-The actual AWS Price List response was **USD 0.0264/hour**, calculated as **USD 19.27 per 730 hours** for this instance. EBS, secrets, storage, requests, logging and network use add costs. Credits cover eligible usage until exhausted/expired. The retained disk/buckets and both previews were kept under the deployment instruction. Review usage and keep independent exports before credits expire.
+The actual AWS Price List response was **USD 0.0264/hour**, calculated as **USD 19.27 per 730 hours** for this instance. EBS, secrets, storage, requests, logging and network use add costs. Credits cover eligible usage until exhausted/expired. AWS's retained disk/buckets remain active; Render and GCP hosting were retired at the user's request. Review usage and keep independent exports before credits expire.
 
 References: [EC2 pricing](https://aws.amazon.com/ec2/pricing/on-demand/), [AWS Agent Toolkit setup](https://raw.githubusercontent.com/aws/agent-toolkit-for-aws/refs/heads/main/setup-instructions/setup.md), [connect an AI coding tool](https://docs.aws.amazon.com/accounts/latest/reference/connect-ai-coding-tool.html).

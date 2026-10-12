@@ -2,15 +2,15 @@
 
 Reviewed 12 October 2026. Access policy: **public signup with personal accounts**, as requested. Company invitations, SSO and team roles are outside this rollout.
 
-The application works as a hosted preview on AWS and Render. The remaining persistence, account recovery and production capacity work prevents describing it as ready for a company production rollout.
+The application works as a hosted preview on AWS, its only active hosting provider. Render resources were deleted and the undeployed GCP project was marked for deletion at the user's request on 12 October 2026. Remaining persistence, account recovery and production capacity work prevents describing it as ready for a company production rollout.
 
 ## Repairs completed
 
 | Area | Result |
 | --- | --- |
-| AWS deployment and recovery | Complete app deployed at https://d3a7ful0miola1.cloudfront.net in Sydney: private CloudFront origin, Next.js, FastAPI, PostgreSQL, Redis, encrypted retained storage and daily private S3 database backups. Existing records copied with matching counts; backup downloaded/restored in isolation. Real auth, chat, Discover, pharma, interpolation and PDF checks passed. Free plan retained; Render preserved. See [deployment, costs and capacity limits](aws-deployment.md). |
+| AWS deployment and recovery | Complete app deployed at https://d3a7ful0miola1.cloudfront.net in Sydney: private CloudFront origin, Next.js, FastAPI, PostgreSQL, Redis, encrypted retained storage and daily private S3 backups. Records copied with matching counts; backup restored in isolation. Real auth, chat, Discover, pharma, interpolation and PDF checks passed. Free plan retained; Render removed at the user's request. See [deployment, costs and capacity limits](aws-deployment.md). |
 | Pharma intelligence | Added a dedicated Analyst Workspace tool using real FDA approval actions and ClinicalTrials.gov drug/biologic record updates. Therapy/date/type filters, searchable source metadata, record details and CSV export; existing interpolation results survive tool switching. Shared Redis source snapshots/refresh leases, bounded provider requests/cooldowns and labeled 24-hour stale retention. Optional Guardian access is currently rejected, explicitly displayed. See [coverage and limits](pharma-updates.md). |
-| Google Cloud preparation | Created `corten-ai-ujwal-20261012` under the requested Google account. Prepared Cloud Build, Cloud Run preflight/deployment, private backend service identity, pinned Secret Manager bindings and a serialized migration release job. Project billing activation is pending; the GCP application has **not been deployed**. See [deployment status and configuration](gcp-deployment.md). |
+| Google Cloud retirement | The dedicated, undeployed `corten-ai-ujwal-20261012` project was marked DELETE_REQUESTED on 12 October 2026. Billing was disabled. Prepared configuration is historical; no GCP deployment is pending. See [archived status](gcp-deployment.md). |
 | Spaces | List, detail and templates use the same account-isolated browser storage. Questions started inside a Space save their thread association. Existing saved chats can be added to a chosen Space. |
 | Feature accuracy | Spaces identify browser storage, notes and reference links accurately. Public/team sharing is not offered. Discover's unfinished article-to-Space action is explicitly unavailable. |
 | Answer delivery | Chat/report readers handle Unicode, final unterminated SSE records, errors and premature EOF. Interrupted answers are not saved as successful conversations. |
@@ -44,7 +44,7 @@ Hosted release results are recorded in [hosted verification](hosted-verification
 
 | Priority | Work | Completion criteria |
 | --- | --- | --- |
-| Launch blocker at production scale | Hosting capacity and availability | AWS persistent storage and daily backups/verified restore are complete for the preview. Choose and load-test highly available hosting/database/cache and provider capacity. One host and finite credits cannot support a millions-of-users claim. Render's separate preview database still expires **10 November 2026, 02:50 UTC**. |
+| Launch blocker at production scale | Hosting capacity and availability | AWS persistent storage and daily backups/verified restore are complete for the preview. Choose and load-test highly available hosting/database/cache and provider capacity. One host and finite credits cannot support a millions-of-users claim. The old Render database was retired. |
 | Launch blocker | Personal cloud persistence | Connect browser history, Spaces, collections and analyst projects to server storage with ownership checks, migrations and conflict/retry handling. Verify cross-device access and isolation. Current Spaces/collections APIs return 501; PostgreSQL deployment alone does not implement them. |
 | Launch blocker for public accounts | Email verification and recovery | Configure a transactional email API and approved sender/domain. Implement expiring single-use verification/reset tokens, rate limits and session revocation. Test delivery. Current public email/password signup/sign-in has no verification or password reset. |
 | Operational | Monitoring and abuse controls | Add external readiness/error/latency alerts, shared limits for public AI/search/report endpoints, quota visibility and a tested incident procedure. Multiple keys can still share a provider organization quota. |
