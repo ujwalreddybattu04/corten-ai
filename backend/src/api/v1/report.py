@@ -4,7 +4,8 @@ Report Generation API — stream report creation and download PDFs.
 
 import logging
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from src.api.deps import get_optional_user_id
 from fastapi.responses import StreamingResponse, FileResponse
 from typing import Optional
 
@@ -21,14 +22,14 @@ class ReportRequest(BaseModel):
 
 
 @router.post("/stream")
-async def report_stream(request: ReportRequest):
+async def report_stream(request: ReportRequest, owner: Optional[str] = Depends(get_optional_user_id)):
     """Generate a professional PDF report. Streams SSE events showing live progress."""
     if not request.topic.strip():
         raise HTTPException(status_code=400, detail="Topic cannot be empty")
 
     try:
         return StreamingResponse(
-            report_service.stream_report(request.topic, request.focus_mode),
+            report_service.stream_report(request.topic, request.focus_mode, owner=owner),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -42,9 +43,9 @@ async def report_stream(request: ReportRequest):
 
 
 @router.get("/download/{report_id}")
-async def download_report(report_id: str):
+async def download_report(report_id: str, owner: Optional[str] = Depends(get_optional_user_id)):
     """Download a generated PDF report."""
-    filepath = report_service.get_report_path(report_id)
+    filepath = report_service.get_report_path(report_id, owner=owner)
     if not filepath:
         raise HTTPException(status_code=404, detail="Report not found or expired")
 

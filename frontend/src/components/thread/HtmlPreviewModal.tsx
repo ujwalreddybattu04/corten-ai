@@ -85,6 +85,7 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
   const [showCode,      setShowCode]      = useState(true);
   const [device,        setDevice]        = useState<DeviceMode>("desktop");
   const [consoleLines,  setConsoleLines]  = useState<ConsoleLine[]>([]);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [consoleOpen,   setConsoleOpen]   = useState(false);
   const [loading,       setLoading]       = useState(true);
   const [refreshKey,    setRefreshKey]    = useState(0);
@@ -112,12 +113,14 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
   // Receive messages from sandboxed iframe
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data;
       if (!d || typeof d !== "object") return;
       if (d.type === "preview-loaded") { setLoading(false); return; }
       if (d.type === "console") {
-        const line = { level: d.level as ConsoleLine["level"], text: d.text };
-        setConsoleLines((p) => [...p, line]);
+        if (typeof d.text !== "string" || !["log", "warn", "error", "info", "debug"].includes(d.level)) return;
+        const line = { level: d.level as ConsoleLine["level"], text: d.text.slice(0, 20000) };
+        setConsoleLines((p) => [...p.slice(-199), line]);
         if (d.level === "error" || d.level === "warn") setConsoleOpen(true);
         requestAnimationFrame(() => consoleEndRef.current?.scrollIntoView({ behavior: "smooth" }));
       }
@@ -128,11 +131,11 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  const openInNewTab = useCallback(() => {
+  const downloadHtml = useCallback(() => {
     const blob = new Blob([buildSrcdoc(code)], { type: "text/html" });
     const url  = URL.createObjectURL(blob);
-    const w    = window.open(url, "_blank");
-    if (w) setTimeout(() => URL.revokeObjectURL(url), 8000);
+    const link = document.createElement("a"); link.href = url; link.download = "corten-preview.html"; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [code]);
 
   if (!mounted) return null;
@@ -144,6 +147,8 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
   // ── Iframe element (shared between desktop + framed modes) ──────────────────
   const iframeEl = srcdoc ? (
     <iframe
+      ref={iframeRef}
+      referrerPolicy="no-referrer"
       key={refreshKey}
       srcDoc={srcdoc}
       sandbox="allow-scripts allow-popups allow-forms allow-modals"
@@ -208,7 +213,7 @@ const HtmlPreviewModal = memo(function HtmlPreviewModal({ code, onClose }: HtmlP
             </svg>
           </button>
 
-          <button className="hp-icon-btn" onClick={openInNewTab} title="Open in new tab">
+          <button className="hp-icon-btn" onClick={downloadHtml} title="Download HTML">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 3h6v6"/><path d="M10 14 21 3"/>

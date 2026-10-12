@@ -73,3 +73,14 @@ class ReportReliability(unittest.IsolatedAsyncioTestCase):
             os.utime(path, (time.time() - REPORT_TTL_SECONDS - 1,) * 2)
             self.assertIsNone(self.service.get_report_path(report_id))
             self.assertIsNone(self.service.get_report_path("../private"))
+
+    async def test_signed_in_report_downloads_require_the_owner(self):
+        from src.services.web_search_service import tavily_search_service
+        owner = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        other = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        with tempfile.TemporaryDirectory() as directory, patch.object(groq_llm_service, "client", object()), patch("src.services.report_service.REPORTS_DIR", directory), patch.object(tavily_search_service, "search", AsyncMock(return_value={"results": [SOURCE]})), patch.object(self.service, "_draft_report", AsyncMock(return_value=DRAFT)):
+            events = [json.loads(line[6:]) async for line in self.service.stream_report("Topic", owner=owner)]
+            report_id = events[0]["report_id"]
+            self.assertIsNone(self.service.get_report_path(report_id))
+            self.assertIsNone(self.service.get_report_path(report_id, other))
+            self.assertTrue(Path(self.service.get_report_path(report_id, owner)).read_bytes().startswith(b"%PDF"))

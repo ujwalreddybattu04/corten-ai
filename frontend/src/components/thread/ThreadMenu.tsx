@@ -137,7 +137,7 @@ export default function ThreadMenu({
         if (!threadId) return;
         let saved = false;
         try { saved = associateSpaceThread(id, threadId); } catch { /* Storage may be unavailable. */ }
-        setSpaceMessage(saved ? "Thread saved to Space in this browser" : "Could not save the thread. Please retry.");
+        setSpaceMessage(saved ? "Thread saved to your Space" : "Could not save the thread. Please retry.");
         setShowSpacePicker(false);
         setShowSpaceToast(true);
         setTimeout(() => setShowSpaceToast(false), 3000);
@@ -247,7 +247,7 @@ export default function ThreadMenu({
 </head>
 <body>
   <h1 style="font-size:20pt;color:#1a1a2e;margin-bottom:4pt;">${escapeHtml(query)}</h1>
-  <p style="color:#888;font-size:9pt;margin-bottom:24pt;">Exported from Orivanta AI · ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+  <p style="color:#888;font-size:9pt;margin-bottom:24pt;">Exported from Corten · ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
   ${sections}
 </body>
 </html>`;
@@ -543,7 +543,7 @@ export default function ThreadMenu({
                 <div className="tdm-overlay" onClick={() => setShowSpacePicker(false)}>
                     <div ref={spacePickerRef} className="tdm-modal" role="dialog" aria-modal="true" aria-labelledby="space-picker-title" onClick={e => e.stopPropagation()}>
                         <h3 id="space-picker-title" className="tdm-modal-title">Add to Space</h3>
-                        <p className="tdm-modal-msg">Choose a Space saved in this browser.</p>
+                        <p className="tdm-modal-msg">Choose one of your personal Spaces.</p>
                         <div className="tdm-space-list">{spaceChoices.length ? spaceChoices.map(space => (
                             <button key={space.id} className="tdm-item" onClick={() => addToSpace(space.id)}>
                                 <FolderPlus size={14} /> {space.name}

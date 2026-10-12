@@ -1,4 +1,5 @@
 "use client";
+import SaveArticleModal from "@/components/spaces/SaveArticleModal";
 import { accountStorage } from "@/lib/accountStorage";
 import { DiscoverArticle, DiscoverFeed, readSavedFeed, saveFeed, requestDiscoverFeed } from "@/lib/discoverFeed";
 
@@ -257,9 +258,9 @@ function ArticleFooter({
                                 }
                                 {bookmarked ? "Bookmarked" : "Bookmark"}
                             </button>
-                            <button className="discover-dropdown-item" disabled title="Article saving to Spaces is not available yet">
+                            <button className="discover-dropdown-item" onClick={onAddToSpace}>
                                 <FolderPlus size={14} />
-                                Save to Space (coming soon)
+                                Save to Space
                             </button>
                             <button className={`discover-dropdown-item dislike ${disliked ? "active" : ""}`} onClick={onDislike}>
                                 <ThumbsDown size={14} />
@@ -324,6 +325,8 @@ export default function DiscoverPage() {
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
     const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
     const [dislikedIds, setDislikedIds] = useState<Set<string>>(new Set());
+    const [saveArticle, setSaveArticle] = useState<Article | null>(null);
+    const closeArticleSave = useCallback(() => setSaveArticle(null), []);
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [showFeedToast, setShowFeedToast] = useState(false);
     const [showInterestsToast, setShowInterestsToast] = useState(false);
@@ -679,11 +682,11 @@ export default function DiscoverPage() {
         applyLiveReRank();
     };
 
-    const handleAddToSpace = (e: React.MouseEvent) => {
+    const handleAddToSpace = (article: Article, e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setOpenMenuId(null);
-        // Spaces feature — coming soon
+        setSaveArticle(article);
     };
 
     const openArticle = (article: Article) => {
@@ -696,7 +699,7 @@ export default function DiscoverPage() {
         if (navigator.share) {
             navigator.share({ title: "Discover — Corten AI", url: window.location.href });
         } else {
-            navigator.clipboard.writeText(window.location.href);
+            void navigator.clipboard?.writeText(window.location.href).catch(() => { /* The URL remains available in the address bar. */ });
         }
     };
 
@@ -727,6 +730,7 @@ export default function DiscoverPage() {
 
     return (
         <div className="discover-page">
+            {saveArticle && <SaveArticleModal article={saveArticle} onClose={closeArticleSave} />}
             {/* ── Interests Saved Toast ── */}
             {showInterestsToast && (
                 <div className="discover-feed-toast">
@@ -832,7 +836,7 @@ export default function DiscoverPage() {
                                             onLike={(e) => toggleLike(heroArticle.id, heroArticle.category ?? activeTab, e)}
                                             onMore={(e) => handleMore(heroArticle.id, e)}
                                             onBookmark={(e) => handleBookmark(heroArticle.id, heroArticle.category ?? activeTab, e)}
-                                            onAddToSpace={handleAddToSpace}
+                                            onAddToSpace={(e) => handleAddToSpace(heroArticle, e)}
                                             onDislike={(e) => handleDislike(heroArticle.id, heroArticle.category ?? activeTab, e)}
                                         />
                                     </div>
@@ -896,7 +900,7 @@ export default function DiscoverPage() {
                                                 onLike={(e) => toggleLike(article.id, article.category ?? activeTab, e)}
                                                 onMore={(e) => handleMore(article.id, e)}
                                                 onBookmark={(e) => handleBookmark(article.id, article.category ?? activeTab, e)}
-                                                onAddToSpace={handleAddToSpace}
+                                                onAddToSpace={(e) => handleAddToSpace(article, e)}
                                                 onDislike={(e) => handleDislike(article.id, article.category ?? activeTab, e)}
                                             />
                                         </a>

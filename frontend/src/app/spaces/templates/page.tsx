@@ -198,7 +198,7 @@ export default function TemplatesPage() {
             <div className="tpl-hero">
                 <div className="tpl-hero-inner">
                     <h1 className="tpl-title">Templates</h1>
-                    <p className="tpl-subtitle">Start with a topic template and suggested workspace notes. Spaces are saved in this browser.</p>
+                    <p className="tpl-subtitle">Start with a topic template and suggested workspace notes. Sign in to sync your personal Spaces across devices.</p>
 
                     <div className="tpl-tabs">
                         {CATEGORIES.map(cat => (

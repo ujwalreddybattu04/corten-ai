@@ -32,6 +32,7 @@ cd "$target"
 python3 deploy/aws/prepare-runtime.py
 docker compose -f deploy/aws/compose.yaml config --quiet
 docker compose -f deploy/aws/compose.yaml build backend frontend
+docker compose -f deploy/aws/compose.yaml run --rm -T backend python - < deploy/aws/verify-personal-storage.py
 if test -L /opt/corten/current; then
   /bin/bash /opt/corten/current/deploy/aws/backup.sh
 fi

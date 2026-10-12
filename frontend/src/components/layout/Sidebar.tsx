@@ -73,14 +73,14 @@ export default function Sidebar() {
                 threadsJson = accountStorage.getItem("orivanta_threads");
                 if (threadsJson) accountStorage.setItem(STORAGE_KEYS.THREADS, threadsJson);
             }
-            if (threadsJson) setThreads(refreshThreadTitles(SIDEBAR_HISTORY_LIMIT));
+            setThreads(threadsJson ? refreshThreadTitles(SIDEBAR_HISTORY_LIMIT) : []);
 
             let pinsJson = accountStorage.getItem(STORAGE_KEYS.PINNED_THREADS);
             if (!pinsJson) {
                 pinsJson = accountStorage.getItem("orivanta_pinned_threads");
                 if (pinsJson) accountStorage.setItem(STORAGE_KEYS.PINNED_THREADS, pinsJson);
             }
-            if (pinsJson) setPinnedThreadIds(JSON.parse(pinsJson));
+            setPinnedThreadIds(pinsJson ? JSON.parse(pinsJson) : []);
         } catch (e) {
             console.error("Failed to load threads", e);
         }

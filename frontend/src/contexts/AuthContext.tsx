@@ -1,7 +1,8 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiRequestError, invalidateSessionRequests, SESSION_EXPIRED } from "@/lib/api";
-import { setStorageAccount, protectLegacyAccountData } from "@/lib/accountStorage";
+import { setStorageAccount, getStorageAccount, protectLegacyAccountData } from "@/lib/accountStorage";
+import { startCloudSync, stopCloudSync } from "@/lib/cloudSync";
 
 export interface User { id: string; name: string; email: string; subscription_tier: string; avatar_url: string | null; }
 interface AuthContextValue {
@@ -31,8 +32,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
     const [sessionError, setSessionError] = useState("");
     const version = useRef(0);
-    const apply = useCallback((next: User | null) => {
+    const apply = useCallback(async (next: User | null) => {
+        const generation = version.current;
+        const changed = getStorageAccount() !== (next?.id || null);
+        if (changed || !next) stopCloudSync();
         setStorageAccount(next?.id || null);
+        if (next && changed) { setIsLoading(true); await startCloudSync(next.id); }
+        if (generation !== version.current) return;
         setUser(next);
         setIsLoading(false);
     }, []);
@@ -49,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         try {
             const profile = await api.get<User | null>("/api/v1/auth/session");
-            if (current === version.current) { setSessionError(""); apply(profile); }
+            if (current === version.current) { setSessionError(""); await apply(profile); }
         } catch (error) {
             if (current !== version.current) return;
             if (error instanceof ApiRequestError && error.status === 401) { setSessionError(""); apply(null); }
@@ -75,13 +81,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (pendingLogout()) await completeLogout();
         const current = ++version.current;
         const data = await api.post<{ user: User }>("/api/v1/auth/login", { email: email.trim(), password, remember_me: remember });
-        if (current === version.current) { invalidateSessionRequests(); setSessionError(""); apply(data.user); broadcast(); }
+        if (current === version.current) { invalidateSessionRequests(); setSessionError(""); await apply(data.user); broadcast(); }
     }, [apply]);
     const register = useCallback(async (name: string, email: string, password: string) => {
         if (pendingLogout()) await completeLogout();
         const current = ++version.current;
         const data = await api.post<{ user: User }>("/api/v1/auth/register", { name: name.trim(), email: email.trim(), password });
-        if (current === version.current) { invalidateSessionRequests(); setSessionError(""); apply(data.user); broadcast(); }
+        if (current === version.current) { invalidateSessionRequests(); setSessionError(""); await apply(data.user); broadcast(); }
     }, [apply]);
     const logout = useCallback(async () => {
         version.current++;

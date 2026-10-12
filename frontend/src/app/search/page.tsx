@@ -131,9 +131,7 @@ function SearchPageContent() {
     }, [appendQuery]);
 
     const handleCopyQuery = useCallback((queryText: string, queryId: string) => {
-        navigator.clipboard.writeText(queryText);
-        setCopiedQueryId(queryId);
-        setTimeout(() => setCopiedQueryId(null), 2000);
+        navigator.clipboard?.writeText(queryText).then(() => { setCopiedQueryId(queryId); setTimeout(() => setCopiedQueryId(null), 2000); }).catch(() => { /* The query remains selectable for manual copying. */ });
     }, []);
 
     const handleStartEdit = useCallback((queryText: string, queryId: string) => {
@@ -159,10 +157,9 @@ function SearchPageContent() {
 
 
     const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(answer);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-    }, [answer]);
+    }, []);
 
     const isLoading = isConnecting && !answer && !error;
     const hasSources = sources.length > 0;
@@ -414,6 +411,7 @@ function SearchPageContent() {
                                                     researchSteps={researchSteps}
                                                     thoughtTime={thoughtTime}
                                                     onCopy={handleCopy}
+                                                    onRegenerate={retrySearch}
                                                     sourcesPanelOpen={sourcesPanelOpen && activePanelQuery === currentQuery}
                                                     setSourcesPanelOpen={(o) => toggleSourcesPanel(o, sources, currentQuery)}
                                                     relatedQuestions={relatedQuestions}
@@ -500,10 +498,9 @@ function SearchPageContent() {
                     {activeTab === "answer" && (
                         <div className="sp-input-bar">
                             <form className="sp-input-form" onSubmit={handleFollowUp}>
-                                <button type="button" className="sp-input-attach"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg></button>
                                 <input type="text" className="sp-input-field" placeholder="Ask a follow-up" value={followUp} onChange={e => setFollowUp(e.target.value)} />
                                 <div className="sp-input-actions">
-                                    <button type="button" className="sp-model-btn">Model ▾</button>
+                                    <span className="sp-model-btn" title="The configured AI provider is selected automatically">Auto</span>
                                     <button type="submit" className="sp-submit-btn" disabled={!followUp.trim() || isConnecting || isStreaming}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" /></svg></button>
                                 </div>
                             </form>

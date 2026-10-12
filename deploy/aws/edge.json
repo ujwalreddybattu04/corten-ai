@@ -54,8 +54,8 @@
       "Type": "AWS::CloudFront::ResponseHeadersPolicy",
       "Metadata": {
         "com.aws.cloudformation.Context": {
-          "why": "Protect browser responses without changing the existing Next.js UI",
-          "must": "Existing Next.js bootstrap requires inline scripts; API traffic must never be cached"
+          "why": "Protect page responses while enabling isolated JavaScript and Python workers",
+          "must": "Generated code runs in opaque-origin data workers; only the pinned Pyodide CDN can load runtime scripts. Never enable JavaScript unsafe-eval in application pages."
         }
       },
       "Properties": {
@@ -65,7 +65,7 @@
           },
           "SecurityHeadersConfig": {
             "ContentSecurityPolicy": {
-              "ContentSecurityPolicy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; upgrade-insecure-requests",
+              "ContentSecurityPolicy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/pyodide/v0.29.3/full/; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https:; worker-src 'self' blob: data:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; upgrade-insecure-requests",
               "Override": true
             },
             "ContentTypeOptions": {

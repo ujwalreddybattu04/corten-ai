@@ -62,6 +62,7 @@ async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
     return res.json() as Promise<T>;
 }
 export const api = {
+    response: (path: string, opts: RequestInit = {}) => apiFetch(path, opts),
     upload: (path: string, body: FormData, opts: RequestInit = {}) => apiFetch(path, { ...opts, method: "POST", body }),
     get: <T>(path: string, opts?: ApiOptions) => request<T>(path, { ...opts, method: "GET" }),
     post: <T>(path: string, body?: unknown, opts?: ApiOptions) => request<T>(path, { ...opts, method: "POST", body }),

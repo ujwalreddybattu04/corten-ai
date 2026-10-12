@@ -45,7 +45,7 @@ class ReportService:
     """
 
     async def stream_report(
-        self, topic: str, focus_mode: str = "all"
+        self, topic: str, focus_mode: str = "all", owner: str | None = None
     ) -> AsyncGenerator[str, None]:
         """
         Main entry point. Streams SSE events showing live report generation progress.
@@ -201,17 +201,23 @@ class ReportService:
 
             filename = f"corten_report_{report_id}.pdf"
             filepath = os.path.join(REPORTS_DIR, filename)
+            if owner:
+                owner = str(uuid.UUID(owner))
+                with open(filepath + ".owner", "x", encoding="utf-8") as ownership:
+                    ownership.write(owner)
+                os.chmod(filepath + ".owner", 0o600)
 
             yield _sse("report_generating_pdf", {"step": "Adding sections and citations"})
 
             pages = self._generate_pdf(
-                filepath=filepath,
+                filepath=filepath + ".pending",
                 title=report_title,
                 subtitle=report_subtitle,
                 sections=written_sections,
                 sources=all_sources,
                 topic=topic,
             )
+            os.replace(filepath + ".pending", filepath)
 
             yield _sse("report_generating_pdf", {"step": "Finalizing document"})
 
@@ -666,12 +672,21 @@ class ReportService:
         text = text.replace("§S§", "<super>").replace("§/S§", "</super>")
         return text
 
-    def get_report_path(self, report_id: str) -> str | None:
+    def get_report_path(self, report_id: str, owner: str | None = None) -> str | None:
         """Get the file path for a generated report."""
         if not re.fullmatch(r"[a-f0-9]{32}", report_id):
             return None
         filename = f"corten_report_{report_id}.pdf"
         filepath = os.path.join(REPORTS_DIR, filename)
+        owner_file = filepath + ".owner"
+        if os.path.lexists(owner_file):
+            try:
+                if os.path.islink(owner_file) or not owner:
+                    return None
+                with open(owner_file, encoding="utf-8") as ownership:
+                    if ownership.read(64) != owner: return None
+            except OSError:
+                return None
         if os.path.isfile(filepath) and not os.path.islink(filepath) and time.time() - os.path.getmtime(filepath) < REPORT_TTL_SECONDS:
             return filepath
         return None

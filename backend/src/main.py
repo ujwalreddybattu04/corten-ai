@@ -12,6 +12,7 @@ from src.config.settings import settings
 from src.api.v1.router import api_router
 from src.core.events import create_start_app_handler, create_stop_app_handler
 from src.core.interpolation_limits import InterpolationBodyLimit
+from src.core.generation_limits import GenerationLimits
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ app.add_middleware(
 
 # API routes
 app.add_middleware(InterpolationBodyLimit)
+app.add_middleware(GenerationLimits)
 app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health", tags=["Health"])

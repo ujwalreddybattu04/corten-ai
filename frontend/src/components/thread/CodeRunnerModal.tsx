@@ -26,17 +26,16 @@ interface CodeRunnerModalProps {
 
 // ─── Language sets ────────────────────────────────────────────────────────────
 const PYODIDE_LANGS = new Set(["python", "py"]);
-const IFRAME_LANGS = new Set(["javascript", "js", "typescript", "ts"]);
+const IFRAME_LANGS = new Set(["javascript", "js"]);
 
 export const RUNNABLE_LANGS = new Set([
   "python", "py",
   "javascript", "js",
-  "typescript", "ts",
   "java", "c", "cpp", "c++",
   "rust", "go",
   "ruby", "rb",
   "bash", "sh",
-  "php", "lua", "kotlin",
+  "php", "lua",
   "csharp", "cs", "swift",
 ]);
 
@@ -45,127 +44,38 @@ export function isRunnable(lang: string): boolean {
 }
 
 // ─── JS Sandbox (singleton iframe) ───────────────────────────────────────────
-let _jsiframe: HTMLIFrameElement | null = null;
-let _jsReady = false;
-const _jsQueue: Array<() => void> = [];
-const _jsPending = new Map<
-  string,
-  { resolve: () => void; reject: (e: Error) => void }
->();
-const _jsListeners = new Set<(line: OutputLine) => void>();
-
-function _handleJsMsg(event: MessageEvent) {
-  const { type, id, data } = event.data ?? {};
-  if (type === "js-ready") {
-    _jsReady = true;
-    _jsQueue.forEach((fn) => fn());
-    _jsQueue.length = 0;
-    return;
-  }
-  if (type === "stdout" || type === "stderr") {
-    const line: OutputLine = { type, text: data };
-    _jsListeners.forEach((fn) => fn(line));
-    return;
-  }
-  if (type === "result" || type === "error") {
-    const p = _jsPending.get(id);
-    if (!p) return;
-    _jsPending.delete(id);
-    if (type === "result") p.resolve();
-    else p.reject(new Error(data));
-  }
-}
-
-function _ensureJsSandbox(): HTMLIFrameElement {
-  if (_jsiframe && document.body.contains(_jsiframe)) return _jsiframe;
-
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("sandbox", "allow-scripts");
-  iframe.style.cssText = "display:none;position:fixed;pointer-events:none;";
-
-  const html = `<!DOCTYPE html><html><body><script>
-var stdoutSent=0;
-function fmt(a){return typeof a==="object"?JSON.stringify(a,null,2):String(a);}
-console.log=function(){var t=[].map.call(arguments,fmt).join(" ");parent.postMessage({type:"stdout",data:t},"*");};
-console.warn=console.log;
-console.error=function(){var t=[].map.call(arguments,fmt).join(" ");parent.postMessage({type:"stderr",data:t},"*");};
-window.onerror=function(m,s,l,c,e){parent.postMessage({type:"error",id:window.__cid,data:e?e.message:m},"*");return true;};
-window.addEventListener("message",function(ev){
-  var d=ev.data;window.__cid=d.id;
-  try{
-    var AF=Object.getPrototypeOf(async function(){}).constructor;
-    var fn=new AF(d.code);
-    fn().then(function(r){parent.postMessage({type:"result",id:d.id,data:r!=null?String(r):""},"*");})
-       .catch(function(e){parent.postMessage({type:"error",id:d.id,data:e.message},"*");});
-  }catch(e){parent.postMessage({type:"error",id:d.id,data:e.message},"*");}
-});
-parent.postMessage({type:"js-ready"},"*");
-<\/script></body></html>`;
-
-  iframe.src = "data:text/html," + encodeURIComponent(html);
-  document.body.appendChild(iframe);
-
-  if (!(window as any).__crJsListenerAdded) {
-    window.addEventListener("message", _handleJsMsg);
-    (window as any).__crJsListenerAdded = true;
-  }
-
-  _jsiframe = iframe;
-  return iframe;
-}
-
-function runInJsSandbox(
-  code: string,
-  onLine: (l: OutputLine) => void,
-  timeoutMs = 15_000
-): Promise<void> {
-  return new Promise<void>((resolve: () => void, reject: (e: Error) => void) => {
-    const id = crypto.randomUUID();
-    _jsListeners.add(onLine);
-
-    const cleanup = () => _jsListeners.delete(onLine);
-
-    const timer = setTimeout(() => {
-      cleanup();
-      _jsPending.delete(id);
-      reject(new Error("Execution timed out after 15s"));
-    }, timeoutMs);
-
-    _jsPending.set(id, {
-      resolve: () => {
-        clearTimeout(timer);
-        cleanup();
-        resolve();
-      },
-      reject: (e) => {
-        clearTimeout(timer);
-        cleanup();
-        reject(e);
-      },
-    });
-
-    const run = () => {
-      try {
-        const f = _ensureJsSandbox();
-        f.contentWindow?.postMessage({ id, code }, "*");
-      } catch (e: any) {
-        clearTimeout(timer);
-        cleanup();
-        _jsPending.delete(id);
-        reject(new Error("Sandbox error: " + e.message));
-      }
+// A data-URL worker has an opaque origin and cannot read the app's DOM or storage.
+// Its separate thread can be terminated even when generated code enters an infinite loop.
+function runInJsSandbox(code: string, onLine: (line: OutputLine) => void, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const workerSource = `
+      let lines = 0;
+      const fmt = value => { try { return typeof value === 'object' ? JSON.stringify(value) : String(value); } catch { return '[Unserializable value]'; } };
+      for (const method of ['log', 'warn', 'info', 'error']) console[method] = (...args) => {
+        if (lines++ < 500) postMessage({type: method === 'error' ? 'stderr' : 'stdout', text: args.map(fmt).join(' ').slice(0, 2000)});
+      };
+    ` + "\n(async function(){\n" + code + "\n})().then(result => { if (result !== undefined) console.log(result); postMessage({type:'done'}); }).catch(error => postMessage({type:'error', text:String(error.message || error).slice(0,2000)}));";
+    const worker = new Worker("data:text/javascript," + encodeURIComponent(workerSource));
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true; clearTimeout(timer); worker.terminate(); signal.removeEventListener("abort", abort);
+      if (error) reject(error); else resolve();
     };
-
-    if (_jsReady) {
-      run();
-    } else {
-      _ensureJsSandbox();
-      _jsQueue.push(run);
-    }
+    const abort = () => finish(new DOMException("Execution stopped", "AbortError"));
+    const timer = setTimeout(() => finish(new Error("Execution timed out after 15s")), 15000);
+    worker.onmessage = event => {
+      const data = event.data;
+      if (data?.type === "done") finish();
+      else if (data?.type === "error") finish(new Error(data.text));
+      else if (["stdout", "stderr"].includes(data?.type) && typeof data.text === "string") onLine({type: data.type, text: data.text.slice(0, 2000)});
+    };
+    worker.onerror = event => { event.preventDefault(); finish(new Error("Browser execution failed. Please retry.")); };
+    signal.addEventListener("abort", abort, {once:true});
+    if (signal.aborted) abort();
   });
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 const CodeRunnerModal = memo(function CodeRunnerModal({
   code,
   language,
@@ -187,9 +97,10 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const startRef = useRef(0);
   const isRunningRef = useRef(false);
+  const executionRef = useRef<AbortController | null>(null);
 
   const { runPython, stop: stopPython, isReady: pyReady } =
-    usePyodideWorker();
+    usePyodideWorker(isPython);
 
   // SSR guard
   useEffect(() => {
@@ -207,10 +118,10 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   }, [onClose]);
 
   // Cleanup timer
-  useEffect(() => () => clearInterval(timerRef.current), []);
+  useEffect(() => () => { clearInterval(timerRef.current); executionRef.current?.abort(); }, []);
 
   const append = useCallback((line: OutputLine) => {
-    setOutput((p) => [...p, line]);
+    setOutput((p) => [...p.slice(-499), line]);
     requestAnimationFrame(() => {
       if (outputRef.current) {
         outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -247,19 +158,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
           setStatus("init");
           append({ type: "info", text: "Initializing environment..." });
 
-          // Wait for Pyodide to be ready (up to 60s)
-          await new Promise<void>((resolve, reject) => {
-            const check = setInterval(() => {
-              if (pyReady) {
-                clearInterval(check);
-                resolve();
-              }
-            }, 300);
-            setTimeout(() => {
-              clearInterval(check);
-              reject(new Error("Timed out waiting for Python environment"));
-            }, 60_000);
-          });
+          // runPython waits for readiness with a bounded deadline.
         }
 
         setStatus("running");
@@ -287,21 +186,24 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
         append({ type: "info", text: "Running in browser sandbox..." });
 
         try {
-          await runInJsSandbox(code, (l) => append(l));
+          executionRef.current = new AbortController();
+          await runInJsSandbox(code, (l) => append(l), executionRef.current.signal);
           stopTimer();
           setStatus("done");
         } catch (e: any) {
           stopTimer();
-          append({ type: "error", text: e.message });
-          setStatus("error");
+          if (e.name === "AbortError") setStatus("stopped");
+          else { append({ type: "error", text: e.message }); setStatus("error"); }
         }
       } else {
-        // Remote execution via Piston
+        // Remote execution via Wandbox
         setStatus("running");
-        append({ type: "info", text: `Sending ${language} code to execution server...` });
+        append({ type: "info", text: `Sending ${language} code to Wandbox...` });
 
         try {
+          executionRef.current = new AbortController();
           const res = await fetch("/api/execute", {
+            signal: AbortSignal.any([executionRef.current.signal, AbortSignal.timeout(45000)]),
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ language: lang, code }),
@@ -335,8 +237,8 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
           }
         } catch (e: any) {
           stopTimer();
-          append({ type: "error", text: "Network error: " + e.message });
-          setStatus("error");
+          if (e.name === "AbortError") setStatus("stopped");
+          else { append({ type: "error", text: "The execution provider is unavailable. Please retry." }); setStatus("error"); }
         }
       }
     } catch (e: any) {
@@ -349,6 +251,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
   }, [code, lang, language, isPython, isJs, pyReady, runPython, append, startTimer, stopTimer]);
 
   const stop = useCallback(() => {
+    executionRef.current?.abort();
     if (isPython) {
       stopPython();
     }
@@ -361,10 +264,10 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
 
   // Auto-run on open
   useEffect(() => {
-    if (mounted) {
+    if (mounted && (isPython || isJs)) {
       run();
     }
-  }, [mounted]);
+  }, [mounted, isPython, isJs]);
 
   const isActive = status === "running" || status === "init";
 
@@ -408,7 +311,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
         </div>
 
         <div className="cr-header-right">
-          <span className="cr-console-label">Console</span>
+          <span className="cr-console-label">{isPython || isJs ? "Console" : "Remote · Wandbox"}</span>
 
           {/* Clear output */}
           <button
@@ -437,7 +340,7 @@ const CodeRunnerModal = memo(function CodeRunnerModal({
               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              Run
+              {isPython || isJs ? "Run" : "Run on Wandbox"}
             </button>
           )}
 

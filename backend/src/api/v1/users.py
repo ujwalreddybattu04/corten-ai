@@ -35,4 +35,5 @@ async def update_profile(body: ProfileRequest, user_id: str = Depends(get_curren
     user = await auth_service.get_user_by_id(db, user_id)
     user.name = body.name
     await db.flush()
+    await db.commit()
     return await get_me(user_id, db)

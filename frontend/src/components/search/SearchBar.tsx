@@ -91,11 +91,6 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
 
                 {/* Focus Mode + Model + Submit Row */}
                 <div className="search-focus-row">
-                    {/* Add button */}
-                    <button type="button" className="focus-add-btn" title="Add file or connector" id="focus-add-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                    </button>
-
                     {/* Focus tabs */}
                     <div className="focus-tabs">
                         {primaryFocusModes.map((mode) => (
@@ -154,9 +149,7 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
 
                     {/* Model selector + Report + Submit */}
                     <div className="search-model-selector">
-                        <button type="button" className="model-dropdown-btn" id="model-selector-btn">
-                            Auto <span className="model-dropdown-arrow">▾</span>
-                        </button>
+                        <span className="model-dropdown-btn" title="The configured AI provider is selected automatically">Auto</span>
                         <button
                             type="button"
                             className="search-report-btn"

@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useReport, ReportSection, ReportStep } from "@/hooks/useReport";
@@ -18,6 +19,8 @@ export default function ReportPage() {
 }
 
 function ReportContent() {
+    const [downloadError, setDownloadError] = useState("");
+    const [downloading, setDownloading] = useState(false);
     const searchParams = useSearchParams();
     const topic = searchParams.get("topic") || "";
     const focus = searchParams.get("focus") || "all";
@@ -65,9 +68,18 @@ function ReportContent() {
     const completedSections = sections.filter(s => s.status === "complete").length;
     const progress = totalSections > 0 ? Math.round((completedSections / totalSections) * 100) : 0;
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (!result) return;
-        window.open(result.downloadUrl, "_blank", "noopener,noreferrer");
+        setDownloading(true); setDownloadError("");
+        try {
+            if (!/^\/api\/v1\/report\/download\/[a-f0-9]{32}$/.test(result.downloadUrl)) throw new Error("Invalid report download link.");
+            const response = await api.response(result.downloadUrl, { signal: AbortSignal.timeout(30000) });
+            if (!response.headers.get("Content-Type")?.startsWith("application/pdf")) throw new Error("The report download is unavailable. Please retry.");
+            const blob = await response.blob(), url = URL.createObjectURL(blob);
+            const link = document.createElement("a"); link.href = url; link.download = result.filename; link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) { setDownloadError(error instanceof Error ? error.message : "Unable to download. Please retry."); }
+        finally { setDownloading(false); }
     };
 
     return (
@@ -169,10 +181,11 @@ function ReportContent() {
                                 <span className="rpt-result-stat-label">Time</span>
                             </div>
                         </div>
-                        <button className="rpt-download-btn" onClick={handleDownload}>
+                        <button className="rpt-download-btn" onClick={() => void handleDownload()} disabled={downloading}>
                             <Download size={16} />
-                            Download PDF
+                            {downloading ? "Downloading…" : "Download PDF"}
                         </button>
+                        {downloadError && <p role="alert">{downloadError}</p>}
                     </div>
                 )}
 

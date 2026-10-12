@@ -8,6 +8,7 @@ import { ResearchProgress } from "./ResearchProgress";
 import CodeRunnerModal, { isRunnable } from "./CodeRunnerModal";
 import HtmlPreviewModal from "./HtmlPreviewModal";
 import { preloadPyodide } from "@/hooks/usePyodideWorker";
+import { accountStorage } from "@/lib/accountStorage";
 
 // Premium Formatting Dependencies
 import remarkMath from "remark-math";
@@ -37,9 +38,7 @@ function EmailTemplateBlock({ codeString }: { codeString: string }) {
     const [copied, setCopied] = useState(false);
     const emailText = extractEmailText(codeString);
     const copy = () => {
-        navigator.clipboard.writeText(emailText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        navigator.clipboard?.writeText(emailText).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => { /* The displayed email can be selected and copied. */ });
     };
     return (
         <div className="answer-email-block">
@@ -71,9 +70,7 @@ interface CodeBlockProps {
 function SyntaxCodeBlock({ codeString, language, lineClass, onRun, onPreview, canRun, isHtml }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
     const copy = () => {
-        navigator.clipboard.writeText(codeString);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        navigator.clipboard?.writeText(codeString).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => { /* The displayed code remains available for copying. */ });
     };
     return (
         <div className={`answer-code-container ${lineClass}`}>
@@ -141,6 +138,7 @@ interface AnswerStreamProps {
     setSourcesPanelOpen?: (open: boolean) => void;
     relatedQuestions?: string[];
     onRelatedSelect?: (question: string) => void;
+    onRegenerate?: () => void;
 }
 
 const AnswerStream = memo(({
@@ -154,11 +152,30 @@ const AnswerStream = memo(({
     sourcesPanelOpen: externalSourcesPanelOpen,
     setSourcesPanelOpen: externalSetSourcesPanelOpen,
     relatedQuestions = [],
-    onRelatedSelect
+    onRelatedSelect,
+    onRegenerate
 }: AnswerStreamProps) => {
     const contentRef = useRef<HTMLDivElement>(null);
     const [localCopied, setLocalCopied] = useState(false);
     const [localSourcesPanelOpen, setLocalSourcesPanelOpen] = useState(false);
+    const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+    const feedbackKey = useMemo(() => {
+        let hash = 2166136261;
+        for (const char of query + "\n" + content) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+        return String(hash >>> 0);
+    }, [query, content]);
+    useEffect(() => {
+        try { setFeedback(JSON.parse(accountStorage.getItem("corten_answer_feedback") || "{}")[feedbackKey] || null); } catch { /* Optional feedback never affects the answer. */ }
+    }, [feedbackKey]);
+    const vote = (value: "up" | "down") => {
+        try {
+            const stored = JSON.parse(accountStorage.getItem("corten_answer_feedback") || "{}");
+            const next = feedback === value ? null : value;
+            if (next) stored[feedbackKey] = next; else delete stored[feedbackKey];
+            accountStorage.setItem("corten_answer_feedback", JSON.stringify(Object.fromEntries(Object.entries(stored).slice(-500))));
+            setFeedback(next);
+        } catch { /* Keep the current feedback when device storage is unavailable. */ }
+    };
 
     // Code runner modal state
     const [runnerState, setRunnerState] = useState<{ code: string; language: string } | null>(null);
@@ -170,73 +187,13 @@ const AnswerStream = memo(({
     const setRunnerStateRef = useRef(setRunnerState);
     setRunnerStateRef.current = setRunnerState;
 
-    // Pre-warm Pyodide in the background so it's ready before user clicks Run
-    useEffect(() => {
-        preloadPyodide();
-    }, []);
-
-    // Use external state if provided (for page-level control), otherwise use local state
+    // Load the Python runtime only when a Python example is actually present.
+    const hasPython = /```(?:python|py)\s/i.test(content);
+    useEffect(() => { if (hasPython) preloadPyodide(); }, [hasPython]);
     const sourcesPanelOpen = externalSourcesPanelOpen !== undefined ? externalSourcesPanelOpen : localSourcesPanelOpen;
     const setSourcesPanelOpen = externalSetSourcesPanelOpen !== undefined ? externalSetSourcesPanelOpen : setLocalSourcesPanelOpen;
-
-    // Process content while fully protecting code blocks (complete and in-progress during streaming).
-    // Strategy: split on code fence boundaries, only run text transforms on non-code segments.
-    let processedContent = (() => {
-        const input = content;
-        // Split into alternating [text, code, text, code, ...] segments on ``` boundaries
-        const parts = input.split(/(```[\s\S]*?```)/g);
-        return parts.map((part, idx) => {
-            // Even indices = prose, odd indices = fenced code blocks
-            if (idx % 2 === 1) return part; // code block — pass through untouched
-
-            // For prose segments, also protect inline code
-            const inlines: string[] = [];
-            let prose = part.replace(/`[^`\n]+`/g, (m) => { inlines.push(m); return `\x00IC${inlines.length - 1}\x00`; });
-
-            // Citation bracket removal: [1], [1, 2], [1](citation:1)
-            prose = prose.replace(/\\?\[\s*[\d,\s]+\s*\\?\](?:\([^\)]+\))?/g, '');
-            // Bold/superscript hallucinated numbers: **1**, ^1^
-            prose = prose.replace(/\*\*(\d+)\*\*/g, '').replace(/\^(\d+)\^/g, '');
-            // Terminal citation number removal: "word 11." → "word." — only when digit is standalone (not a year/stat)
-            // Guards: must be 1-2 digits only, preceded by a letter, followed immediately by period/comma then space/end
-            // Do NOT match if followed by more digits (4.3), a letter (30%), or a word char
-            prose = prose.replace(/([a-zA-Z])\s+(\d{1,2})([\.,])(?=\s|$)(?!\d)/g, '$1$3');
-            // Collapse only mid-sentence duplicate spaces (never touches line-leading spaces)
-            prose = prose.replace(/([^\n]) {2,}([^\n])/g, '$1 $2');
-
-            // Restore inline code
-            prose = prose.replace(/\x00IC(\d+)\x00/g, (_, i) => inlines[parseInt(i)]);
-            return prose;
-        }).join('');
-    })();
-
-    // Normalize any weird remaining bib fragments if streaming (prevent flicker)
-    processedContent = processedContent.trim();
-
-    // 2. Nuclear Scrubber: Remove any trailing "References:", "Sources:", etc that the LLM might hallucinate
-    // This is aggressive because the UI already has a dedicated sources panel.
-    const bibPatterns = [
-        /(?:\n|^)\s*(?:#+\s*)?(?:References?|Sources?|Bibliography|Sources Used):?\s*(?:\n|$)/i,
-        /\n\s*1\.\s+[A-Z][a-z]+,.*?\(\d{4}\)/, // Catch standard APA style bibliographies
-        /\n\s*(?:\[1\]|1\.)\s+http/, // Catch numbered URL lists
-        /\n\s*1,\s*2,\s*3/, // Catch raw csv-style lists at bottom
-        /(?:\n|^)(?:\[[^\]]+\]\(https?:\/\/[^\s\)]+\)\s*){2,}/ // Aggressive: 2+ links in a row = list
-    ];
-
-    for (const pattern of bibPatterns) {
-        const matchIndex = processedContent.search(pattern);
-        if (matchIndex !== -1) {
-            // Cut off everything from the start of the match to the end of the content
-            console.log(`[AnswerStream] NUCLEAR SCRUB: Found bibliography pattern at index ${matchIndex}. Cutting response.`);
-            processedContent = processedContent.substring(0, matchIndex).trim();
-            break;
-        }
-    }
-
-    // Defensive log for sources - lets us see if the prop is actually arriving
-    if (isStreaming && content.length > 50 && content.length < 100) {
-        console.log(`[AnswerStream] Stream state check: sources=${sources.length}, isStreaming=${isStreaming}`);
-    }
+    // Markdown is the answer. Never infer a cut point from headings, links or numbers.
+    const processedContent = content;
 
     // --- MANUAL SCROLL OVERRIDE ---
     const userScrolledUpRef = useRef(false);
@@ -284,10 +241,7 @@ const AnswerStream = memo(({
     }, [content, isStreaming]);
 
     const handleCopy = () => {
-        navigator.clipboard.writeText(content);
-        setLocalCopied(true);
-        setTimeout(() => setLocalCopied(false), 2000);
-        onCopy?.();
+        navigator.clipboard?.writeText(content).then(() => { setLocalCopied(true); setTimeout(() => setLocalCopied(false), 2000); onCopy?.(); }).catch(() => { /* Never claim that a blocked copy succeeded. */ });
     };
 
     // Memoize markdown components so they aren't recreated on every render
@@ -347,44 +301,10 @@ const AnswerStream = memo(({
                 <strong className="answer-bold">{children}</strong>
             ),
             a: ({ href, children }: any) => {
-                const decodedHref = href ? decodeURIComponent(href) : "";
-
-                // 1. Is it using our internal citation scheme? (e.g., citation:1)
-                const isExplicitCitationURL = decodedHref && (
-                    decodedHref.trim().replace(/\s/g, '').startsWith("citation:") ||
-                    decodedHref.trim().replace(/\s/g, '').includes("citation:") ||
-                    decodedHref.trim().replace(/\s/g, '').startsWith("cite:") ||
-                    decodedHref.trim().replace(/\s/g, '').includes("cite:")
-                );
-
-                let isMarkdownLinkCitation = false;
-                let citationIndices: number[] = [];
-
-                if (isExplicitCitationURL) {
-                    const normalizedHref = decodedHref.trim().replace(/\s/g, '');
-                    const parts = normalizedHref.split(normalizedHref.includes("citation:") ? "citation:" : "cite:");
-                    const indicesStr = parts[parts.length - 1];
-                    citationIndices = indicesStr.split(",").map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-                } else if (children) {
-                    // 2. Intercept AI hallucinating real URLs but using numbers as the text (e.g., [1](https://...))
-                    // We extract the text, strip brackets, and check if it's purely a number mapping to our sources.
-                    const textContent = Array.isArray(children) ? children.join('') : String(children);
-                    const cleanText = textContent.trim().replace(/[\[\]]/g, '');
-
-                    if (/^[\d,\s]+$/.test(cleanText)) {
-                        const nums = cleanText.split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
-                        if (nums.length > 0 && nums.every(n => n >= 1 && n <= sources.length)) {
-                            isMarkdownLinkCitation = true;
-                            citationIndices = nums;
-                        }
-                    }
-                }
-
-                // If it's any form of citation (explicit or hallucinated markdown link), render nothing!
-                // User requested to remove inline citations completely as they are redundant with the Sources button.
-                if (isExplicitCitationURL || isMarkdownLinkCitation) {
-                    return <></>;
-                }
+                let decodedHref = href || "";
+                try { decodedHref = decodeURIComponent(decodedHref); } catch { /* A literal % is valid in a link label or source. */ }
+                // Hide only explicit internal citation links. Ordinary numeric links remain intact.
+                if (/^(?:citation|cite):\s*\d+(?:\s*,\s*\d+)*$/i.test(decodedHref.trim())) return <></>;
 
                 // Standard text hyperlink
                 return <a href={href} className="answer-link" target="_blank" rel="noopener noreferrer">{children}</a>;
@@ -533,19 +453,16 @@ const AnswerStream = memo(({
                                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
                                     )}
                                 </button>
-                                <button className="sp-icon-btn" title="Reload">
+                                {onRegenerate && <button className="sp-icon-btn" title="Regenerate answer" onClick={onRegenerate}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /></svg>
-                                </button>
+                                </button>}
                             </div>
                             <div className="sp-action-right">
-                                <button className="sp-icon-btn" title="Thumbs up">
+                                <button className="sp-icon-btn" title="Mark helpful" aria-label="Mark helpful" aria-pressed={feedback === "up"} onClick={() => vote("up")}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg>
                                 </button>
-                                <button className="sp-icon-btn" title="Thumbs down">
+                                <button className="sp-icon-btn" title="Mark unhelpful" aria-label="Mark unhelpful" aria-pressed={feedback === "down"} onClick={() => vote("down")}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 14V2" /><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" /></svg>
-                                </button>
-                                <button className="sp-icon-btn" title="More">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg>
                                 </button>
                             </div>
                         </div>

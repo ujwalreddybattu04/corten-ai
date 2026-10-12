@@ -43,6 +43,12 @@ class AuthService:
             raise ValueError("Email already registered") from None
         access_token, refresh_token, sid, jti = self._issue_tokens(str(user.id))
         await create_session(sid, str(user.id), jti, settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400)
+        # Do not issue a successful browser session before its user is durable.
+        try:
+            await db.commit()
+        except Exception:
+            await revoke_session(sid, str(user.id))
+            raise
         return user, access_token, refresh_token
 
     async def login(self, db, email, password):

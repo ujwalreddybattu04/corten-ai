@@ -28,6 +28,7 @@ class FakeDB:
         user.subscription_tier = "free"
         self.users[user.id] = user
     async def flush(self): pass
+    async def commit(self): pass
     async def rollback(self): pass
 
 
@@ -190,12 +191,10 @@ async def test_refresh_claims_are_bound_to_the_session_owner(client, auth_state)
 
 
 @pytest.mark.asyncio
-async def test_account_apis_require_auth_and_unimplemented_storage_is_explicit(client, auth_state):
-    for path in ["/api/v1/users/me", "/api/v1/threads", "/api/v1/spaces", "/api/v1/collections"]:
+async def test_account_apis_require_auth_and_profile_can_be_updated(client, auth_state):
+    for path in ["/api/v1/users/me", "/api/v1/threads", "/api/v1/spaces", "/api/v1/collections", "/api/v1/personal/changes"]:
         assert (await client.get(path)).status_code == 401
     tokens = (await signup(client)).json()
     headers = {"Authorization": "Bearer " + tokens["access_token"]}
-    for path in ["/api/v1/spaces", "/api/v1/collections"]:
-        assert (await client.get(path, headers=headers)).status_code == 501
     response = await client.put("/api/v1/users/me", json={"name": "Updated Name"}, headers=headers)
     assert response.status_code == 200 and response.json()["name"] == "Updated Name"

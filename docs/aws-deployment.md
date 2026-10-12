@@ -67,7 +67,7 @@ Access the host using Systems Manager in Sydney; do not open SSH/database ports.
 
 Restore verification compares the backup with current data. Run during a quiet window: concurrent writes can legitimately change counts. Never overwrite production to make verification pass.
 
-For releases, package only public source with readable directories; exclude secrets/generated files, normalize shell files to LF, upload to a private releases/ key and retain SHA-256. Invoke [release.sh](../deploy/aws/release.sh) on the host with bucket, key and digest. It validates the archive, serializes releases, prepares private settings, builds images, backs up PostgreSQL, runs advisory-lock migrations, then waits for healthy containers. It does not repeat the initial Render copy or downgrade schemas automatically. Keep prior sources and inspect migration compatibility before rollback.
+For releases, package only public source with readable directories; exclude secrets/generated files, normalize shell files to LF, upload to a private releases/ key and retain SHA-256. Invoke [release.sh](../deploy/aws/release.sh) on the host with bucket, key and digest. It validates the archive, serializes releases, prepares private settings, builds images, verifies additive personal-storage migrations and concurrency in a temporary database, backs up PostgreSQL, runs advisory-lock migrations, then waits for healthy containers. It does not repeat the initial Render copy or downgrade schemas automatically. Keep prior sources and inspect migration compatibility before rollback.
 
 Never print full Docker Compose configuration, runtime environments or secret responses. The script uses config --quiet.
 

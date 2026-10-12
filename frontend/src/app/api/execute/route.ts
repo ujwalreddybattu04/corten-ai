@@ -1,35 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readExecutionInput, selectCompiler, supportedLanguage } from "@/lib/codeExecution";
 
-// ─── Wandbox compiler map (free, no API key) ──────────────────────────────────
-// POST https://wandbox.org/api/compile.json
-// { code, compiler, options?, stdin? }
-// Response: { status, program_output, program_error, compiler_output, compiler_error }
-const WANDBOX_MAP: Record<string, { compiler: string; options?: string }> = {
-  c:       { compiler: "gcc-head",          options: "-Wall -O2" },
-  java:    { compiler: "openjdk-head" },
-  cpp:     { compiler: "gcc-head",          options: "-std=c++17 -Wall -O2" },
-  "c++":   { compiler: "gcc-head",          options: "-std=c++17 -Wall -O2" },
-  rust:    { compiler: "rust-head" },
-  go:      { compiler: "go-head" },
-  ruby:    { compiler: "ruby-head" },
-  rb:      { compiler: "ruby-head" },
-  php:     { compiler: "php-head" },
-  lua:     { compiler: "luajit-head" },
-  csharp:  { compiler: "mono-head" },
-  cs:      { compiler: "mono-head" },
-  swift:   { compiler: "swift-head" },
-  kotlin:  { compiler: "kotlin-head" },
-  bash:    { compiler: "bash" },
-  sh:      { compiler: "bash" },
-};
-
-// Simple in-memory rate limiter (per IP, 15 exec/min)
 const execLog = new Map<string, number[]>();
 const RATE_WINDOW = 60_000;
 const RATE_LIMIT = 15;
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
+  if (execLog.size >= 1000) for (const [key, times] of execLog) if (!times.some(time => now - time < RATE_WINDOW)) execLog.delete(key);
+  if (!execLog.has(ip) && execLog.size >= 10000) return true;
   const times = (execLog.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW);
   if (times.length >= RATE_LIMIT) return true;
   execLog.set(ip, [...times, now]);
@@ -37,6 +16,7 @@ function isRateLimited(ip: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON content type is required." }, { status: 415 });
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     req.headers.get("x-real-ip") ??
@@ -49,54 +29,38 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { language?: string; code?: string; stdin?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const { language, code, stdin = "" } = body;
-
-  if (!language || !code) {
-    return NextResponse.json({ error: "Missing language or code" }, { status: 400 });
-  }
-  if (typeof code !== "string" || code.length > 100_000) {
-    return NextResponse.json({ error: "Code too long (max 100KB)" }, { status: 400 });
-  }
-
-  const lang = language.toLowerCase();
-  const meta = WANDBOX_MAP[lang];
-
-  if (!meta) {
-    return NextResponse.json(
-      { error: `Language "${language}" is not supported for remote execution.` },
-      { status: 400 }
-    );
-  }
+  let body;
+  try { body = await readExecutionInput(req); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error && !error.message.startsWith("Unexpected") ? error.message : "Invalid JSON body" }, { status: 400 }); }
+  const { language: lang, code, stdin } = body;
+  if (!supportedLanguage(lang)) return NextResponse.json({ error: "This language is not available for remote execution." }, { status: 400 });
 
   try {
+    const compiler = await selectCompiler(lang);
+    if (!compiler) return NextResponse.json({ error: "The provider does not currently offer this language." }, { status: 503 });
     const res = await fetch("https://wandbox.org/api/compile.json", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         code,
-        compiler: meta.compiler,
-        ...(meta.options ? { options: meta.options } : {}),
+        compiler,
+        ...(["c", "cpp", "c++"].includes(lang) ? { "compiler-option-raw": lang === "c" ? "-Wall -O2" : "-std=c++17 -Wall -O2" } : {}),
         ...(stdin ? { stdin } : {}),
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(30_000)]),
     });
 
     if (!res.ok) {
-      const text = await res.text();
+
       return NextResponse.json(
-        { error: `Execution server error: ${res.status} — ${text.slice(0, 200)}` },
+        { error: "The execution provider is temporarily unavailable. Please retry." },
         { status: 502 }
       );
     }
 
     const data = await res.json();
+    if (!data || typeof data !== "object" || !/^-?\d+$/.test(String(data.status ?? "")) || ["program_output", "program_error", "compiler_error"].some(key => data[key] !== undefined && typeof data[key] !== "string")) return NextResponse.json({ error: "The execution provider returned an incomplete result." }, { status: 502 });
+
 
     // Wandbox response fields
     const stdout: string = data.program_output ?? "";
@@ -128,7 +92,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: `Failed to reach execution server: ${err.message}` },
+      { error: "The execution provider is temporarily unavailable. Please retry." },
       { status: 502 }
     );
   }

@@ -37,16 +37,18 @@ const WhatsAppIcon = () => (
 
 export default function ShareModal({ isOpen, onClose, query, answer }: ShareModalProps) {
     const [copied, setCopied] = useState(false);
+    const [copyError, setCopyError] = useState("");
     const modalRef = useRef<HTMLDivElement>(null);
 
-    const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+    const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/search?q=${encodeURIComponent(query)}` : "";
     const previewText = answer ? answer.slice(0, 120).trim() + (answer.length > 120 ? "…" : "") : "";
 
     const handleCopyLink = useCallback(() => {
+        setCopyError("");
         navigator.clipboard.writeText(shareUrl).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2500);
-        });
+        }).catch(() => setCopyError("Copy was blocked. Select and copy the link below."));
     }, [shareUrl]);
 
     const handleXShare = useCallback(() => {
@@ -115,7 +117,7 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
                     />
 
                     {/* Modal */}
-                    <div className="sm-positioner" role="dialog" aria-modal="true" aria-label="Share thread">
+                    <div className="sm-positioner" role="dialog" aria-modal="true" aria-label="Share question">
                         <motion.div
                             ref={modalRef}
                             className="sm-modal"
@@ -126,7 +128,7 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
                         >
                             {/* Header */}
                             <div className="sm-header">
-                                <h2 className="sm-title">Share thread</h2>
+                                <h2 className="sm-title">Share question</h2>
                                 <button
                                     className="sm-close"
                                     onClick={onClose}
@@ -146,20 +148,20 @@ export default function ShareModal({ isOpen, onClose, query, answer }: ShareModa
                                     </svg>
                                 </div>
                                 <div className="sm-notice-text">
-                                    <span className="sm-notice-bold">This thread may include personal information.</span>
-                                    {" "}Take a moment to check the content before sharing the link.
+                                    <span className="sm-notice-bold">This link shares your question.</span>
+                                    {" "}Recipients generate a new answer. Your saved answers and chat history stay private.
                                 </div>
                             </div>
 
                             {/* Preview card */}
                             <div className="sm-preview">
                                 <div className="sm-preview-query">{query}</div>
-                                {previewText && (
-                                    <div className="sm-preview-answer">{previewText}</div>
-                                )}
+
                                 <div className="sm-preview-brand">Corten</div>
                             </div>
 
+                            {copyError && <p role="alert">{copyError}</p>}
+                            <input aria-label="Question link" readOnly value={shareUrl} onFocus={event => event.target.select()} style={{ width: "100%", padding: 12, color: "var(--text-secondary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 8 }} />
                             {/* Share buttons */}
                             <div className="sm-actions">
                                 <button className="sm-action" onClick={handleCopyLink} title="Copy link">

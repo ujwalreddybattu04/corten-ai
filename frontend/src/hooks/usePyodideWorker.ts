@@ -1,5 +1,6 @@
 "use client";
 
+import { PYODIDE_WORKER_SOURCE } from "@/lib/pyodideWorkerSource";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 export interface ExecutionResult {
@@ -21,7 +22,9 @@ interface PendingExec {
 // ─── Module-level singleton ───────────────────────────────────────────────────
 let _worker: Worker | null = null;
 let _isReady = false;
-const _readyCbs: Array<() => void> = [];
+const _readyCbs = new Set<() => void>();
+let _generation = 0;
+let _initError: string | null = null;
 const _pending = new Map<string, PendingExec>();
 const _readyStateListeners = new Set<(ready: boolean) => void>();
 
@@ -35,13 +38,14 @@ function _handleMessage(event: MessageEvent) {
   if (type === "ready") {
     _isReady = true;
     _readyCbs.forEach((fn) => fn());
-    _readyCbs.length = 0;
+    _readyCbs.clear();
     _dispatch(true);
     return;
   }
 
   if (type === "init-error") {
-    console.error("[Pyodide] Init failed:", data);
+    _initError = "Python could not load. Check your connection and retry.";
+    _readyCbs.forEach(callback => callback()); _readyCbs.clear();
     return;
   }
 
@@ -81,9 +85,9 @@ function _handleMessage(event: MessageEvent) {
 }
 
 function _createWorker(): Worker {
-  const w = new Worker("/pyodide-worker.js");
+  const w = new Worker("data:text/javascript," + encodeURIComponent(PYODIDE_WORKER_SOURCE));
   w.onmessage = _handleMessage;
-  w.onerror = (e) => console.error("[Pyodide Worker]", e.message);
+  w.onerror = () => { _initError = "Python could not load. Check your connection and retry."; _readyCbs.forEach(callback => callback()); _readyCbs.clear(); };
   return w;
 }
 
@@ -100,6 +104,9 @@ function _recreateWorker() {
     _worker = null;
   }
   _isReady = false;
+  _generation++;
+  _initError = null;
+  _readyCbs.forEach(callback => callback()); _readyCbs.clear();
 
   // Reject all pending with "stopped"
   _pending.forEach((cb) => {
@@ -122,7 +129,7 @@ export function preloadPyodide(): void {
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
-export function usePyodideWorker() {
+export function usePyodideWorker(enabled = true) {
   const [isReady, setIsReady] = useState<boolean>(_isReady);
   const [isRunning, setIsRunning] = useState(false);
   const mountedRef = useRef(true);
@@ -137,7 +144,7 @@ export function usePyodideWorker() {
     _readyStateListeners.add(listener);
 
     // Trigger worker creation + Pyodide loading
-    if (!_worker) {
+    if (enabled && !_worker) {
       _getWorker();
     }
     // If already ready, sync state
@@ -149,7 +156,7 @@ export function usePyodideWorker() {
       mountedRef.current = false;
       _readyStateListeners.delete(listener);
     };
-  }, []);
+  }, [enabled]);
 
   const runPython = useCallback(
     async (
@@ -159,18 +166,17 @@ export function usePyodideWorker() {
       onStderr: LineCallback = () => {},
       onImage: ImageCallback = () => {}
     ): Promise<ExecutionResult> => {
+      if (_initError) _recreateWorker();
+      const generation = _generation;
+      _getWorker();
+      if (!_isReady) await new Promise<void>(resolve => {
+        const ready = () => { clearTimeout(timer); _readyCbs.delete(ready); resolve(); };
+        const timer = setTimeout(ready, 60000);
+        _readyCbs.add(ready);
+      });
+      if (generation !== _generation) return { error: null, interrupted: true };
+      if (!_isReady) return { error: _initError || "Python initialization timed out. Check your connection and retry.", interrupted: false };
       const worker = _getWorker();
-
-      // Wait for Pyodide to be ready
-      if (!_isReady) {
-        await new Promise<void>((resolve) => {
-          if (_isReady) {
-            resolve();
-            return;
-          }
-          _readyCbs.push(resolve);
-        });
-      }
 
       if (mountedRef.current) setIsRunning(true);
 

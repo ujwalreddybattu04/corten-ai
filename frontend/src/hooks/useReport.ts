@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { readReportStream } from "@/lib/reportStream";
+import { api } from "@/lib/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export function useReport() {
         });
 
         try {
-            const response = await fetch("/api/v1/report/stream", {
+            const response = await api.response("/api/v1/report/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ topic, focus_mode: focusMode }),

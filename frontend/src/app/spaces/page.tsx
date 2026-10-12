@@ -1,4 +1,7 @@
 "use client";
+import { useAuth } from "@/contexts/AuthContext";
+import { mergeSpaceEdits } from "@/lib/spaces";
+import CloudSyncStatus from "@/components/layout/CloudSyncStatus";
 import { accountStorage } from "@/lib/accountStorage";
 
 
@@ -83,6 +86,7 @@ function formatDate(ts: number): string {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SpacesPage() {
+    const { user } = useAuth();
     const [spaces, setSpaces] = useState<LocalSpace[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -90,18 +94,16 @@ export default function SpacesPage() {
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [editingSpace, setEditingSpace] = useState<LocalSpace | null>(null);
 
-    // Load spaces
     useEffect(() => {
-        try {
-            const raw = accountStorage.getItem(STORAGE_KEY);
-            if (raw) setSpaces(JSON.parse(raw));
-        } catch { /* ignore */ }
+        const load = () => { try { setSpaces(JSON.parse(accountStorage.getItem(STORAGE_KEY) || "[]")); } catch { /* Keep the loaded list. */ } };
+        load();
+        window.addEventListener("corten_spaces_updated", load);
+        return () => window.removeEventListener("corten_spaces_updated", load);
     }, []);
 
     const saveSpaces = useCallback((updated: LocalSpace[]) => {
-        setSpaces(updated);
-        accountStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    }, []);
+        setSpaces(mergeSpaceEdits(spaces, updated));
+    }, [spaces]);
 
     // Get thread count for each space
     const threadCounts = useMemo(() => {
@@ -172,6 +174,7 @@ export default function SpacesPage() {
 
     return (
         <div className="sp-spaces-page">
+            <CloudSyncStatus />
             {/* ── Header ── */}
             <div className="sp-spaces-header">
                 <h1 className="sp-spaces-title">Spaces</h1>
@@ -232,7 +235,7 @@ export default function SpacesPage() {
                                                 <div className="sp-space-card-meta">
                                                     <span className="sp-space-card-date">{formatDate(space.createdAt)}</span>
                                                     <span className="sp-space-card-badge">
-                                                        <Lock size={10} /> This browser
+                                                        <Lock size={10} /> {user ? "Personal account" : "This browser"}
                                                     </span>
                                                 </div>
                                                 <div className="sp-space-card-stats">
@@ -422,7 +425,7 @@ function SpaceFormModal({
                             >
                                 <Lock size={13} /> Private
                             </button>
-                            <span>Saved in this browser. Team sharing is not available yet.</span>
+                            <span>Saved privately. Sign in to sync across devices.</span>
                         </div>
                     </div>
 

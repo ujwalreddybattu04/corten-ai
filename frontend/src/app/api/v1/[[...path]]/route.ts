@@ -69,6 +69,8 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     }
     const target = `${backend}/api/v1/${(session ? ["auth", "me"] : path).map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
     const headers = new Headers();
+    const viewerIp = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+    if (viewerIp && /^[0-9a-fA-F:.]{3,64}$/.test(viewerIp)) headers.set("X-Corten-Client-IP", viewerIp);
     for (const name of ["authorization", "content-type", "accept"]) {
         const value = request.headers.get(name);
         if (value) headers.set(name, value);

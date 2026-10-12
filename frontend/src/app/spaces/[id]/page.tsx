@@ -1,4 +1,6 @@
 "use client";
+import { useAuth } from "@/contexts/AuthContext";
+import { mergeSpaceEdits } from "@/lib/spaces";
 import { accountStorage } from "@/lib/accountStorage";
 
 import { useState, useEffect, useCallback } from "react";
@@ -77,6 +79,7 @@ function formatDate(ts: number): string {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SpaceDetailPage() {
+    const { user } = useAuth();
     const router = useRouter();
     const params = useParams();
     const spaceId = params.id as string;
@@ -104,6 +107,7 @@ export default function SpaceDetailPage() {
 
     // Load space + threads
     useEffect(() => {
+        const load = () => {
         try {
             const raw = accountStorage.getItem(STORAGE_KEY);
             if (!raw) { setNotFound(true); return; }
@@ -115,6 +119,7 @@ export default function SpaceDetailPage() {
             if (!found.links) found.links = [];
             if (!found.instructions) found.instructions = "";
 
+            setNotFound(false);
             setSpace(found);
             setNameValue(found.name);
             setDescValue(found.description);
@@ -127,13 +132,17 @@ export default function SpaceDetailPage() {
                 setThreads(spaceThreads.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)));
             }
         } catch { setNotFound(true); }
+        };
+        load();
+        window.addEventListener("corten_spaces_updated", load);
+        window.addEventListener("corten_threads_updated", load);
+        return () => { window.removeEventListener("corten_spaces_updated", load); window.removeEventListener("corten_threads_updated", load); };
     }, [spaceId]);
 
     const saveSpace = useCallback((updated: LocalSpace) => {
         const newSpaces = allSpaces.map(s => s.id === updated.id ? updated : s);
-        setAllSpaces(newSpaces);
+        setAllSpaces(mergeSpaceEdits(allSpaces, newSpaces));
         setSpace(updated);
-        accountStorage.setItem(STORAGE_KEY, JSON.stringify(newSpaces));
     }, [allSpaces]);
 
     const saveName = () => {
@@ -254,7 +263,7 @@ export default function SpaceDetailPage() {
                             )}
                         </div>
                         <div className="sd-identity-badge">
-                            <Lock size={11} /> This browser
+                            <Lock size={11} /> {user ? "Personal account" : "This browser"}
                         </div>
                     </div>
 
