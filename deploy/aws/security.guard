@@ -1,0 +1,42 @@
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+let hosts = Resources.*[ Type == 'AWS::EC2::Instance' ]
+let groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+let ingress = Resources.*[ Type == 'AWS::EC2::SecurityGroupIngress' ]
+let edge = Resources.*[ Type == 'AWS::CloudFront::Distribution' ]
+
+rule encrypted_private_buckets when %buckets !empty {
+  %buckets.Properties.BucketEncryption exists
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+  %buckets.Properties.PublicAccessBlockConfiguration.IgnorePublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+  %buckets.DeletionPolicy == 'Retain'
+  %buckets.UpdateReplacePolicy == 'Retain'
+}
+
+rule persistent_hardened_host when %hosts !empty {
+  %hosts.Properties.MetadataOptions.HttpTokens == 'required'
+  %hosts.Properties.BlockDeviceMappings[*].Ebs.Encrypted == true
+  %hosts.Properties.BlockDeviceMappings[*].Ebs.DeleteOnTermination == false
+  %hosts.Properties.CreditSpecification.CPUCredits == 'standard'
+  %hosts.Properties.KeyName !exists
+}
+
+rule closed_ingress_until_private_origin when %groups !empty {
+  %groups.Properties.SecurityGroupIngress !exists
+}
+
+rule private_origin_ingress when %ingress !empty {
+  %ingress.Properties.SourceSecurityGroupId exists
+  %ingress.Properties.CidrIp !exists
+  %ingress.Properties.CidrIpv6 !exists
+  %ingress.Properties.FromPort == 80
+  %ingress.Properties.ToPort == 80
+}
+
+rule protected_edge when %edge !empty {
+  %edge.Properties.DistributionConfig.DefaultCacheBehavior.ViewerProtocolPolicy == 'redirect-to-https'
+  %edge.Properties.DistributionConfig.DefaultCacheBehavior.CachePolicyId exists
+  %edge.Properties.DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId exists
+  %edge.Properties.DistributionConfig.Logging.IncludeCookies == false
+}

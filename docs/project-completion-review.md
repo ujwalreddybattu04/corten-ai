@@ -2,12 +2,13 @@
 
 Reviewed 12 October 2026. Access policy: **public signup with personal accounts**, as requested. Company invitations, SSO and team roles are outside this rollout.
 
-The application works as a hosted preview. The defects below are repaired, but the remaining persistence, account recovery and hosting work prevents describing it as ready for a company production rollout.
+The application works as a hosted preview on AWS and Render. The remaining persistence, account recovery and production capacity work prevents describing it as ready for a company production rollout.
 
 ## Repairs completed
 
 | Area | Result |
 | --- | --- |
+| AWS deployment and recovery | Complete app deployed at https://d3a7ful0miola1.cloudfront.net in Sydney: private CloudFront origin, Next.js, FastAPI, PostgreSQL, Redis, encrypted retained storage and daily private S3 database backups. Existing records copied with matching counts; backup downloaded/restored in isolation. Real auth, chat, Discover, pharma, interpolation and PDF checks passed. Free plan retained; Render preserved. See [deployment, costs and capacity limits](aws-deployment.md). |
 | Pharma intelligence | Added a dedicated Analyst Workspace tool using real FDA approval actions and ClinicalTrials.gov drug/biologic record updates. Therapy/date/type filters, searchable source metadata, record details and CSV export; existing interpolation results survive tool switching. Shared Redis source snapshots/refresh leases, bounded provider requests/cooldowns and labeled 24-hour stale retention. Optional Guardian access is currently rejected, explicitly displayed. See [coverage and limits](pharma-updates.md). |
 | Google Cloud preparation | Created `corten-ai-ujwal-20261012` under the requested Google account. Prepared Cloud Build, Cloud Run preflight/deployment, private backend service identity, pinned Secret Manager bindings and a serialized migration release job. Project billing activation is pending; the GCP application has **not been deployed**. See [deployment status and configuration](gcp-deployment.md). |
 | Spaces | List, detail and templates use the same account-isolated browser storage. Questions started inside a Space save their thread association. Existing saved chats can be added to a chosen Space. |
@@ -15,7 +16,7 @@ The application works as a hosted preview. The defects below are repaired, but t
 | Answer delivery | Chat/report readers handle Unicode, final unterminated SSE records, errors and premature EOF. Interrupted answers are not saved as successful conversations. |
 | Chat startup | Chat waits for the application status endpoint before submitting generation, with a two-minute connection budget and visible progress. Only status GETs are retried automatically. Failed generation has a manual Retry action that preserves the question and conversation and excludes interrupted drafts. |
 | Report integrity | One sourced model draft replaces separate planning/outline/section calls. Missing evidence, invalid JSON, output limits, incomplete sentences, provider failures and unknown citations stop publication. Downloads appear only after the stream completes. |
-| Report downloads | Random 128-bit identifiers, a 24-hour maximum download window, traversal rejection and no-store/nosniff headers. ReportLab headings and references escape markup. Files remain ephemeral. |
+| Report downloads | Random 128-bit identifiers, a 24-hour download window, traversal rejection and no-store/nosniff headers. ReportLab escapes markup. AWS PDFs persist across container restarts on encrypted host storage; Render files remain ephemeral. Owner-scoped object storage remains pending. |
 | Discover citations | The original article is inserted before showing sources. Citation numbers match the model's evidence order. Prior AI summaries remain conversation context rather than numbered sources. |
 | Discover availability | Guardian/NewsAPI failures fall back to attributed BBC RSS headlines. Shared 20-story pools reduce duplicate provider calls while preserving page boundaries. Successful feeds remain cached for 15 minutes and can be served with a stale notice for at most six hours. Browser requests have bounded retries and cancellation; refresh failures preserve account-isolated saved stories. |
 | Images | Hooks run consistently when an empty image list becomes populated, preventing a React runtime failure. |
@@ -43,11 +44,11 @@ Hosted release results are recorded in [hosted verification](hosted-verification
 
 | Priority | Work | Completion criteria |
 | --- | --- | --- |
-| Launch blocker | Durable hosting and recovery | Replace the expiring preview database, configure backups and prove a restore. Current Render database expiry: **10 November 2026, 02:50 UTC**. Choose persistent session/cache storage and hosting/model/search capacity for expected traffic. |
+| Launch blocker at production scale | Hosting capacity and availability | AWS persistent storage and daily backups/verified restore are complete for the preview. Choose and load-test highly available hosting/database/cache and provider capacity. One host and finite credits cannot support a millions-of-users claim. Render's separate preview database still expires **10 November 2026, 02:50 UTC**. |
 | Launch blocker | Personal cloud persistence | Connect browser history, Spaces, collections and analyst projects to server storage with ownership checks, migrations and conflict/retry handling. Verify cross-device access and isolation. Current Spaces/collections APIs return 501; PostgreSQL deployment alone does not implement them. |
 | Launch blocker for public accounts | Email verification and recovery | Configure a transactional email API and approved sender/domain. Implement expiring single-use verification/reset tokens, rate limits and session revocation. Test delivery. Current public email/password signup/sign-in has no verification or password reset. |
 | Operational | Monitoring and abuse controls | Add external readiness/error/latency alerts, shared limits for public AI/search/report endpoints, quota visibility and a tested incident procedure. Multiple keys can still share a provider organization quota. |
-| Product | Durable report storage | Use an approved object store with owner-scoped access and retention. Current PDFs disappear on backend restart/redeploy/spin-down. |
+| Product | Owner-scoped report storage | Use an approved object store with ownership and retention. AWS PDFs survive container restarts on retained EBS, but disk-loss recovery and owner authorization remain pending; Render PDFs remain ephemeral. |
 | Product | Optional unfinished features | Article saving into Spaces, file retrieval/RAG, suggestions and extra provider adapters are unimplemented. The active Groq routing/research pipeline is separate from dormant service/provider stubs. |
 | Maintenance | Development diagnostics | Resolve ESLint migration warnings. The latest ESLint-config chain has an [unpatched development-only braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), excluded from the production image. Track the upstream fix rather than downgrading the patched framework. |
 

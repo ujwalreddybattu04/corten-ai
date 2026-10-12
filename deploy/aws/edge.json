@@ -1,0 +1,234 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Corten HTTPS edge and private-origin ingress. Authenticated pages and streamed APIs are never cached; only immutable build assets are cached.",
+  "Metadata": {
+    "AWSToolsMetrics": {
+      "AWSAgentToolkit": "aws-cloudformation@3"
+    }
+  },
+  "Parameters": {
+    "HostSecurityGroupId": {
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "CloudFrontSecurityGroupId": {
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "OriginPrivateDns": {
+      "Type": "String"
+    },
+    "VpcOriginId": {
+      "Type": "String"
+    },
+    "AuditBucketName": {
+      "Type": "String"
+    },
+    "DisabledCachePolicyId": {
+      "Type": "String"
+    },
+    "AllViewerRequestPolicyId": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "PrivateIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Allow only the AWS-managed CloudFront private connector",
+          "must": "No public CIDR or SSH/database/backend ingress"
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "HostSecurityGroupId"
+        },
+        "SourceSecurityGroupId": {
+          "Ref": "CloudFrontSecurityGroupId"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 80,
+        "ToPort": 80
+      }
+    },
+    "SecurityHeaders": {
+      "Type": "AWS::CloudFront::ResponseHeadersPolicy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Protect browser responses without changing the existing Next.js UI",
+          "must": "Existing Next.js bootstrap requires inline scripts; API traffic must never be cached"
+        }
+      },
+      "Properties": {
+        "ResponseHeadersPolicyConfig": {
+          "Name": {
+            "Fn::Sub": "${AWS::StackName}-security"
+          },
+          "SecurityHeadersConfig": {
+            "ContentSecurityPolicy": {
+              "ContentSecurityPolicy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; upgrade-insecure-requests",
+              "Override": true
+            },
+            "ContentTypeOptions": {
+              "Override": true
+            },
+            "FrameOptions": {
+              "FrameOption": "SAMEORIGIN",
+              "Override": true
+            },
+            "ReferrerPolicy": {
+              "ReferrerPolicy": "strict-origin-when-cross-origin",
+              "Override": true
+            },
+            "StrictTransportSecurity": {
+              "AccessControlMaxAgeSec": 31536000,
+              "IncludeSubdomains": true,
+              "Override": true
+            }
+          }
+        }
+      }
+    },
+    "StaticCache": {
+      "Type": "AWS::CloudFront::CachePolicy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Cache only immutable Next.js build assets",
+          "must": "Minimum TTL zero; never cache account pages or API responses"
+        }
+      },
+      "Properties": {
+        "CachePolicyConfig": {
+          "Name": {
+            "Fn::Sub": "${AWS::StackName}-static"
+          },
+          "DefaultTTL": 31536000,
+          "MaxTTL": 31536000,
+          "MinTTL": 0,
+          "ParametersInCacheKeyAndForwardedToOrigin": {
+            "EnableAcceptEncodingBrotli": true,
+            "EnableAcceptEncodingGzip": true,
+            "CookiesConfig": {
+              "CookieBehavior": "none"
+            },
+            "HeadersConfig": {
+              "HeaderBehavior": "none"
+            },
+            "QueryStringsConfig": {
+              "QueryStringBehavior": "none"
+            }
+          }
+        }
+      }
+    },
+    "Distribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "DependsOn": [
+        "PrivateIngress"
+      ],
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "HTTPS public entry point for the complete application and streaming API",
+          "must": "Private VPC origin only; forward authentication and query context; disable dynamic caching; omit cookies from logs"
+        }
+      },
+      "Properties": {
+        "DistributionConfig": {
+          "Comment": "Corten AI full-stack workspace",
+          "Enabled": true,
+          "HttpVersion": "http2and3",
+          "IPV6Enabled": true,
+          "PriceClass": "PriceClass_100",
+          "Origins": [
+            {
+              "Id": "corten-host",
+              "DomainName": {
+                "Ref": "OriginPrivateDns"
+              },
+              "VpcOriginConfig": {
+                "VpcOriginId": {
+                  "Ref": "VpcOriginId"
+                },
+                "OriginKeepaliveTimeout": 60,
+                "OriginReadTimeout": 60
+              }
+            }
+          ],
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "corten-host",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "AllowedMethods": [
+              "GET",
+              "HEAD",
+              "OPTIONS",
+              "PUT",
+              "POST",
+              "PATCH",
+              "DELETE"
+            ],
+            "CachedMethods": [
+              "GET",
+              "HEAD"
+            ],
+            "CachePolicyId": {
+              "Ref": "DisabledCachePolicyId"
+            },
+            "OriginRequestPolicyId": {
+              "Ref": "AllViewerRequestPolicyId"
+            },
+            "ResponseHeadersPolicyId": {
+              "Ref": "SecurityHeaders"
+            },
+            "Compress": true
+          },
+          "CacheBehaviors": [
+            {
+              "PathPattern": "/_next/static/*",
+              "TargetOriginId": "corten-host",
+              "ViewerProtocolPolicy": "redirect-to-https",
+              "AllowedMethods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+              ],
+              "CachedMethods": [
+                "GET",
+                "HEAD"
+              ],
+              "CachePolicyId": {
+                "Ref": "StaticCache"
+              },
+              "ResponseHeadersPolicyId": {
+                "Ref": "SecurityHeaders"
+              },
+              "Compress": true
+            }
+          ],
+          "ViewerCertificate": {
+            "CloudFrontDefaultCertificate": true
+          },
+          "Logging": {
+            "Bucket": {
+              "Fn::Sub": "${AuditBucketName}.s3.amazonaws.com"
+            },
+            "Prefix": "edge/",
+            "IncludeCookies": false
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApplicationUrl": {
+      "Value": {
+        "Fn::Sub": "https://${Distribution.DomainName}"
+      },
+      "Description": "HTTPS Corten application URL"
+    },
+    "DistributionId": {
+      "Value": {
+        "Ref": "Distribution"
+      },
+      "Description": "CloudFront distribution ID"
+    }
+  }
+}

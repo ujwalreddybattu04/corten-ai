@@ -1,0 +1,11 @@
+[Unit]
+Description=Encrypted Corten PostgreSQL backup to private S3
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/bin/bash /opt/corten/current/deploy/aws/backup.sh
+TimeoutStartSec=900

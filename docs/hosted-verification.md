@@ -1,5 +1,19 @@
 # Hosted verification — 12 October 2026
 
+## AWS full-stack deployment
+
+Application: **https://d3a7ful0miola1.cloudfront.net**. Sydney Free-plan deployment includes Next.js, FastAPI, PostgreSQL, Redis, a private CloudFront origin and encrypted persistent storage. Render remains a separate preview; later writes are not synchronized automatically.
+
+- 15 real authentication browser checks passed, including Secure/HttpOnly cookies, two-tab refresh, account isolation and interrupted logout recovery. Exactly two newly created synthetic AWS accounts were removed; the imported account was retained.
+- 18 interpolation checks and seven live pharma browser checks passed. All seven Discover API categories and browser tabs rendered real articles; no mobile overflow or client exceptions occurred.
+- Actual identity/writing/research SSE streams completed, with ten sources for current research and no search for identity. Four direct contextual-memory cases passed without model/web calls.
+- A sourced report produced four sections and a five-page downloadable PDF. The download survived a backend container restart.
+- All 12 source/target table counts matched. Daily encrypted PostgreSQL backups were configured; an actual S3 backup was downloaded, checksum-verified and restored in an isolated database, with matching counts and no production modification.
+- Temporary migration access on Render/AWS and the host's source connection files/dump were removed. The migration secret is pending seven-day deletion. Provider keys went directly to Secrets Manager under explicit authorization, without a local export.
+- HTTP redirects to HTTPS; security headers and static asset caching work. Dynamic streaming responses were not edge-cache hits. Both infrastructure templates passed local schema/security checks and AWS validation.
+
+See [AWS operations, costs and capacity limitations](aws-deployment.md). These checks verify preview functionality, not high availability or millions-of-users capacity.
+
 ## Chat startup recovery release
 
 Both services deployed `d510e33` and reached `live`. [Both CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38157925617).

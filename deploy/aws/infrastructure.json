@@ -1,0 +1,528 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Corten full-stack Free-plan preview: private application ingress, scoped SSM access, encrypted retained disk and private backups. CloudFront edge is configured after origin readiness.",
+  "Metadata": {
+    "AWSToolsMetrics": {
+      "AWSAgentToolkit": "aws-cloudformation@3"
+    }
+  },
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetId": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "AmiId": {
+      "Type": "AWS::EC2::Image::Id"
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "t3.small",
+      "AllowedValues": [
+        "t3.small"
+      ]
+    }
+  },
+  "Resources": {
+    "Artifacts": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Private releases and encrypted database backups",
+          "must": "Never public; retain data on stack removal"
+        }
+      },
+      "Properties": {
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "BackupRetention",
+              "Status": "Enabled",
+              "Prefix": "backups/",
+              "ExpirationInDays": 14,
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 14
+              }
+            },
+            {
+              "Id": "TemporaryMigration",
+              "Status": "Enabled",
+              "Prefix": "migration/",
+              "ExpirationInDays": 7,
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 7
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ArtifactPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Require TLS for release and backup transfers",
+          "must": "Deny insecure transport"
+        }
+      },
+      "Properties": {
+        "Bucket": {
+          "Ref": "Artifacts"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "Artifacts",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${Artifacts.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RuntimeSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Keep credentials separate from source and boot scripts",
+          "must": "No credentials in template parameters or outputs"
+        }
+      },
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}/runtime"
+        },
+        "GenerateSecretString": {
+          "SecretStringTemplate": "{\"backend\":{}}",
+          "GenerateStringKey": "bootstrap",
+          "PasswordLength": 64,
+          "ExcludePunctuation": true
+        }
+      }
+    },
+    "HostRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Temporary instance credentials for SSM, private releases and backups",
+          "must": "No human roles or long-lived AWS keys"
+        }
+      },
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "PrivateDeploymentStorage",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "${Artifacts.Arn}/releases/*"
+                    },
+                    {
+                      "Fn::Sub": "${Artifacts.Arn}/migration/*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "${Artifacts.Arn}/backups/*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Resource": [
+                    {
+                      "Ref": "RuntimeSecret"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/render-database-migration-*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "HostProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Bind the scoped runtime role to the server",
+          "must": "Retain temporary credential flow"
+        }
+      },
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "HostRole"
+          }
+        ]
+      }
+    },
+    "HostSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Only CloudFront private origin traffic is admitted",
+          "must": "Start with no inbound rules; add the AWS-managed CloudFront SG after VPC origin creation; never expose SSH, PostgreSQL, Redis or backend ports"
+        }
+      },
+      "Properties": {
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "GroupDescription": "Corten private CloudFront origin and outbound provider access",
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "Host": {
+      "Type": "AWS::EC2::Instance",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Always-running credit-funded preview stack with persistent state",
+          "must": "Sydney only; encrypted EBS retained; IMDSv2 required; no SSH ingress; standard CPU credits prevent surplus charges"
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Ref": "AmiId"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SubnetId": {
+          "Ref": "SubnetId"
+        },
+        "SecurityGroupIds": [
+          {
+            "Ref": "HostSecurityGroup"
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "HostProfile"
+        },
+        "CreditSpecification": {
+          "CPUCredits": "standard"
+        },
+        "MetadataOptions": {
+          "HttpEndpoint": "enabled",
+          "HttpTokens": "required",
+          "HttpPutResponseHopLimit": 1
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "VolumeSize": 40,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": false
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-host"
+            }
+          },
+          {
+            "Key": "Application",
+            "Value": "Corten"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": "#!/bin/bash\nset -euo pipefail\numask 077\ndnf install -y docker python3\nsystemctl enable --now docker\nsystemctl enable --now amazon-ssm-agent\ninstall -d -m 700 /opt/corten/private /opt/corten/data /opt/corten/releases\ninstall -d -m 755 /usr/local/lib/docker/cli-plugins\ncurl --fail --location --retry 3 https://github.com/docker/compose/releases/download/v2.39.2/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose\ncurl --fail --location --retry 3 https://github.com/docker/compose/releases/download/v2.39.2/docker-compose-linux-x86_64.sha256 -o /tmp/compose.sha256\ncd /usr/local/lib/docker/cli-plugins\nprintf '%s  docker-compose\\n' \"$(awk '{print $1}' /tmp/compose.sha256)\" | sha256sum --check --status\nchmod 755 docker-compose\nif ! swapon --show | grep -q /opt/corten/swapfile; then\n  test -f /opt/corten/swapfile || (fallocate -l 4G /opt/corten/swapfile && chmod 600 /opt/corten/swapfile && mkswap /opt/corten/swapfile)\n  swapon /opt/corten/swapfile\n  grep -q '^/opt/corten/swapfile ' /etc/fstab || echo '/opt/corten/swapfile none swap sw 0 0' >> /etc/fstab\nfi\ndocker compose version\necho 'Corten host prerequisites ready'\n"
+        }
+      }
+    },
+    "AuditBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Encrypted private management and edge access logs",
+          "must": "Retain logs and deny public access; ACL ownership is required by CloudFront standard log delivery"
+        }
+      },
+      "Properties": {
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerPreferred"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "LogRetention",
+              "Status": "Enabled",
+              "ExpirationInDays": 30
+            }
+          ]
+        }
+      }
+    },
+    "AuditBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Scope CloudTrail log delivery and require TLS",
+          "must": "No unscoped service grants"
+        }
+      },
+      "Properties": {
+        "Bucket": {
+          "Ref": "AuditBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "AuditBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${AuditBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": "s3:GetBucketAcl",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuditBucket",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${AWS::StackName}-audit"
+                  },
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+              },
+              "Action": "s3:PutObject",
+              "Resource": {
+                "Fn::Sub": "${AuditBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control",
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${AWS::StackName}-audit"
+                  },
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AuditTrail": {
+      "Type": "AWS::CloudTrail::Trail",
+      "DependsOn": [
+        "AuditBucketPolicy"
+      ],
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Audit infrastructure and credential-management API operations",
+          "must": "Single selected Region; include global management events; do not log application payloads"
+        }
+      },
+      "Properties": {
+        "TrailName": {
+          "Fn::Sub": "${AWS::StackName}-audit"
+        },
+        "IsLogging": true,
+        "IsMultiRegionTrail": false,
+        "IncludeGlobalServiceEvents": true,
+        "EnableLogFileValidation": true,
+        "S3BucketName": {
+          "Ref": "AuditBucket"
+        },
+        "EventSelectors": [
+          {
+            "ReadWriteType": "All",
+            "IncludeManagementEvents": true
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "InstanceId": {
+      "Value": {
+        "Ref": "Host"
+      },
+      "Description": "Corten server ID"
+    },
+    "PrivateDns": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Host",
+          "PrivateDnsName"
+        ]
+      },
+      "Description": "Private CloudFront origin DNS"
+    },
+    "ArtifactsBucket": {
+      "Value": {
+        "Ref": "Artifacts"
+      },
+      "Description": "Private deployment and backup bucket"
+    },
+    "RuntimeSecretArn": {
+      "Value": {
+        "Ref": "RuntimeSecret"
+      },
+      "Description": "Credential secret ARN, never secret values"
+    },
+    "SecurityGroupId": {
+      "Value": {
+        "Ref": "HostSecurityGroup"
+      },
+      "Description": "Restricted application ingress security group"
+    },
+    "AuditBucket": {
+      "Value": {
+        "Ref": "AuditBucket"
+      },
+      "Description": "Encrypted private infrastructure and edge log bucket"
+    }
+  }
+}

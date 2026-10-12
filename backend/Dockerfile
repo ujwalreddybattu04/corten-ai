@@ -11,6 +11,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN find /app -type d -exec chmod 0755 {} +
 
 # Cloud Run injects PORT env var; default to 8000
 ENV PORT=8000
