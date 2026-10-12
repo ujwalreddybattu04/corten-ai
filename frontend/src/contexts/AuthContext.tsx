@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [isLoading, user, publicPage, sessionError, router]);
     return <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, sessionError, login, register, logout, reloadSession }}>
         {isLoading ? <div role="status" style={{ padding: "32px", color: "var(--text-secondary)" }}>Loading Corten…</div> :
-            !user && !publicPage ? <div className="account-settings" role={sessionError ? "alert" : "status"}><p>{sessionError || "Taking you to sign in…"}</p>{sessionError && <button className="auth-submit" onClick={() => void reloadSession()}>Retry connection</button>}</div> :
+            !user && (!publicPage || (sessionError && pendingLogout())) ? <div className="account-settings" role={sessionError ? "alert" : "status"}><p>{sessionError || "Taking you to sign in…"}</p>{sessionError && <button className="auth-submit" onClick={() => void reloadSession()}>Retry connection</button>}</div> :
             <div key={user?.id || "guest"} style={{ display: "contents" }}>{children}</div>}
     </AuthContext.Provider>;
 }
