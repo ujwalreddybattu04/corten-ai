@@ -1,5 +1,9 @@
 # Deploy Corten AI
 
+For the requested Google Cloud migration, see [GCP deployment status and setup](gcp-deployment.md).
+The GCP project is created; billing activation and infrastructure provisioning
+are pending. The Render preview below remains the currently deployed application.
+
 [Deploy the full preview on Render](https://render.com/deploy?repo=https://github.com/ujwalreddybattu04/corten-ai)
 
 The root `render.yaml` defines four resources in Singapore: a Next.js frontend,

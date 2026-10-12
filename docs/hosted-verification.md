@@ -1,4 +1,4 @@
-# Hosted verification — 11 October 2026
+# Hosted verification — 12 October 2026
 
 ## Chat startup recovery release
 
@@ -219,4 +219,28 @@ unavailable; local email authentication requires those services.
 Email verification/recovery, SSO/MFA, company membership rules, and centralized
 team storage remain prerequisites for using real company data. See
 [authentication.md](authentication.md) for the session design and complete findings.
+
+## Pharma integration and GCP preparation — 12 October 2026
+
+Code release `4b315cf36d059c889ee4f5b71edfc210168aa355` is live on both current
+Render services. [Both GitHub CI jobs passed](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38193722756).
+
+- Seven hosted live-browser checks passed for the pharma tab, actual FDA/trial
+  records, record details, therapy/date/source filters, dark/font consistency,
+  five viewport widths and reduced motion. No client exceptions occurred.
+- Fourteen isolated browser checks passed locally and against the hosted frontend, including CSV export,
+  pagination, source outages/stale retention, retry, empty results, cancellation
+  and preserving an actual interpolation CSV across tool switches.
+- The eighteen existing real interpolation/calculation/CSV/JSON/PDF checks also
+  passed locally with the tool switcher. Source upload values were unchanged.
+- Complete backend suite: 163 tests and 197 subtests. Frontend: 83 tests.
+  Production build passed; ESLint has zero errors and 53 existing warnings.
+  The public-source scan found zero credential findings in 348 files.
+- A dedicated GCP project was created and deployment support prepared. Project
+  billing activation and persistent infrastructure are pending; no GCP app URL
+  has been created. See [the GCP deployment record](gcp-deployment.md).
+
+The optional Guardian pharma source currently rejects access and is labeled in
+the screen. FDA and ClinicalTrials.gov remain available independently. Hosting
+plans and production capacity were not upgraded by this release.
 
