@@ -1,7 +1,8 @@
 import { api, ApiRequestError } from "./api";
 import { accountStorage, getStorageAccount, observeAccountWrites } from "./accountStorage";
 
-type Namespace = "threads" | "spaces" | "preferences";
+// Spaces are shared server records (see spacesApi.ts); they are no longer personal sync records.
+type Namespace = "threads" | "preferences";
 interface CloudRecord { namespace: Namespace; id: string; revision: number; deleted: boolean; data: unknown; }
 interface Pending extends Omit<CloudRecord, "revision"> { expected_revision: number; }
 interface Response { records: CloudRecord[]; cursor: number; has_more: boolean; }
@@ -14,9 +15,9 @@ export const getCloudSyncStatus = () => status;
 export const getCloudSyncError = () => syncError;
 export const hasCloudSync = (owner: string) => current?.owner === owner;
 function report(value: SyncStatus, message = "") { status = value; syncError = message; window.dispatchEvent(new Event("corten_sync_status")); }
-const ARRAY_KEYS: Record<string, Namespace> = { corten_threads: "threads", corten_spaces: "spaces" };
+const ARRAY_KEYS: Record<string, Namespace> = { corten_threads: "threads" };
 const PREFERENCES = new Set(["corten_pinned_threads", "corten_answer_feedback", "discover_interactions_v2", "discover_affinities_v3", "discover_disliked_v2", "discover_liked_v2", "discover_bookmarked_v2", "discover_interests"]);
-const STORE_KEYS: Record<Namespace, string> = { threads: "corten_threads", spaces: "corten_spaces", preferences: "" };
+const STORE_KEYS: Record<Namespace, string> = { threads: "corten_threads", preferences: "" };
 export function cloudRecords(name: string, raw: string | null): Map<string, unknown> {
     const result = new Map<string, unknown>();
     if (!ARRAY_KEYS[name] && !PREFERENCES.has(name)) return result;
@@ -64,7 +65,7 @@ export async function startCloudSync(owner: string): Promise<void> {
     } catch { /* An invalid cursor never grants ownership. */ }
     try {
         const drafts = JSON.parse(accountStorage.getItem(draftKey) || "[]");
-        if (Array.isArray(drafts)) for (const item of drafts) if (item && ["threads", "spaces", "preferences"].includes(item.namespace) && typeof item.id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(item.id) && Number.isSafeInteger(item.expected_revision) && item.expected_revision >= 0 && typeof item.deleted === "boolean") pending.set(identity(item.namespace, item.id), item);
+        if (Array.isArray(drafts)) for (const item of drafts) if (item && ["threads", "preferences"].includes(item.namespace) && typeof item.id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(item.id) && Number.isSafeInteger(item.expected_revision) && item.expected_revision >= 0 && typeof item.deleted === "boolean") pending.set(identity(item.namespace, item.id), item);
     } catch { /* Keep account data even if a draft queue is corrupt. */ }
     const merge = (record: CloudRecord, force = false) => {
         if (!valid()) return;
@@ -86,7 +87,7 @@ export async function startCloudSync(owner: string): Promise<void> {
                 accountStorage.setItem(name, JSON.stringify(remaining));
             }
         } finally { applying = false; }
-        window.dispatchEvent(new Event(record.namespace === "threads" ? "corten_threads_updated" : record.namespace === "spaces" ? "corten_spaces_updated" : "corten_preferences_updated"));
+        window.dispatchEvent(new Event(record.namespace === "threads" ? "corten_threads_updated" : "corten_preferences_updated"));
     };
     const pull = async () => {
         const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]);
@@ -98,7 +99,8 @@ export async function startCloudSync(owner: string): Promise<void> {
             if (!Array.isArray(response.records) || !Number.isSafeInteger(response.cursor) || response.cursor < cursor || typeof response.has_more !== "boolean") throw new Error("Invalid cloud response");
             for (const record of response.records) {
                 if (!record || !["threads", "spaces", "preferences", "collections"].includes(record.namespace) || typeof record.id !== "string" || !Number.isSafeInteger(record.revision) || typeof record.deleted !== "boolean") throw new Error("Invalid cloud record");
-                if (record.namespace !== ("collections" as string)) merge(record);
+                // Legacy Space and collection records are migrated server-side; never restore them locally.
+                if (record.namespace === "threads" || record.namespace === "preferences") merge(record);
             }
             if (response.has_more && response.cursor === cursor) throw new Error("Cloud pagination did not advance");
             cursor = response.cursor;
@@ -162,13 +164,13 @@ export async function startCloudSync(owner: string): Promise<void> {
         if (event.key?.startsWith(prefix)) {
             const name = event.key.slice(prefix.length);
             if (name === draftKey) {
-                try { for (const item of JSON.parse(event.newValue || "[]")) if (item && typeof item.id === "string" && Number.isSafeInteger(item.expected_revision)) pending.set(identity(item.namespace, item.id), item); } catch { /* Retain this tab's pending changes. */ }
+                try { for (const item of JSON.parse(event.newValue || "[]")) if (item && ["threads", "preferences"].includes(item.namespace) && typeof item.id === "string" && Number.isSafeInteger(item.expected_revision)) pending.set(identity(item.namespace, item.id), item); } catch { /* Retain this tab's pending changes. */ }
                 schedule();
             } else if (name === revisionKey) {
                 try { for (const [key, value] of JSON.parse(event.newValue || "[]")) if (typeof key === "string" && Number.isSafeInteger(value)) revisions.set(key, Math.max(value, revisions.get(key) || 0)); } catch { /* Pull will recover valid metadata. */ }
             } else {
                 // Another tab's cache is already updated. Its durable queue owns the write.
-                window.dispatchEvent(new Event(ARRAY_KEYS[name] === "threads" ? "corten_threads_updated" : ARRAY_KEYS[name] === "spaces" ? "corten_spaces_updated" : "corten_preferences_updated"));
+                window.dispatchEvent(new Event(ARRAY_KEYS[name] === "threads" ? "corten_threads_updated" : "corten_preferences_updated"));
                 schedule();
             }
         }

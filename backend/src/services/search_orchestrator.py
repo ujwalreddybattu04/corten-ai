@@ -34,6 +34,9 @@ from src.db.redis import cache_get, cache_set, make_search_cache_key
 logger = logging.getLogger(__name__)
 
 _SEARCH_CACHE_TTL = 300  # 5 minutes
+_NO_FILE_SEARCH = {"greeting", "identity", "question_recall", "conversation", "conversation_note"}
+NO_SPACE_EVIDENCE = ("I couldn't find information about this in this Space's files. Upload a relevant file, "
+                     "or turn on web search in the Space settings.")
 
 # Regex to detect and cut off LLM-generated source lists
 _CUTOFF_PATTERN = re.compile(
@@ -46,7 +49,7 @@ _CUTOFF_PATTERN = re.compile(
 class SearchOrchestrator:
 
     async def stream_search(
-        self, query: str, focus_mode: str = "all", messages: list = None
+        self, query: str, focus_mode: str = "all", messages: list = None, space=None
     ) -> AsyncGenerator[str, None]:
         """
         Main entry point for all search queries.
@@ -79,9 +82,28 @@ class SearchOrchestrator:
             if strategy == STRATEGY_DIRECT:
                 selected_tool_names = [name for name in selected_tool_names if name == "calculator" and query_type == "math"]
 
+            # ── SPACE CONTEXT: files, instructions and source preferences ─
+            instructions = space.instructions if space else ""
+            space_sources, files_only = [], False
+            if space:
+                files_only = not space.web_search
+                if space.has_files and query_type not in _NO_FILE_SEARCH:
+                    yield _sse("status", {"content": f"Searching files in {space.name}"})
+                    space_sources = await space.retrieve(query)
+                    if space_sources:
+                        yield _sse("thought", {"content": f"Found relevant passages in {len(space_sources)} Space "
+                                                          f"file{'s' if len(space_sources) != 1 else ''}"})
+                if strategy == STRATEGY_DIRECT and space_sources:
+                    # The question needs no web research, but the Space's files are relevant.
+                    strategy, files_only = STRATEGY_STANDARD, True
+                elif files_only and strategy == STRATEGY_DEEP_RESEARCH:
+                    strategy = STRATEGY_STANDARD
+                if files_only:
+                    selected_tool_names = [name for name in selected_tool_names if name in ("calculator", "weather")]
+
             logger.info(
                 f"[Orchestrator] Route: strategy={strategy} complexity={complexity} "
-                f"type={query_type} tools={selected_tool_names} subs={len(sub_questions)}"
+                f"type={query_type} tools={selected_tool_names} subs={len(sub_questions)} space={bool(space)}"
             )
 
             # Notify frontend which tools were selected
@@ -111,7 +133,8 @@ class SearchOrchestrator:
                         yield _sse("token", {"content": remembered or MISSING_HISTORY})
                     else:
                         async for chunk in groq_llm_service.stream_answer(
-                            query, [], messages, focus_mode="all", conversation_only=True
+                            query, [], messages, focus_mode="all", conversation_only=True,
+                            space_instructions=instructions,
                         ):
                             yield _sse("token", {"content": chunk})
                     yield _sse("done", {})
@@ -164,7 +187,7 @@ class SearchOrchestrator:
                                 # Let LLM enhance the tool result with explanation
                                 tool_context_str = f"TOOL RESULT ({result.tool_name}):\n{formatted}\n\nProvide a clear, helpful response incorporating this data. Be conversational. Start directly with the answer."
                                 async for chunk in groq_llm_service.stream_answer(
-                                    tool_context_str, [], messages, focus_mode
+                                    tool_context_str, [], messages, focus_mode, space_instructions=instructions
                                 ):
                                     yield _sse("token", {"content": chunk})
 
@@ -175,7 +198,8 @@ class SearchOrchestrator:
                 thought_time = time.time() - start_time
                 yield _sse("thought_time", {"time": round(thought_time, 1)})
 
-                async for chunk in groq_llm_service.stream_answer(query, [], messages, focus_mode):
+                async for chunk in groq_llm_service.stream_answer(query, [], messages, focus_mode,
+                                                                  space_instructions=instructions):
                     yield _sse("token", {"content": chunk})
 
                 yield _sse("done", {})
@@ -194,6 +218,9 @@ class SearchOrchestrator:
                     sub_questions=sub_questions,
                     messages=messages,
                     focus_mode=focus_mode,
+                    seed_sources=space_sources,
+                    instructions=instructions,
+                    priority_domains=space.domains if space else None,
                 ):
                     yield event
 
@@ -210,8 +237,14 @@ class SearchOrchestrator:
                 strategy=strategy,
                 focus_mode=focus_mode,
                 messages=messages or [],
-                metadata=route.get("tool_metadata", {}),
+                metadata={**route.get("tool_metadata", {}),
+                          **({"priority_domains": space.domains} if space and space.domains else {})},
             )
+
+            if files_only and not space_sources:
+                yield _sse("token", {"content": NO_SPACE_EVIDENCE})
+                yield _sse("done", {})
+                return
 
             # Get the actual tool objects for selected tools
             selected_tools = []
@@ -222,12 +255,12 @@ class SearchOrchestrator:
 
             # Ensure we always have web_search for quick/standard
             web_search = tool_registry.get_tool("web_search")
-            if web_search and web_search not in selected_tools:
+            if web_search and web_search not in selected_tools and not files_only:
                 selected_tools.insert(0, web_search)
 
             # Separate primary tools (search/compute/data) from supplementary (images)
             primary_tools = [t for t in selected_tools if t.name != "image_search"]
-            image_tool = tool_registry.get_tool("image_search") if query_type != "company" else None
+            image_tool = tool_registry.get_tool("image_search") if query_type != "company" and not files_only else None
 
             # Routing already supplies the research intent. A second AI request
             # used only for progress text would consume quota without improving search.
@@ -241,8 +274,9 @@ class SearchOrchestrator:
                     "description": tool.description,
                 })
 
-            tool_names_display = ", ".join(t.name.replace("_", " ").title() for t in primary_tools)
-            yield _sse("status", {"content": f"Searching with {tool_names_display}"})
+            if primary_tools:
+                tool_names_display = ", ".join(t.name.replace("_", " ").title() for t in primary_tools)
+                yield _sse("status", {"content": f"Searching with {tool_names_display}"})
 
             # ── PHASE 3: EXECUTE ALL TOOLS IN PARALLEL ────────────────────
             primary_task = asyncio.create_task(
@@ -261,8 +295,8 @@ class SearchOrchestrator:
             # Await primary results
             tool_results = await primary_task
 
-            # Collect all sources and tool data
-            all_sources = []
+            # Collect all sources and tool data. Space files are cited first.
+            all_sources = [dict(source) for source in space_sources]
             all_tool_data = {}
             search_results_for_llm = []
 
@@ -360,7 +394,8 @@ class SearchOrchestrator:
             # The subject is already resolved. Old assistant claims must not contaminate company facts.
             answer_history = [] if query_type == "company" else messages
             async for chunk in groq_llm_service.stream_answer(query, enriched_results, answer_history, focus_mode,
-                                                              company_lookup=query_type == "company"):
+                                                              company_lookup=query_type == "company",
+                                                              space_instructions=instructions):
                 buffer += chunk
                 search_window = buffer[-150:] if len(buffer) > 150 else buffer
                 if _CUTOFF_PATTERN.search(search_window):

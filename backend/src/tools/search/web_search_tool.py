@@ -80,7 +80,24 @@ class WebSearchTool(BaseTool):
                     tavily_search_service.extract(target_url),
                 )
             else:
-                search_data = await tavily_search_service.search(search_query, **search_options)
+                priority = [] if domains else list(context.metadata.get("priority_domains", []))[:10]
+                if priority:
+                    # A Space's reference sites are searched alongside the open web and cited first.
+                    search_data, priority_data = await asyncio.gather(
+                        tavily_search_service.search(search_query, **search_options),
+                        tavily_search_service.search(search_query, max_results=3, include_domains=priority),
+                        return_exceptions=True,
+                    )
+                    if isinstance(search_data, BaseException):
+                        raise search_data
+                    preferred = [result for result in (priority_data.get("results", []) if isinstance(priority_data, dict) else [])
+                                 if allowed_domain(result.get("url", ""), priority)]
+                    if isinstance(search_data, dict) and preferred:
+                        seen = {result.get("url") for result in preferred}
+                        search_data = {**search_data, "results": preferred + [
+                            result for result in search_data.get("results", []) if result.get("url") not in seen]}
+                else:
+                    search_data = await tavily_search_service.search(search_query, **search_options)
                 page_text = ""
 
             if not isinstance(search_data, dict):

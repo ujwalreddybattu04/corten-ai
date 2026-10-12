@@ -1,5 +1,5 @@
 "use client";
-import { accountStorage } from "@/lib/accountStorage";
+import { spacesApi } from "@/lib/spacesApi";
 
 import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -7,7 +7,7 @@ import Link from "next/link";
 import {
     ChevronRight, BookOpen, Code, Lightbulb, GraduationCap,
     Beaker, PenTool, TrendingUp, Briefcase, Bookmark,
-    FolderOpen, ArrowRight
+    FolderOpen, ArrowRight, Loader2
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -21,22 +21,6 @@ interface SpaceTemplate {
     instructions: string;
     category: string;
 }
-
-interface LocalSpace {
-    id: string;
-    name: string;
-    description: string;
-    icon: string;
-    color: string;
-    isPrivate: boolean;
-    threadIds: string[];
-    links: string[];
-    instructions: string;
-    createdAt: number;
-    updatedAt: number;
-}
-
-const STORAGE_KEY = "corten_spaces";
 
 const CATEGORIES = ["All", "Research", "Education", "Development", "Life"];
 
@@ -146,10 +130,6 @@ function getIconComponent(key: string, size = 22) {
     return map[key] || <Bookmark size={size} />;
 }
 
-function generateId() {
-    return "sp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TemplatesPage() {
@@ -161,27 +141,21 @@ export default function TemplatesPage() {
         return TEMPLATES.filter(t => t.category === activeCategory);
     }, [activeCategory]);
 
-    const handleUseTemplate = useCallback((tpl: SpaceTemplate) => {
+    const [creatingId, setCreatingId] = useState("");
+    const [error, setError] = useState("");
+    const handleUseTemplate = useCallback(async (tpl: SpaceTemplate) => {
+        if (creatingId) return;
+        setCreatingId(tpl.id);
+        setError("");
         try {
-            const raw = accountStorage.getItem(STORAGE_KEY);
-            const spaces: LocalSpace[] = raw ? JSON.parse(raw) : [];
-            const newSpace: LocalSpace = {
-                id: generateId(),
-                name: tpl.name,
-                description: tpl.description,
-                icon: tpl.icon,
-                color: tpl.color,
-                isPrivate: true,
-                threadIds: [],
-                links: [],
-                instructions: tpl.instructions,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            };
-            accountStorage.setItem(STORAGE_KEY, JSON.stringify([newSpace, ...spaces]));
-            router.push(`/spaces/${newSpace.id}`);
-        } catch { /* ignore */ }
-    }, [router]);
+            const space = await spacesApi.create({ name: tpl.name, description: tpl.description, icon: tpl.icon,
+                color: tpl.color, instructions: tpl.instructions });
+            router.push(`/spaces/${space.id}`);
+        } catch (failure) {
+            setError(failure instanceof Error ? failure.message : "The Space could not be created. Please retry.");
+            setCreatingId("");
+        }
+    }, [router, creatingId]);
 
     return (
         <div className="tpl-page">
@@ -198,7 +172,8 @@ export default function TemplatesPage() {
             <div className="tpl-hero">
                 <div className="tpl-hero-inner">
                     <h1 className="tpl-title">Templates</h1>
-                    <p className="tpl-subtitle">Start with a topic template and suggested workspace notes. Sign in to sync your personal Spaces across devices.</p>
+                    <p className="tpl-subtitle">Start from a template with ready-made answer instructions. You can add files, links and teammates next.</p>
+                    {error && <p className="sx-error" role="alert">{error}</p>}
 
                     <div className="tpl-tabs">
                         {CATEGORIES.map(cat => (
@@ -221,7 +196,9 @@ export default function TemplatesPage() {
                         <button
                             key={tpl.id}
                             className="tpl-card"
-                            onClick={() => handleUseTemplate(tpl)}
+                            disabled={!!creatingId}
+                            aria-busy={creatingId === tpl.id}
+                            onClick={() => void handleUseTemplate(tpl)}
                         >
                             <div className="tpl-card-icon" style={{ background: tpl.color + "15", color: tpl.color }}>
                                 {getIconComponent(tpl.icon, 22)}
@@ -233,7 +210,7 @@ export default function TemplatesPage() {
                             <div className="tpl-card-footer">
                                 <span className="tpl-card-cat">{tpl.category}</span>
                                 <span className="tpl-card-cta">
-                                    Use <ArrowRight size={11} />
+                                    {creatingId === tpl.id ? <>Creating <Loader2 size={11} className="sx-spin" /></> : <>Use <ArrowRight size={11} /></>}
                                 </span>
                             </div>
                         </button>

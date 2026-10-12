@@ -41,6 +41,7 @@ services:
     tmpfs: ['/tmp:size=256m,mode=1777']
     volumes:
       - /opt/corten/data/reports:/app/reports
+      - /opt/corten/data/space-files:/app/space-files
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     depends_on:

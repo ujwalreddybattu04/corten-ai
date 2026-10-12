@@ -1,6 +1,6 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
-import { associateSpaceThread } from "@/lib/spaces";
+import { spacesApi, canEdit } from "@/lib/spacesApi";
 import Link from "next/link";
 import { useModalFocus } from "@/hooks/useModalFocus";
 
@@ -47,7 +47,7 @@ export default function ThreadMenu({
     // Delete state
     const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-    const [spaceChoices, setSpaceChoices] = useState<Array<{ id: string; name: string }>>([]);
+    const [spaceChoices, setSpaceChoices] = useState<Array<{ id: string; name: string }> | null>(null);
     const [showSpacePicker, setShowSpacePicker] = useState(false);
     const [spaceMessage, setSpaceMessage] = useState("");
     const [showSpaceToast, setShowSpaceToast] = useState(false);
@@ -131,21 +131,27 @@ export default function ThreadMenu({
     const handleAddToSpace = () => {
         if (!threadId) return;
         setOpen(false);
-        try {
-            const saved = JSON.parse(accountStorage.getItem("corten_spaces") || "[]");
-            setSpaceChoices(Array.isArray(saved) ? saved.filter(s => typeof s.id === "string" && typeof s.name === "string") : []);
-        } catch { setSpaceChoices([]); }
+        setSpaceChoices(null);
         setShowSpacePicker(true);
+        // Only Spaces where the user can add threads are offered.
+        spacesApi.list().then(list => setSpaceChoices(list.filter(space => canEdit(space.role)).map(({ id, name }) => ({ id, name }))))
+            .catch(() => setSpaceChoices([]));
     };
 
-    const addToSpace = (id: string) => {
+    const addToSpace = async (id: string, name: string) => {
         if (!threadId) return;
-        let saved = false;
-        try { saved = associateSpaceThread(id, threadId); } catch { /* Storage may be unavailable. */ }
-        setSpaceMessage(saved ? "Thread saved to your Space" : "Could not save the thread. Please retry.");
         setShowSpacePicker(false);
+        try {
+            const threads = JSON.parse(accountStorage.getItem("corten_threads") || "[]");
+            const thread = Array.isArray(threads) ? threads.find((item: { id?: string }) => item?.id === threadId) : null;
+            if (!thread) throw new Error("Save this conversation first, then add it to a Space.");
+            await spacesApi.saveThread(id, threadId, thread);
+            setSpaceMessage(`Thread shared in ${name}`);
+        } catch (error) {
+            setSpaceMessage(error instanceof Error ? error.message : "Could not save the thread. Please retry.");
+        }
         setShowSpaceToast(true);
-        setTimeout(() => setShowSpaceToast(false), 3000);
+        setTimeout(() => setShowSpaceToast(false), 3500);
     };
 
     // ── RENAME ────────────────────────────────────────────────────────────────
@@ -550,9 +556,9 @@ export default function ThreadMenu({
                 <div className="tdm-overlay" onClick={() => setShowSpacePicker(false)}>
                     <div ref={spacePickerRef} className="tdm-modal" role="dialog" aria-modal="true" aria-labelledby="space-picker-title" onClick={e => e.stopPropagation()}>
                         <h3 id="space-picker-title" className="tdm-modal-title">Add to Space</h3>
-                        <p className="tdm-modal-msg">Choose one of your personal Spaces.</p>
-                        <div className="tdm-space-list">{spaceChoices.length ? spaceChoices.map(space => (
-                            <button key={space.id} className="tdm-item" onClick={() => addToSpace(space.id)}>
+                        <p className="tdm-modal-msg">Members of the Space will be able to read this thread.</p>
+                        <div className="tdm-space-list">{spaceChoices === null ? <p role="status">Loading Spaces…</p> : spaceChoices.length ? spaceChoices.map(space => (
+                            <button key={space.id} className="tdm-item" onClick={() => void addToSpace(space.id, space.name)}>
                                 <FolderPlus size={14} /> {space.name}
                             </button>
                         )) : <p><Link href="/spaces">Create a Space</Link> before adding this thread.</p>}</div>

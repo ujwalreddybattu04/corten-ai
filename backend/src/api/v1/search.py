@@ -1,7 +1,8 @@
 import logging
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Response, Depends
-from src.api.deps import get_current_user_id
+from src.api.deps import get_current_user_id, get_db
+from src.services.space_service import search_context
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Optional
 
@@ -21,13 +22,16 @@ class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=16000)
     focus_mode: str = "all"
     messages: Optional[List[Dict[str, str]]] = Field(default=None, max_length=120)
+    space_id: Optional[str] = Field(default=None, max_length=64)
 
-@router.post("/stream", dependencies=[Depends(get_current_user_id)])
-async def search_stream(request: SearchRequest):
+@router.post("/stream")
+async def search_stream(request: SearchRequest, user: str = Depends(get_current_user_id), db=Depends(get_db)):
     """Submit a search query and receive a streaming AI-generated answer with citations."""
+    # Resolved before streaming: membership errors are ordinary HTTP errors, not mid-stream events.
+    space = await search_context(db, request.space_id, user) if request.space_id else None
     try:
         return StreamingResponse(
-            search_orchestrator.stream_search(request.query, request.focus_mode, request.messages),
+            search_orchestrator.stream_search(request.query, request.focus_mode, request.messages, space=space),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

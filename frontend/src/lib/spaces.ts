@@ -1,51 +1,60 @@
 import { accountStorage } from "./accountStorage";
+import { normalizeLink } from "./spacesApi";
 
-/** Associate only an existing Space in the active account's browser records. */
-export function associateSpaceThread(spaceId: string, threadId: string): boolean {
-    const raw = accountStorage.getItem("corten_spaces");
-    if (!raw) return false;
-    let spaces;
-    try { spaces = JSON.parse(raw); } catch { return false; }
-    if (!Array.isArray(spaces)) return false;
-    const space = spaces.find(item => item?.id === spaceId);
-    if (!space) return false;
-    const ids = Array.isArray(space.threadIds) ? space.threadIds : [];
-    if (!ids.includes(threadId)) {
-        space.threadIds = [...ids, threadId];
-        space.updatedAt = Date.now();
-        accountStorage.setItem("corten_spaces", JSON.stringify(spaces));
+/** Spaces are server records now. This module only carries Spaces saved by the earlier
+ *  browser-only design into the signed-in account, then removes the local copy. */
+const LEGACY_KEY = "corten_spaces";
+const ICONS = new Set(["bookmark", "folder", "book", "briefcase", "code", "lightbulb", "graduation", "beaker", "pen", "trending"]);
+
+export interface LegacySpaceImport {
+    legacyId: string;
+    name: string;
+    description: string;
+    instructions: string;
+    icon: string;
+    color: string;
+    links: string[];
+    threads: Record<string, unknown>[];
+}
+
+function parse(raw: string | null): unknown[] {
+    try { const value = JSON.parse(raw || "[]"); return Array.isArray(value) ? value : []; } catch { return []; }
+}
+
+const text = (value: unknown, limit: number) => (typeof value === "string" ? value.trim().slice(0, limit) : "");
+
+export function legacyBrowserSpaces(): LegacySpaceImport[] {
+    const threads = new Map<string, Record<string, unknown>>();
+    for (const item of parse(accountStorage.getItem("corten_threads"))) {
+        if (item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string") threads.set((item as { id: string }).id, item as Record<string, unknown>);
     }
-    return true;
+    const result: LegacySpaceImport[] = [];
+    for (const item of parse(accountStorage.getItem(LEGACY_KEY))) {
+        if (!item || typeof item !== "object") continue;
+        const space = item as Record<string, unknown>;
+        const legacyId = typeof space.id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(space.id) ? space.id : "";
+        const name = text(space.name, 100);
+        if (!legacyId || !name) continue;
+        const ids = Array.isArray(space.threadIds) ? space.threadIds.filter((id): id is string => typeof id === "string") : [];
+        result.push({
+            legacyId, name,
+            description: text(space.description, 2000),
+            instructions: text(space.instructions, 8000),
+            icon: typeof space.icon === "string" && ICONS.has(space.icon) ? space.icon : "bookmark",
+            color: typeof space.color === "string" && /^#[0-9a-fA-F]{6}$/.test(space.color) ? space.color : "#6366f1",
+            links: [...new Set((Array.isArray(space.links) ? space.links : [])
+                .map(link => typeof link === "string" ? normalizeLink(link) : null).filter((link): link is string => !!link))].slice(0, 100),
+            threads: [...new Set(ids)].map(id => threads.get(id)).filter((thread): thread is Record<string, unknown> => !!thread).slice(0, 100),
+        });
+    }
+    return result;
 }
 
-/** Apply this view's edits without deleting unrelated records created in another tab. */
-export function mergeSpaceEdits<T extends { id: string }>(before: T[], after: T[]): T[] {
-    let current: T[];
-    try { current = JSON.parse(accountStorage.getItem("corten_spaces") || "[]"); } catch { current = before; }
-    if (!Array.isArray(current)) current = before;
-    const prior = new Map(before.map(item => [item.id, item]));
-    const next = new Map(after.map(item => [item.id, item]));
-    const removals = new Set(before.filter(item => !next.has(item.id)).map(item => item.id));
-    const changes = after.filter(item => JSON.stringify(item) !== JSON.stringify(prior.get(item.id)));
-    const ids = new Set(changes.map(item => item.id));
-    const merged = [...changes, ...current.filter(item => !removals.has(item.id) && !ids.has(item.id))];
-    accountStorage.setItem("corten_spaces", JSON.stringify(merged));
-    window.dispatchEvent(new Event("corten_spaces_updated"));
-    return merged;
-}
-
-export function saveArticleReference(spaceId: string, url: string): boolean {
-    let parsed: URL;
-    try { parsed = new URL(url); } catch { return false; }
-    if (!["http:", "https:"].includes(parsed.protocol)) return false;
-    const raw = accountStorage.getItem("corten_spaces");
-    if (!raw) return false;
-    let spaces;
-    try { spaces = JSON.parse(raw); } catch { return false; }
-    if (!Array.isArray(spaces)) return false;
-    const space = spaces.find(item => item?.id === spaceId);
-    if (!space) return false;
-    const links = Array.isArray(space.links) ? space.links : [];
-    if (!links.includes(parsed.href)) { space.links = [...links, parsed.href]; space.updatedAt = Date.now(); accountStorage.setItem("corten_spaces", JSON.stringify(spaces)); window.dispatchEvent(new Event("corten_spaces_updated")); }
-    return true;
+/** Remove only the Spaces the server confirmed, so a partial failure can be retried. */
+export function clearLegacyBrowserSpaces(imported: string[]) {
+    const done = new Set(imported);
+    const remaining = parse(accountStorage.getItem(LEGACY_KEY)).filter(item =>
+        !(item && typeof item === "object" && done.has((item as { id?: string }).id ?? "")));
+    if (remaining.length) accountStorage.setItem(LEGACY_KEY, JSON.stringify(remaining));
+    else accountStorage.removeItem(LEGACY_KEY);
 }

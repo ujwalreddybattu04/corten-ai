@@ -118,9 +118,13 @@ class ResearchAgent:
         sub_questions: List[str],
         messages: list = None,
         focus_mode: str = "all",
+        seed_sources: List[Dict[str, Any]] | None = None,
+        instructions: str = "",
+        priority_domains: List[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Execute deep research pipeline. Yields SSE-formatted events.
+        Space questions seed the evidence with the Space's file passages and apply its instructions.
 
         Events emitted:
         - research_start: {rounds: int, sub_questions: [...]}
@@ -141,8 +145,8 @@ class ResearchAgent:
         background_tasks = []
         messages = clean_history(messages)
 
-        all_sources: List[Dict[str, Any]] = []
-        all_urls: set = set()  # Dedup across rounds
+        all_sources: List[Dict[str, Any]] = [dict(source) for source in (seed_sources or [])]
+        all_urls: set = {source.get("url", "") for source in all_sources}  # Dedup across rounds
         search_history: List[str] = []  # Track what we've already searched
 
         try:
@@ -203,6 +207,10 @@ class ResearchAgent:
                     for sq in queries_to_search
                     if sq not in search_history
                 ]
+                if priority_domains and iteration == 0 and search_tasks:
+                    # One bounded search of the Space's reference sites; their results merge first.
+                    search_tasks.insert(0, tavily_search_service.search(
+                        query, max_results=3, include_domains=list(priority_domains)[:10]))
                 search_history.extend(queries_to_search)
 
                 if not search_tasks:
@@ -301,7 +309,7 @@ class ResearchAgent:
             )
 
             async for chunk in self._stream_synthesis(
-                groq_llm_service, query, all_sources, messages, focus_mode
+                groq_llm_service, query, all_sources, messages, focus_mode, instructions
             ):
                 buffer += chunk
                 search_window = buffer[-150:] if len(buffer) > 150 else buffer
@@ -417,10 +425,12 @@ class ResearchAgent:
         sources: List[Dict[str, Any]],
         messages: list = None,
         focus_mode: str = "all",
+        instructions: str = "",
     ) -> AsyncGenerator[str, None]:
         """Stream the final comprehensive answer using all gathered sources."""
         from datetime import datetime
         from src.config.prompts import FOCUS_MODE_PROMPTS
+        from src.services.llm_service import space_instruction_block
 
         current_date = datetime.now().strftime("%B %d, %Y")
         system_prompt = DEEP_SYNTHESIS_PROMPT.format(
@@ -442,6 +452,7 @@ class ResearchAgent:
             system_prompt += f"Title: {src.get('title', 'N/A')}\n"
             system_prompt += f"URL: {src.get('url', '')}\n"
             system_prompt += f"Content: {snippet}\n\n"
+        system_prompt += space_instruction_block(instructions)
 
         # Build messages
         messages_payload = [{"role": "system", "content": system_prompt}]

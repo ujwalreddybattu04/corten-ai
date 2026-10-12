@@ -103,13 +103,19 @@ test('private mode never uploads private browser records', async () => {
     } finally { s.stopCloudSync(); }
 });
 
-test('private chat mode does not silently prevent saving independent Spaces', async () => {
-    const s = setup(); global.sessionStorage = { getItem: () => 'true' };
+test('shared Spaces are server records: never uploaded or restored as personal sync records', async () => {
+    const s = setup();
     try {
-        s.accountStorage.setItem('corten_spaces', JSON.stringify([{id:'space',name:'Research'}]));
+        s.accountStorage.setItem('corten_spaces', JSON.stringify([{ id: 'space', name: 'Legacy browser Space' }]));
+        // A legacy personal record on the server (already migrated) must not reappear on the device.
+        s.records.set('spaces:old', { namespace: 'spaces', id: 'old', data: { id: 'old', name: 'Migrated' }, deleted: false, revision: 1 });
         await s.startCloudSync('owner-a');
-        assert.equal(s.records.get('spaces:space').data.name, 'Research');
-        assert.equal(s.records.has('threads:chat'), false);
+        assert.equal(s.records.has('spaces:space'), false);
+        assert.deepEqual(JSON.parse(s.accountStorage.getItem('corten_spaces')), [{ id: 'space', name: 'Legacy browser Space' }]);
+        s.accountStorage.setItem('corten_spaces', JSON.stringify([]));
+        await s.refreshCloudSync();
+        assert.equal(s.records.size, 1);
+        assert.equal(s.getCloudSyncStatus(), 'saved');
     } finally { s.stopCloudSync(); }
 });
 

@@ -238,3 +238,5 @@ out/
 *credentials*.json
 *service-account*.json
 reports/
+# Space knowledge files uploaded during local development
+space-files/

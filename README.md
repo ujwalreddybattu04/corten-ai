@@ -30,7 +30,7 @@
 - **Streaming Responses** — Token-by-token answer streaming via Server-Sent Events with real-time thinking indicators
 - **Deep Research Agent** — Multi-step research for complex queries with sub-question decomposition
 - **Threaded Conversations** — Follow-up questions with full context retention
-- **Spaces** — Organize browser-saved threads by topic or project with custom icons and colors. Team sharing and server synchronization remain pending.
+- **Spaces** — Shared team workspaces: custom instructions applied to every answer, uploaded files searched and cited as sources, trusted sites searched first, a files-only mode, and Owner / Can edit / Can view roles with email and link invitations. See [Spaces](docs/spaces.md).
 - **Research Reports** — Generate a concise sourced PDF from a verified AI draft, with clear errors when evidence or generation is unavailable.
 - **Discover** — Trending news with AI-powered article summaries and follow-up Q&A
 - **History Dashboard** — Full-screen Grok-style history modal with search, time grouping, and conversation preview

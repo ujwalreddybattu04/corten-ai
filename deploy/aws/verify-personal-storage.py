@@ -55,8 +55,17 @@ async def main():
         await migrate("head")
         async with factory() as session:
             assert await session.scalar(text("SELECT count(*) FROM users")) == 1
-            assert await session.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+            assert await session.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
             assert await session.scalar(text("SELECT auth_version FROM users")) == 0
+            # Shared Spaces: owner membership and generated full-text search exist on the real database.
+            from src.services import space_service
+            space = await space_service.create_space(session, owner, {"name": "Release verification"})
+            await space_service.add_file(session, space, owner, uuid4(), "check.txt", "text/plain", 10, uuid4().hex,
+                                         ["Release verification revenue figures"])
+            found = await space_service.retrieve(session, space.id, "revenue figures")
+            assert found and found[0]["title"] == "check.txt"
+            assert (await space_service.access(session, str(space.id), owner, "owner", lock=True))[1] == "owner"
+            await session.rollback()
         def request(record_id, value, revision=0, deleted=False):
             return RecordWrite(namespace="threads", id=record_id, expected_revision=revision,
                 data={"id":record_id,"title":value}, deleted=deleted)
@@ -107,7 +116,8 @@ async def main():
             settings.RECOVERY_EMAIL_ENABLED, settings.EMAIL_ALLOWED_RECIPIENTS = old_enabled, old_recipients
         print(json.dumps({"migration_preserved_existing_user":True,"parallel_revisions_unique":True,
             "concurrent_edit_conflict":True,"deletion_protected":True,"account_isolation":True,
-            "production_data_unchanged":True,"recovery_single_use":True,"recovery_sessions_revoked":True,"recovery_delivery_leased":True}))
+            "production_data_unchanged":True,"recovery_single_use":True,"recovery_sessions_revoked":True,"recovery_delivery_leased":True,
+            "shared_spaces_search":True}))
     finally:
         await temporary.dispose()
         if created:

@@ -13,7 +13,7 @@ function delay(ms: number, signal: AbortSignal) {
     });
 }
 export async function openSearchStream(
-    request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[] },
+    request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string },
     signal: AbortSignal, onWait: (message: string) => void,
     options: { budgetMs?: number; attemptMs?: number; delayMs?: number; fetcher?: typeof fetch } = {},
 ): Promise<Response> {
@@ -57,7 +57,8 @@ export async function openSearchStream(
     try {
         response = await fetcher(`${request.apiBase}/api/v1/search/stream`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: request.query, focus_mode: request.focus, messages: request.messages }), signal,
+            body: JSON.stringify({ query: request.query, focus_mode: request.focus, messages: request.messages,
+                ...(request.spaceId ? { space_id: request.spaceId } : {}) }), signal,
         });
     } catch {
         signal.throwIfAborted();
@@ -68,6 +69,12 @@ export async function openSearchStream(
             throw new Error(response.status === 429
                 ? "The service is busy or its request limit was reached. Please wait a moment and retry."
                 : UNAVAILABLE);
+        }
+        if (request.spaceId && (response.status === 403 || response.status === 404)) {
+            // Space access is checked before answering: removed members or viewers get a clear reason.
+            const detail = await response.json().then(body => body?.detail).catch(() => null);
+            throw new Error(typeof detail === "string" && response.status === 403 ? detail
+                : "This Space is no longer available to you. It may have been deleted or your access was removed.");
         }
         throw new Error(response.status === 401 ? "Your session expired. Please sign in again."
             : response.status === 422 ? "Please check your question and try again." : "The request could not be completed. Please retry.");

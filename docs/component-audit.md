@@ -76,8 +76,8 @@ Active hooks are `useSearch`, `useReport`, `usePyodideWorker` and `useModalFocus
 
 ## Verification and deployment gates
 
-- Backend: **174 tests plus 197 subtests passed**.
-- Frontend: **100 tests passed**, TypeScript and production build passed. Lint has no errors; migration/maintenance warnings remain.
+- Backend: **211 tests plus 197 subtests passed** after the shared Spaces update.
+- Frontend: **107 tests passed**, TypeScript and production build passed. Lint has no errors; migration/maintenance warnings remain.
 - Added control audit: **20 browser checks**, including all eight focus modes, six quick menus, Chinese prompts, privacy, history, export contents, dialogs and mobile navigation.
 - Five additional widget fault checks passed: missing Permissions API, superseded request cancellation, late-response rejection, retained values on refresh failure and retry recovery. The 17 broader browser cases, 12 Discover outage cases and nine chat startup cases passed again after the final navigation changes.
 - Actual JavaScript/Python checks, hosted authentication, interpolation and pharma suites remain part of the release verification.

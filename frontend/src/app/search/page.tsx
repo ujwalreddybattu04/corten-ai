@@ -13,6 +13,8 @@ import { Sparkles, Globe, Image as ImageIcon, Pencil, Copy, Check, CornerDownRig
 import { Favicon } from "@/components/common";
 import ThreadMenu from "@/components/thread/ThreadMenu";
 import ShareModal from "@/components/thread/ShareModal";
+import { SpaceIcon } from "@/components/spaces/SpaceVisuals";
+import { spacesApi, canEdit, type Space } from "@/lib/spacesApi";
 
 function cleanSnippet(text: string): string {
     const cleaned = text
@@ -53,6 +55,23 @@ function cleanTitle(text: string): string {
         .trim();
 }
 
+/** Shows which Space a thread belongs to, who shared it, and whether sharing succeeded. */
+function SpaceContextBar({ spaceId, author, saveError }: { spaceId: string; author: string | null; saveError: string | null }) {
+    const [space, setSpace] = useState<Space | null>(null);
+    useEffect(() => { spacesApi.get(spaceId).then(setSpace).catch(() => setSpace(null)); }, [spaceId]);
+    return (
+        <div className="sx-thread-context">
+            <Link href={`/spaces/${encodeURIComponent(spaceId)}`} className="sx-thread-context-link">
+                {space ? <SpaceIcon icon={space.icon} color={space.color} size={12} box={22} /> : null}
+                <span>{space ? space.name : "Space"}</span>
+            </Link>
+            {author && <span className="sx-muted">Shared by {author}. Follow-up questions start your own thread.</span>}
+            {space && !canEdit(space.role) && !author && <span className="sx-muted">View only</span>}
+            {saveError && <span className="sx-error" role="alert">{saveError}</span>}
+        </div>
+    );
+}
+
 function SearchPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -61,6 +80,7 @@ function SearchPageContent() {
     const query = searchParams.get("q") || draft?.query || "";
     const focusMode = searchParams.get("focus") || "all";
     const threadId = searchParams.get("id") || undefined;
+    const spaceId = searchParams.get("space") || undefined;
     const fromArticle = searchParams.get("fromArticle") || "";
     const fromArticleImg = searchParams.get("fromArticleImg") || "";
     const [followUp, setFollowUp] = useState("");
@@ -92,8 +112,10 @@ function SearchPageContent() {
         model,
         thoughtTime,
         appendQuery,
-        retrySearch
-    } = useSearch(query, focusMode, threadId, searchParams.get("space") || undefined);
+        retrySearch,
+        spaceAuthor,
+        spaceSaveError,
+    } = useSearch(query, focusMode, threadId, spaceId);
 
     // --- EFFECT: When global sources update, update the active panel IF it was for the current query ---
     useEffect(() => {
@@ -155,8 +177,8 @@ function SearchPageContent() {
         setEditingQueryId(null);
         setEditingQueryText("");
         // Navigate to a fresh search with the edited query — this REPLACES the current answer
-        router.push(questionPath(newText, focusMode));
-    }, [editingQueryText, router]);
+        router.push(questionPath(newText, focusMode, spaceId));
+    }, [editingQueryText, router, focusMode, spaceId]);
 
 
 
@@ -252,6 +274,7 @@ function SearchPageContent() {
                     {/* Scrollable Content Area */}
                     <div className="sp-content">
                         <div className="sp-content-inner">
+                            {spaceId && <SpaceContextBar spaceId={spaceId} author={spaceAuthor} saveError={spaceSaveError} />}
                             {/* === ANSWER TAB === */}
                             {activeTab === "answer" && (
                                 <div className="sp-thread-container">

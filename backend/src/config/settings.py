@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     SERPER_API_KEY: str = ""
 
+    # --- Spaces ---
+    # Retained volume in production (see deploy/aws/compose.yaml). Never inside the image.
+    SPACE_FILES_DIR: str = "space-files"
+    SPACE_MAX_FILE_BYTES: int = Field(default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    SPACE_MAX_FILES: int = Field(default=100, ge=1, le=10000)
+    SPACE_MAX_TOTAL_BYTES: int = Field(default=500 * 1024 * 1024, ge=1024 * 1024)
+    SPACE_MAX_MEMBERS: int = Field(default=50, ge=2, le=10000)
+    SPACE_MAX_OWNED: int = Field(default=100, ge=1, le=10000)
+
     # --- Rate Limiting ---
     RATE_LIMIT_PER_MINUTE: int = 30
     RATE_LIMIT_PER_DAY: int = 300

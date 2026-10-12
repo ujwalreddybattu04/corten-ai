@@ -3,7 +3,7 @@ import { isPrivateChat } from "@/lib/questionDrafts";
 import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { openSearchStream } from "@/lib/searchConnection";
-import { associateSpaceThread } from "@/lib/spaces";
+import { spacesApi } from "@/lib/spacesApi";
 
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -89,6 +89,9 @@ export interface SearchState {
     thoughtTime: number;
     toolsUsed: string[];
     toolsSelected: string[];
+    /** Shared Space status: author of a thread opened from a Space, and save failures. */
+    spaceAuthor: string | null;
+    spaceSaveError: string | null;
 }
 
 export function useSearch(initialQuery: string, focusMode: string = "all", existingThreadId?: string, spaceId?: string) {
@@ -110,7 +113,14 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         thoughtTime: 0,
         toolsUsed: [],
         toolsSelected: [],
+        spaceAuthor: null,
+        spaceSaveError: null,
     });
+    // Only answers generated in this view are saved; opening a thread never rewrites it.
+    const generatedRef = useRef(false);
+    // A follow-up on someone else's shared thread (or as a viewer) starts the user's own copy.
+    const forkRef = useRef(false);
+    const spaceSaveRef = useRef(!!spaceId);
 
     // --- BUTTERY SMOOTH STREAMING BUFFER ---
     const [displayAnswer, setDisplayAnswer] = useState("");
@@ -180,7 +190,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
     // Save thread to localStorage when streaming completes successfully
     useEffect(() => {
         // Only persist when search is totally finished, has content, and no error
-        if (!state.isStreaming && !state.isConnecting && !state.error && state.answer) {
+        if (!state.isStreaming && !state.isConnecting && !state.error && state.answer && generatedRef.current) {
             if (typeof window === "undefined") return;
 
             const isPrivate = isPrivateChat();
@@ -224,7 +234,16 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 }
 
                 accountStorage.setItem("corten_threads", JSON.stringify(threads));
-                if (spaceId) associateSpaceThread(spaceId, currentThreadId);
+                generatedRef.current = false;
+                if (spaceId && spaceSaveRef.current) {
+                    // Shared with every Space member. Failure is shown; the personal copy is already saved.
+                    const savedId = currentThreadId;
+                    spacesApi.saveThread(spaceId, savedId, threadToSave as unknown as { id: string } & Record<string, unknown>)
+                        .then(() => setState(prev => prev.threadId === savedId ? { ...prev, spaceSaveError: null } : prev))
+                        .catch(error => setState(prev => prev.threadId === savedId ? {
+                            ...prev, spaceSaveError: error instanceof Error ? error.message : "This thread could not be shared in the Space.",
+                        } : prev));
+                }
                 // Generate only after the exact thread exists. This survives navigation/remounts.
                 scheduleThreadTitle(currentThreadId);
 
@@ -257,6 +276,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
 
         streamingBufferRef.current = "";
         setDisplayAnswer("");
+        generatedRef.current = true;
 
         setState(prev => ({
             ...prev,
@@ -276,7 +296,8 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         }));
 
         try {
-            const response = await openSearchStream({ apiBase: API_BASE, query: q, focus, messages: backendMessages || [] },
+            const response = await openSearchStream({ apiBase: API_BASE, query: q, focus, messages: backendMessages || [],
+                    spaceId: spaceId && spaceSaveRef.current ? spaceId : undefined },
                 controller.signal, message => {
                     if (!controller.signal.aborted && abortRef.current === controller) {
                         setState(prev => ({ ...prev, connectionMessage: message }));
@@ -390,7 +411,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 setState(prev => ({ ...prev, isStreaming: false, isConnecting: false }));
             }
         }
-    }, []);
+    }, [spaceId]);
 
     const appendQuery = useCallback((newQuery: string) => {
         if (!newQuery.trim() || state.isConnecting || state.isStreaming) return;
@@ -408,6 +429,12 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         }
 
         const backendMessages = conversationMessages(newHistory);
+        if (forkRef.current) {
+            // Continue someone else's shared thread as the user's own new thread.
+            forkRef.current = false;
+            threadIdRef.current = null;
+            setState(prev => ({ ...prev, threadId: null, spaceAuthor: null }));
+        }
 
         runSearch(newQuery, focusMode, backendMessages, newHistory);
     }, [state, focusMode, runSearch]);
@@ -453,6 +480,36 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     }
                 }
             }
+            if (!hasStarted.current && spaceId) {
+                // A thread shared in a Space by any member is read from the server.
+                hasStarted.current = true;
+                setState(prev => ({ ...prev, connectionMessage: "Opening shared thread…" }));
+                spacesApi.thread(spaceId, existingThreadId).then(shared => {
+                    const thread = shared.data as unknown as ThreadData;
+                    forkRef.current = !shared.isAuthor || !shared.canEdit;
+                    spaceSaveRef.current = shared.canEdit;
+                    threadIdRef.current = existingThreadId;
+                    lastProcessedQuery.current = thread.query;
+                    setDisplayAnswer(thread.answer || "");
+                    setState(prev => ({
+                        ...prev,
+                        threadId: existingThreadId,
+                        history: Array.isArray(thread.history) ? thread.history : [],
+                        query: thread.query || "",
+                        answer: thread.answer || "",
+                        sources: thread.sources || [],
+                        images: thread.images || [],
+                        researchSteps: thread.researchSteps || [],
+                        thoughtTime: thread.thoughtTime || 0,
+                        spaceAuthor: shared.isAuthor ? null : shared.authorName,
+                        isConnecting: false,
+                        isStreaming: false,
+                    }));
+                }).catch(error => setState(prev => ({
+                    ...prev, isConnecting: false,
+                    error: error instanceof Error ? error.message : "This shared thread is unavailable.",
+                })));
+            }
             if (!hasStarted.current) {
                 hasStarted.current = true;
                 setState(prev => ({
@@ -468,7 +525,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             lastProcessedQuery.current = initialQuery;
             runSearch(initialQuery, focusMode);
         }
-    }, [initialQuery, existingThreadId, focusMode, runSearch]);
+    }, [initialQuery, existingThreadId, focusMode, runSearch, spaceId]);
 
     return {
         ...state,

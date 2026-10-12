@@ -45,10 +45,11 @@ def main():
         'appendfsync everysec\nmaxmemory 128mb\nmaxmemory-policy noeviction\nrequirepass ' + password + '\n')
     os.chown(redis_config, 999, 1000)
     write('redis-password', password + '\n')
-    for name in ('postgres', 'redis', 'reports', 'backups'):
+    for name in ('postgres', 'redis', 'reports', 'space-files', 'backups'):
         path = Path('/opt/corten/data') / name
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chown('/opt/corten/data/reports', 10001, 10001)
+    os.chown('/opt/corten/data/space-files', 10001, 10001)
     print('Private container runtime settings prepared')
 
 

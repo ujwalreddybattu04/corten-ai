@@ -91,9 +91,10 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
         // Never forward a browser-supplied service identity header.
         if (serviceToken) headers.set("X-Serverless-Authorization", `Bearer ${serviceToken}`);
         let body: BodyInit | undefined;
-        if (mutation && path[0] === "interpolation") {
-            const limit = 10 * 1024 * 1024 + 64 * 1024;
-            const tooLarge = () => Response.json({ detail: "CSV files must be no larger than 10 MB." }, { status: 413, headers: responseHeaders });
+        const spaceUpload = path.length === 3 && path[0] === "spaces" && path[2] === "files";
+        if (mutation && (path[0] === "interpolation" || spaceUpload)) {
+            const limit = (spaceUpload ? 25 : 10) * 1024 * 1024 + 64 * 1024;
+            const tooLarge = () => Response.json({ detail: spaceUpload ? "Files must be no larger than 25 MB." : "CSV files must be no larger than 10 MB." }, { status: 413, headers: responseHeaders });
             if (Number(request.headers.get("content-length")) > limit) return tooLarge();
             const reader = request.body?.getReader();
             if (reader) {
