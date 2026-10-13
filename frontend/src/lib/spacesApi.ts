@@ -4,6 +4,18 @@ import { uploadWithProgress } from "./upload";
 
 export type SpaceRole = "owner" | "editor" | "viewer";
 
+export interface AgentTool {
+    id: string;
+    label: string;
+}
+
+/** The agent that answers in a Space: its template, the tools it can call, and suggested first questions. */
+export interface SpaceAgent {
+    template: { id: string; name: string } | null;
+    tools: AgentTool[];
+    starters: string[];
+}
+
 export interface Space {
     id: string;
     name: string;
@@ -17,6 +29,8 @@ export interface Space {
     role: SpaceRole;
     ownerName: string | null;
     legacyId: string | null;
+    template?: string | null;
+    agent?: SpaceAgent;
     memberCount: number;
     threadCount: number;
     fileCount: number;
@@ -32,6 +46,17 @@ export interface SpaceFields {
     color?: string;
     links?: string[];
     webSearch?: boolean;
+    template?: string | null;
+}
+
+export interface SpaceTemplate {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    category: string;
+    starters: string[];
+    tools: AgentTool[];
 }
 
 export interface SpaceMember {
@@ -122,7 +147,9 @@ export const ACCEPTED_FILES = ".pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.t
 export const spacesApi = {
     list: () => api.get<{ items: Space[] }>("/api/v1/spaces").then(result => result.items),
     get: (id: string) => api.get<Space>(base(id)),
-    create: (fields: SpaceFields & { name: string }) => api.post<Space>("/api/v1/spaces", fields),
+    /** A name is required unless a template supplies one. */
+    create: (fields: SpaceFields & ({ name: string } | { template: string })) => api.post<Space>("/api/v1/spaces", fields),
+    templates: () => api.get<{ items: SpaceTemplate[]; featured: string[]; categories: string[] }>("/api/v1/spaces/templates"),
     update: (space: Pick<Space, "id" | "revision">, fields: SpaceFields) =>
         api.patch<Space>(base(space.id), { ...fields, expected_revision: space.revision }),
     remove: (id: string) => api.delete<void>(base(id)),

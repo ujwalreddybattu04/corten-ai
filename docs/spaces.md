@@ -18,7 +18,7 @@ This follows the workflow of Perplexity's Spaces, which Perplexity now calls Pro
    - Every answer knows the Space it was asked in: its name, purpose, file names, priority sites, web-search setting and instructions. All of it is labelled to the model as member-written context, never as evidence.
    - A question with nothing of its own to look up, such as "What's this about?" or "What is this Space for?", gets an overview of the Space when it opens a thread: what the Space is for, what it holds and three questions to ask next. Its files are summarized when it has any. In a follow-up, the same question explains the previous answer. Neither case searches the web for the phrase.
    - "What's new?" or "Any updates this week?" opening a thread searches news on the Space's topic.
-   - An empty Space suggests first questions. Spaces created from a template suggest that template's own questions.
+   - An empty Space suggests first questions. Spaces created from a template suggest that template's own questions, served by the API with the Space (`agent.starters`).
 4. **Share** using either:
    - an invitation to a specific email address, which appears in the invitee's Spaces page after sign-in (valid 14 days, single use, bound to that email), or
    - an invitation link (valid 7 days, reusable, revocable).
@@ -35,6 +35,59 @@ This follows the workflow of Perplexity's Spaces, which Perplexity now calls Pro
 
 Non-members get `404`, so Space IDs never reveal that a Space exists. Only the owner sees member email addresses.
 Only a thread's author can update it. A follow-up from anyone else starts that person's own copy. The author or the owner can remove a thread from the Space.
+
+## Space agents
+
+Each Space with web search on is answered by an **agent**: a LangChain agent (`langchain.agents.create_agent`) that
+plans the answer, calls tools one at a time, and writes a cited answer. The template decides the agent's tools; a
+Space created without a template gets the general set. Code: `backend/src/services/agents/`.
+
+| Template | Tools |
+| --- | --- |
+| None (custom Space) | Web search, Page reader, Space files, Calculator, Charts, Stock prices, Exchange rates, Economic data |
+| Market Access & Pricing | Web search, Page reader, Space files, FDA approvals, Exchange rates, Calculator, Charts |
+| Competitive Intelligence | Web search, Page reader, ClinicalTrials.gov, FDA approvals, Stock prices, Space files, Charts |
+| Regulatory Watch | FDA approvals, Web search, Page reader, ClinicalTrials.gov, Space files |
+| Research Assistant | PubMed, arXiv, Web search, Page reader, Space files |
+| Data Analyst | Stock prices, Exchange rates, Economic data, Charts, Calculator, Web search, Space files |
+| Patent Researcher | Web search, Page reader, PubMed, Space files |
+| Study Guide · Tutor · Code Helper · Writing Coach | Space files, Web search, plus Calculator and Page reader where useful |
+| Trip Planner | Weather, Exchange rates, Web search, Page reader, Calculator |
+
+**Data sources.** All are free public APIs that need no key: Yahoo Finance daily closes (Stooq as a fallback for US
+tickers), European Central Bank reference rates (Frankfurter), the IMF World Economic Outlook (with IMF projections,
+marked as such) and the World Bank, ClinicalTrials.gov v2, PubMed E-utilities, arXiv and openFDA Drugs@FDA. Web search
+and page reading use the configured Tavily key. Every call has a timeout, one retry for transient failures and a Redis
+cache.
+
+**How an answer is built.**
+- The user sees each step live (for example "Fetching AAPL prices (6m)" → "251 trading days · last 340.97 USD"), sent
+  as `agent_step` events and kept with the saved thread.
+- Data tools return compact text with computed figures, so the model never estimates them: period change, high and
+  low, where the latest value sits, averages and country rankings, and started versus planned trials. Charts are
+  drawn server-side from the fetched series as a React/Recharts artifact. The model passes dataset ids and never
+  retypes numbers or writes chart code. Series on different scales or in different currencies are rebased to 100.
+- Sources are numbered across the whole answer, and the same URL keeps its number. Model citations written as
+  `【1†source】` are rewritten to `[1]`.
+- The prompt states today's date, the Space's details (template, tools, files, instructions) and working rules: use
+  only tool figures; name no causes unless a source states them; no forecasts, trading signals or personal advice; be
+  exact with counts and dates.
+
+**Limits.** At most 6 model calls and 6 tool calls per answer, 35 s per tool, 150 s per answer and 3 charts. When the
+budget is spent, the last call runs with tool calls switched off and must answer. Series fetched but not charted are
+charted first. Repeated identical calls are answered from memory. If a model is out of quota before it starts writing,
+the other model (each has its own per-minute provider quota) takes over. A short cooldown is waited out once. A
+stream that breaks after it started writing is never retried or mixed.
+
+**When the standard pipeline answers instead.** Files-only Spaces (web search off: their agent has no tools), questions
+about the Space itself ("What's this about?"), greetings and questions about Corten, conversation recall, image
+questions, and requests for a downloadable file. Setting `SPACE_AGENTS_ENABLED=false` sends every Space question to
+the standard pipeline without a redeploy of the frontend.
+
+**Known limits.** Prices are end-of-day closes, not live quotes. Yahoo Finance may refuse cloud addresses; the Stooq
+fallback covers US tickers only. openFDA is updated weekly and can lag recent approvals, so answers never present it
+as complete. Each Groq model allows 8,000 tokens per minute on the current plan. Several long agent answers in the
+same minute can hit that limit; the user then sees the provider's retry time.
 
 ## Limits (configurable in `settings.py`)
 
@@ -67,3 +120,4 @@ Only a thread's author can update it. A follow-up from anyone else starts that p
 - Files live on the retained host volume `/opt/corten/data/space-files`, mounted at `/app/space-files`. The daily backup mirrors them, encrypted, to `s3://<artifacts>/space-files/`.
   - **Before the first release with Spaces, apply the updated `deploy/aws/infrastructure.json`.** It grants the host role access to that prefix only.
 - Spaces saved only in a browser under the earlier design are imported once when their owner opens Spaces. Spaces that had already reached cloud storage are never recreated from a stale device.
+- Migration `0006_space_templates` adds `spaces.template` and recognizes existing template Spaces by their unchanged template instructions or the template's name. It is additive; downgrade drops the column. Templates are served by `GET /api/v1/spaces/templates`, and creating a Space with `{"template": "<id>"}` fills in its name, description, icon and instructions.

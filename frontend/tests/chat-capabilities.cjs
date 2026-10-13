@@ -81,8 +81,37 @@ test("citations become source links outside code only", () => {
     const { linkCitations } = lib("citations");
     assert.equal(linkCitations("Revenue grew [1] and [2, 3]."), "Revenue grew [1](#cite-1) and [2](#cite-2)[3](#cite-3).");
     assert.equal(linkCitations("Launch date 【1】"), "Launch date [1](#cite-1)");
+    assert.equal(linkCitations("Rates 【2†source】 and 【3†L1-L4】"), "Rates [2](#cite-2) and [3](#cite-3)");
     assert.equal(linkCitations("Keep `arr[1]` and\n```\nx[2]\n```\nbut cite [4]"), "Keep `arr[1]` and\n```\nx[2]\n```\nbut cite [4](#cite-4)");
     assert.equal(linkCitations("A real [1](https://example.com) link"), "A real [1](https://example.com) link");
+});
+
+test("amounts in dollars stay text while formulas still render as math", () => {
+    const { protectCurrency } = lib("currency");
+    // Live: "**$340.97**, which is **$31.55** above" was typeset as one formula.
+    assert.equal(protectCurrency("closed at **$340.97**, which is **$31.55** above"), "closed at **\\$340.97**, which is **\\$31.55** above");
+    assert.equal(protectCurrency("US$5 and $1,182.62 or $2.4bn"), "US\\$5 and \\$1,182.62 or \\$2.4bn");
+    for (const math of ["$x^2 + y$", "$2^{10}$", "$$2x = 4$$", "Already \\$5"]) assert.equal(protectCurrency(math), math);
+    assert.equal(protectCurrency("Cost `$5` and\n```\nprice = $5\n```\nnow $6"), "Cost `$5` and\n```\nprice = $5\n```\nnow \\$6");
+});
+
+test("a Space agent's steps update in place as they run, finish or fail", () => {
+    const { upsertAgentStep } = lib("agentSteps");
+    const status = { type: "status", content: "Data Analyst agent is working" };
+    let steps = [status];
+    steps = upsertAgentStep(steps, { id: "step-1", tool: "stock_prices", label: "Fetching AAPL prices (1y)", status: "running" });
+    steps = upsertAgentStep(steps, { id: "step-2", tool: "create_chart", label: "Drawing the chart", status: "running" });
+    steps = upsertAgentStep(steps, { id: "step-1", tool: "stock_prices", label: "Fetching AAPL prices (1y)", status: "done",
+        detail: "251 trading days · last 340.97 USD", ms: 812 });
+    steps = upsertAgentStep(steps, { id: "step-2", tool: "create_chart", label: "Drawing the chart", status: "failed", detail: "Unknown dataset" });
+    assert.equal(steps.length, 3);
+    assert.equal(steps[0], status);
+    assert.deepEqual(steps.slice(1).map(s => [s.id, s.status, s.detail, s.ms]),
+        [["step-1", "done", "251 trading days · last 340.97 USD", 812], ["step-2", "failed", "Unknown dataset", undefined]]);
+    // Malformed events change nothing; unknown statuses count as running; bad timings are dropped.
+    assert.equal(upsertAgentStep(steps, { label: "No id" }), steps);
+    const odd = upsertAgentStep([], { id: "x", status: "exploded", ms: -5 });
+    assert.deepEqual([odd[0].status, odd[0].ms, odd[0].content], ["running", undefined, "Working"]);
 });
 
 test("earlier attachments are sent apart from this message's, newest first and bounded", () => {

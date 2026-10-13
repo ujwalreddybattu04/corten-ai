@@ -63,7 +63,12 @@ Settings → Personalization offers:
 
 ## Citations
 
-`[1]` and `【1】` markers in answers become clickable chips that open the cited source.
+`[1]`, `【1】` and `【1†source】` markers in answers become clickable chips that open the cited source.
+
+## Space agents
+
+Questions asked in a Space with web search on are answered by that Space's agent, which calls live data tools,
+draws charts and shows each step as it runs. See [Space agents](spaces.md#space-agents).
 
 ## Verification
 

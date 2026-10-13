@@ -77,23 +77,35 @@ test("Space icons and template icons are exactly the emoji the server accepts", 
     for (const template of SPACE_TEMPLATES) assert.ok(accepted.includes(template.icon), template.name);
 });
 
-test("empty Spaces suggest their template's questions, or questions every Space answers well", () => {
-    const { SPACE_TEMPLATES, starterQuestions } = load(path.join(__dirname, "../src/lib/spaceTemplates.ts"));
-    const market = SPACE_TEMPLATES.find(t => t.id === "tpl_market_access");
-    // Created from a template (instructions unchanged), or renamed copy, or same name with edited instructions.
-    const fromTemplate = starterQuestions({ name: "My launch", instructions: market.instructions }, false);
-    assert.equal(fromTemplate.length, 3);
-    assert.match(fromTemplate[0], /HTA/);
-    assert.deepEqual(starterQuestions({ name: " market access & pricing ", instructions: "Custom" }, false), fromTemplate);
-    // Files come first, still three in total.
-    const withFiles = starterQuestions({ name: "My launch", instructions: market.instructions }, true);
-    assert.deepEqual(withFiles, ["Summarize the key points across our files", ...fromTemplate.slice(0, 2)]);
-    // Any other Space: its overview, news on its topic, a briefing.
-    assert.deepEqual(starterQuestions({ name: "Board Prep", instructions: "" }, false),
-        ["What's this Space for?", "What's new this week?", "Give me a briefing on Board Prep"]);
-    for (const template of SPACE_TEMPLATES) {
-        assert.equal(starterQuestions(template, false).length, 3, `${template.name} has three starters`);
+test("empty Spaces suggest their agent's questions, or questions every Space answers well", () => {
+    const { starterQuestions } = load(path.join(__dirname, "../src/lib/spaceTemplates.ts"));
+    const files = "Summarize the key points across our files";
+    const agent = { starters: ["Chart Apple's stock price over the last 6 months", "Compare GDP growth", "How has the euro moved?"] };
+    assert.deepEqual(starterQuestions({ name: "Numbers", agent }, false), agent.starters);
+    // Files uploaded after the Space loaded still put the files question first, without repeating it.
+    assert.deepEqual(starterQuestions({ name: "Numbers", agent }, true), [files, ...agent.starters.slice(0, 2)]);
+    assert.deepEqual(starterQuestions({ name: "Numbers", agent: { starters: [files, ...agent.starters] } }, true),
+        [files, ...agent.starters.slice(0, 2)]);
+    // A Space without agent starters (older server, custom Space): its overview, news on its topic, a briefing.
+    for (const space of [{ name: "Board Prep" }, { name: "Board Prep", agent: { starters: [] } }, { name: "Board Prep", agent: { starters: ["", "  "] } }]) {
+        assert.deepEqual(starterQuestions(space, false), ["What's this Space for?", "What's new this week?", "Give me a briefing on Board Prep"]);
     }
+});
+
+test("template cards match the server's templates exactly", () => {
+    const server = fs.readFileSync(path.join(__dirname, "../../backend/src/services/agents/space_templates.py"), "utf8");
+    const specs = [...server.matchAll(/TemplateSpec\(\s*id="([^"]+)", name="([^"]+)", icon="([^"]+)", category="([^"]+)",\s*description="([^"]+)"/g)]
+        .map(([, id, name, icon, category, description]) => ({ id, name, icon, category, description }));
+    const { SPACE_TEMPLATES, FEATURED_TEMPLATES, TEMPLATE_CATEGORIES } = load(path.join(__dirname, "../src/lib/spaceTemplates.ts"));
+    assert.ok(specs.length >= 11);
+    assert.deepEqual(SPACE_TEMPLATES.map(t => ({ ...t })), specs);
+    const featured = [...server.match(/FEATURED = \(([^)]*)\)/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    assert.deepEqual(FEATURED_TEMPLATES.map(t => t.id), featured);
+    const categories = [...server.match(/CATEGORIES = \(([^)]*)\)/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    assert.deepEqual([...TEMPLATE_CATEGORIES], categories);
+    // Creating from a card sends only the template id; the server supplies everything else.
+    const grid = fs.readFileSync(path.join(__dirname, "../src/components/spaces/TemplateGrid.tsx"), "utf8");
+    assert.match(grid, /spacesApi\.create\(\{ template: template\.id \}\)/);
 });
 
 test("Space screens use the shared Space API instead of browser-only records", () => {

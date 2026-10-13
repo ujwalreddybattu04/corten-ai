@@ -71,13 +71,24 @@ async def access(db, space_id, user_id, minimum="viewer", lock=False) -> tuple[S
     return space, role
 
 
+def agent_view(space: Space, file_count: int) -> dict:
+    """The Space's agent as the client shows it: its template, tools and first questions."""
+    from src.services.agents import space_templates
+    template = space_templates.get(space.template)
+    return {"template": {"id": template.id, "name": template.name} if template else None,
+            "tools": [{"id": tool, "label": space_templates.TOOL_LABELS[tool]}
+                      for tool in space_templates.toolset(space.template, bool(space.web_search))],
+            "starters": space_templates.starters(space.template, space.name, file_count > 0)}
+
+
 def serialize(space: Space, role: str, counts: dict | None = None, owner_name: str | None = None) -> dict:
     counts = counts or {}
     return {
         "id": str(space.id), "name": space.name, "description": space.description or "",
         "instructions": space.custom_instructions or "", "icon": space.icon, "color": space.color,
         "links": list(space.links or []), "webSearch": bool(space.web_search), "revision": space.revision,
-        "role": role, "ownerName": owner_name, "legacyId": space.legacy_id,
+        "role": role, "ownerName": owner_name, "legacyId": space.legacy_id, "template": space.template,
+        "agent": agent_view(space, counts.get("files", 0)),
         "memberCount": counts.get("members", 1), "threadCount": counts.get("threads", 0),
         "fileCount": counts.get("files", 0),
         "createdAt": ms(space.created_at), "updatedAt": ms(space.updated_at),
@@ -111,15 +122,21 @@ async def get_space(db, space_id, user_id) -> dict:
 
 
 async def create_space(db, user_id, values: dict, legacy_id: str | None = None) -> Space:
+    from src.services.agents import space_templates
     owner = UUID(user_id)
     owned = await db.scalar(select(func.count()).select_from(Space).where(Space.owner_id == owner))
     if owned >= settings.SPACE_MAX_OWNED:
         raise HTTPException(413, f"You can own up to {settings.SPACE_MAX_OWNED} Spaces. Delete one to create another.")
+    # A template supplies whatever the request leaves out: name, description, icon and answer instructions.
+    template = space_templates.get(values.get("template"))
+    if template:
+        values = {"name": template.name, "description": template.description, "icon": template.icon,
+                  "instructions": template.instructions, **values}
     space = Space(id=uuid4(), owner_id=owner, legacy_id=legacy_id, revision=1, name=values["name"],
         description=values.get("description", ""), custom_instructions=values.get("instructions", ""),
         icon=values.get("icon", "bookmark"), color=values.get("color", "#6366f1"),
         links=values.get("links", []), web_search=values.get("webSearch", True),
-        created_at=now(), updated_at=now())
+        template=template.id if template else None, created_at=now(), updated_at=now())
     db.add(space)
     db.add(SpaceMember(space_id=space.id, user_id=owner, role="owner", joined_at=now()))
     await db.flush()
@@ -127,7 +144,7 @@ async def create_space(db, user_id, values: dict, legacy_id: str | None = None) 
 
 
 FIELD_COLUMNS = {"name": "name", "description": "description", "instructions": "custom_instructions",
-    "icon": "icon", "color": "color", "links": "links", "webSearch": "web_search"}
+    "icon": "icon", "color": "color", "links": "links", "webSearch": "web_search", "template": "template"}
 
 
 async def update_space(db, space_id, user_id, changes: dict, expected_revision: int) -> dict:
@@ -599,14 +616,25 @@ class SpaceContext:
     description: str = ""
     file_names: list[str] = field(default_factory=list)
     file_count: int = 0
+    template: str | None = None
+
+    @property
+    def tools(self) -> tuple[str, ...]:
+        from src.services.agents import space_templates
+        return space_templates.toolset(self.template, self.web_search)
 
     def prompt_text(self) -> str:
-        """The Space as the model sees it: what it is for, what it holds, then its instructions.
-        Without this, "what's this about?" asked in a Space has nothing to refer to."""
+        """The Space as the model sees it: what it is for, its template and tools, what it holds, then its
+        instructions. Without this, "what's this about?" asked in a Space has nothing to refer to."""
+        from src.services.agents import space_templates
         lines = [f"Name: {prompt_safe(self.name, 100, single_line=True)}"]
         description = prompt_safe(self.description, 1000, single_line=True)
         if description:
             lines.append(f"Purpose: {description}")
+        template = space_templates.get(self.template)
+        lines.append(f"Template: {template.name}" if template else "Template: none (a custom Space)")
+        lines.append("Agent tools: " + (", ".join(space_templates.TOOL_LABELS[tool] for tool in self.tools)
+                                         or "none (web search is off, so answers come only from this Space's files)"))
         names = [name for name in (prompt_safe(item, 100, single_line=True) for item in self.file_names) if name]
         # Stated even when empty, so the model never assumes the Space holds material it does not.
         if names:
@@ -648,4 +676,5 @@ async def search_context(db, space_id, user_id) -> SpaceContext:
                               .order_by(SpaceFile.created_at.desc()).limit(PROMPT_FILE_NAMES))).all() if file_count else []
     return SpaceContext(space_id=space.id, name=space.name, instructions=(space.custom_instructions or "").strip(),
                         web_search=bool(space.web_search), domains=link_domains(space.links), has_files=file_count > 0,
-                        description=(space.description or "").strip(), file_names=list(names), file_count=file_count)
+                        description=(space.description or "").strip(), file_names=list(names), file_count=file_count,
+                        template=space.template)

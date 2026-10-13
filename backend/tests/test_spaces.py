@@ -615,8 +615,14 @@ def test_space_details_reach_the_prompt_safely_and_completely():
                                          file_names=["f" * 400] * 20, file_count=20).prompt_text()
     # Even at every limit the Space's identity and the full instructions fit the prompt section.
     assert "I" * 8000 in space_instruction_block(longest) and "Name: " + "N" * 100 + "\n" in longest
-    assert space_instruction_block("") == "" and space_service.SpaceContext(space_id=uuid4(), name="Bare").prompt_text() == \
-        "Name: Bare\nFiles: none yet\nPriority sites: none\nWeb search: on"
+    assert space_instruction_block("") == "" and space_service.SpaceContext(space_id=uuid4(), name="Bare").prompt_text() == (
+        "Name: Bare\nTemplate: none (a custom Space)\nAgent tools: Web search, Page reader, Space files, Calculator, Charts, "
+        "Stock prices, Exchange rates, Economic data\nFiles: none yet\nPriority sites: none\nWeb search: on")
+    # The template and its tools are stated, so "what template am I using?" is answered from the Space itself.
+    data = space_service.SpaceContext(space_id=uuid4(), name="Numbers", template="tpl_data").prompt_text()
+    assert "Template: Data Analyst\nAgent tools: Stock prices, Exchange rates, Economic data, Charts" in data
+    private = space_service.SpaceContext(space_id=uuid4(), name="Vault", template="tpl_data", web_search=False).prompt_text()
+    assert "Agent tools: none (web search is off, so answers come only from this Space's files)" in private
 
 
 @pytest.mark.asyncio

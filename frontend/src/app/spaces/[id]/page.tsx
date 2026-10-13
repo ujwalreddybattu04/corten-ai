@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
     ArrowLeft, ArrowUp, Users, Pencil, MoreHorizontal, Trash2, LogOut, FileText, Upload, Download, X, Plus, Loader2,
-    RefreshCw, FolderOpen, AlertCircle, Lock, ExternalLink, UserPlus, Globe,
+    RefreshCw, FolderOpen, AlertCircle, Lock, ExternalLink, UserPlus, Globe, Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { questionPath } from "@/lib/questionDrafts";
@@ -159,6 +159,7 @@ export default function SpaceDetailPage() {
                             onRemoved={threadId => { setThreads(current => current.filter(item => item.threadId !== threadId)); setSpace({ ...space, threadCount: Math.max(0, space.threadCount - 1) }); }} />
                     </main>
                     <aside className="sv-rail" aria-label="Space context">
+                        <AgentSection space={space} />
                         <InstructionsSection space={space} editable={editable} onSave={save} />
                         <FilesSection space={space} files={files} editable={editable}
                             onFiles={update => setFiles(update)} onCount={count => setSpace(current => current ? { ...current, fileCount: count } : current)} />
@@ -318,6 +319,21 @@ function RailSection({ id, title, count, action, children, className = "", ...re
             </div>
             {children}
         </section>
+    );
+}
+
+/** The agent that answers here: the template that equips it and the tools it can call. */
+function AgentSection({ space }: { space: Space }) {
+    const agent = space.agent;
+    if (!agent) return null;
+    return (
+        <RailSection id="agent-heading" title="Agent">
+            <p className="sv-agent-name"><Sparkles size={14} aria-hidden="true" /> {agent.template ? `${agent.template.name} agent` : "Research agent"}</p>
+            <p className="sv-agent-hint">Plans each answer, calls these tools for live data and charts, and cites every source.</p>
+            {agent.tools.length > 0
+                ? <ul className="sv-agent-tools" aria-label="Agent tools">{agent.tools.map(tool => <li key={tool.id} className="sv-tool-chip">{tool.label}</li>)}</ul>
+                : <p className="sv-quiet">No tools: answers use only this Space&apos;s files.</p>}
+        </RailSection>
     );
 }
 

@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     SPACE_MAX_TOTAL_BYTES: int = Field(default=500 * 1024 * 1024, ge=1024 * 1024)
     SPACE_MAX_MEMBERS: int = Field(default=50, ge=2, le=10000)
     SPACE_MAX_OWNED: int = Field(default=100, ge=1, le=10000)
+    # Spaces answer with their template's agent and tools. Off falls back to the standard answer pipeline.
+    SPACE_AGENTS_ENABLED: bool = True
 
     # --- Chat attachments and generated files ---
     ATTACHMENT_MAX_BYTES: int = Field(default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)

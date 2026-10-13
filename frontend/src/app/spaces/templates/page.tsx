@@ -15,7 +15,7 @@ export default function TemplatesPage() {
                 <header className="sv-home-head">
                     <div>
                         <h1>Templates</h1>
-                        <p>Start a Space with answer instructions written for the job. You can change them, and add files, links and people, at any time.</p>
+                        <p>Each template gives its Space an agent with the tools for the job, such as live market data, clinical trials, research papers and charts, plus instructions you can change at any time.</p>
                     </div>
                 </header>
                 <div className="sv-toolbar">

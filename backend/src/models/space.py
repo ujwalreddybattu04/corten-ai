@@ -25,6 +25,8 @@ class Space(Base):
     color = Column(String(7), nullable=False, default="#6366f1", server_default="#6366f1")
     links = Column(JSON_DOCUMENT, nullable=False, default=list)
     web_search = Column(Boolean, nullable=False, default=True, server_default="true")
+    # The template the Space was created from (its agent's tools and sources); empty for custom Spaces.
+    template = Column(String(40), nullable=True)
     # Browser/personal-storage identity of a Space imported from the earlier single-user design.
     legacy_id = Column(String(100), nullable=True)
     revision = Column(Integer, nullable=False, default=1, server_default="1")

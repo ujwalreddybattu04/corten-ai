@@ -5,6 +5,7 @@ never silently enabled just because a key is present. No raw provider error body
 is returned to users or logged here.
 """
 import asyncio
+import logging
 import math
 import time
 import httpx
@@ -14,6 +15,8 @@ from email.utils import parsedate_to_datetime
 
 from groq import AsyncGroq
 from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 
 class LLMProviderError(RuntimeError):
@@ -90,6 +93,8 @@ class ManagedStream:
             if getattr(exc, "status_code", None) == 429:
                 delay = self._runtime.block(self._quota_key, exc)
                 raise LLMQuotaError(delay) from None
+            # Type and status only: provider error bodies may echo request content.
+            logger.warning("LLM stream failed: %s status=%s", type(exc).__name__, getattr(exc, "status_code", None))
             raise LLMProviderError("The AI connection was interrupted. Please retry your request.") from None
 
     async def close(self):
@@ -168,6 +173,7 @@ class LLMRuntime:
                         quota_waits.append(delay)
                         break
                     if status in (400, 422):
+                        logger.warning("LLM request rejected: %s status=%s model=%s", type(exc).__name__, status, options["model"])
                         raise LLMProviderError("The AI provider rejected this request. Try a shorter message or contact the administrator.") from None
                     if status in (401, 403):
                         # Revoked/invalid keys cannot recover without a configuration

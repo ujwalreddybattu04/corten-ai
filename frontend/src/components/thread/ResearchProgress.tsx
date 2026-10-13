@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ChevronDown, Loader2, Calculator, CloudSun, Link2, Wrench, Check } from 'lucide-react';
+import { Search, ChevronDown, Loader2, Calculator, CloudSun, Link2, Wrench, Check, TrendingUp, ArrowLeftRight, Landmark,
+    FlaskConical, BookOpen, ShieldCheck, FileText, ChartColumn, FolderSearch, CircleAlert } from 'lucide-react';
 import { ResearchStep, SearchSource } from '@/hooks/useSearch';
 import { Favicon } from '@/components/common';
 import '../../styles/research.css';
@@ -11,10 +12,61 @@ function _getToolIcon(toolName: string, size: number, className = "rp-tool-icon"
     switch (toolName) {
         case 'calculator': return <Calculator size={size} className={className} />;
         case 'weather': return <CloudSun size={size} className={className} />;
-        case 'url_reader': return <Link2 size={size} className={className} />;
+        case 'url_reader':
+        case 'read_webpage': return <Link2 size={size} className={className} />;
         case 'web_search': return <Search size={size} className={className} />;
+        case 'stock_prices': return <TrendingUp size={size} className={className} />;
+        case 'exchange_rates': return <ArrowLeftRight size={size} className={className} />;
+        case 'economic_data': return <Landmark size={size} className={className} />;
+        case 'clinical_trials': return <FlaskConical size={size} className={className} />;
+        case 'pubmed': return <BookOpen size={size} className={className} />;
+        case 'fda_approvals': return <ShieldCheck size={size} className={className} />;
+        case 'arxiv': return <FileText size={size} className={className} />;
+        case 'create_chart': return <ChartColumn size={size} className={className} />;
+        case 'search_space_files': return <FolderSearch size={size} className={className} />;
         default: return <Wrench size={size} className={className} />;
     }
+}
+
+/** A step's duration; near-instant steps (answered from cache) show none. */
+function _duration(ms?: number) {
+    if (ms === undefined || ms < 50) return "";
+    return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** A Space agent's plan as it runs: each tool call with what it found, in order. */
+function AgentSteps({ steps }: { steps: ResearchStep[] }) {
+    return (
+        <ol className="rp-agent-steps" aria-label="Agent steps">
+            {steps.map((step, index) => (
+                <motion.li
+                    key={step.id || index}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                    className={`rp-agent-step rp-agent-step-${step.status || 'running'}`}
+                >
+                    <span className="rp-agent-step-icon" aria-hidden="true">{_getToolIcon(step.tool || '', 13, "")}</span>
+                    <span className="rp-agent-step-body">
+                        <span className="rp-agent-step-label">{step.content}</span>
+                        {step.detail && <span className="rp-agent-step-detail">{step.detail}</span>}
+                    </span>
+                    <span className="rp-agent-step-status">
+                        {step.status === 'failed' ? (
+                            <CircleAlert size={12} aria-label="Failed" />
+                        ) : step.status === 'done' ? (
+                            <>
+                                {_duration(step.ms) && <span className="rp-tool-row-time">{_duration(step.ms)}</span>}
+                                <Check size={12} className="rp-tool-row-check" aria-label="Done" />
+                            </>
+                        ) : (
+                            <Loader2 size={11} className="animate-spin" aria-label="Running" />
+                        )}
+                    </span>
+                </motion.li>
+            ))}
+        </ol>
+    );
 }
 
 // ── Animated Header Text — REAL backend events + live source domains ────────
@@ -256,6 +308,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
     const allQuerySteps = steps.filter(s => s.type === 'query_step');
     const querySteps = allQuerySteps.length > 1 ? allQuerySteps.slice(1) : [];
     const toolSteps = steps.filter(s => s.type === 'tool_executing' || s.type === 'tool_result');
+    const agentSteps = steps.filter(s => s.type === 'agent_step');
 
     const displayTime = thoughtTime > 0 ? thoughtTime : localTime;
     const isThinking = !isAnswerStarted && !isComplete;
@@ -269,12 +322,15 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
     const liveMessages = useMemo(() => {
         const msgs: string[] = [];
         for (const step of steps) {
-            if (step.content && (step.type === 'status' || step.type === 'thought' || step.type === 'tool_executing' || step.type === 'tool_result')) {
+            if (step.content && (step.type === 'status' || step.type === 'thought' || step.type === 'tool_executing'
+                || step.type === 'tool_result' || step.type === 'agent_step')) {
                 msgs.push(step.content);
             }
         }
         return msgs;
     }, [steps]);
+    // An agent's header names the step it is on, rather than cycling through source domains.
+    const headerSources = agentSteps.length > 0 ? [] : sources;
 
     // Keep hooks in the same order as an empty completed chat starts a follow-up.
     if (steps.length === 0 && !isStreaming) return null;
@@ -293,10 +349,17 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
                 {/* Dynamic animated text while thinking, source summary when done */}
                 {isThinking ? (
-                    <AnimatedThinkingText messages={liveMessages} sources={sources} isActive={isThinking} />
+                    <AnimatedThinkingText messages={liveMessages} sources={headerSources} isActive={isThinking} />
                 ) : (
                     <span className="thinking-text-static">
                         {(() => {
+                            if (agentSteps.length > 0) {
+                                const domains = [...new Set(sources.map(s => (s.domain || '').replace(/^www\./, '')).filter(Boolean))];
+                                const parts = [`${agentSteps.length} step${agentSteps.length === 1 ? '' : 's'}`];
+                                if (domains.length > 0) parts.push(domains.slice(0, 2).join(', ') + (domains.length > 2 ? ` +${domains.length - 2} more` : ''));
+                                if (displayTime > 0) parts.push(`${displayTime.toFixed(1)}s`);
+                                return parts.join(' · ');
+                            }
                             // Tools used
                             const toolNames = [...new Set(
                                 toolSteps
@@ -345,8 +408,16 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
                         <div className="research-content">
 
                             {/* ── Source title ticker — cycles real article titles ── */}
-                            {isThinking && sources.length > 0 && (
+                            {isThinking && sources.length > 0 && agentSteps.length === 0 && (
                                 <SourceTitleTicker sources={sources} />
+                            )}
+
+                            {/* ── Space agent — each tool call, live ── */}
+                            {agentSteps.length > 0 && (
+                                <div className="research-section">
+                                    <div className="research-label">Steps</div>
+                                    <AgentSteps steps={agentSteps} />
+                                </div>
                             )}
 
                             {/* ── Tools Phase — unified status rows ── */}

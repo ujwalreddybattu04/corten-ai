@@ -4,6 +4,7 @@ import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { openSearchStream } from "@/lib/searchConnection";
 import { spacesApi } from "@/lib/spacesApi";
+import { upsertAgentStep } from "@/lib/agentSteps";
 import { getAnswerMode, conversationAttachments, type AttachmentRef, type GeneratedFile } from "@/lib/chatApi";
 
 
@@ -75,11 +76,15 @@ function generateThreadId() {
 }
 
 export interface ResearchStep {
-    type: 'thought' | 'query_step' | 'status' | 'research_step' | 'research_progress' | 'tool_executing' | 'tool_result';
+    type: 'thought' | 'query_step' | 'status' | 'research_step' | 'research_progress' | 'tool_executing' | 'tool_result' | 'agent_step';
     content: string;
     detail?: string;
     step?: string;
     tool?: string;
+    /** Space agent steps: updated in place by id as they run, finish or fail. */
+    id?: string;
+    status?: 'running' | 'done' | 'failed';
+    ms?: number;
 }
 
 export interface SearchState {
@@ -424,6 +429,8 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                                     content: json.status || 'Continuing research'
                                 }]
                             }));
+                        } else if (json.type === "agent_step") {
+                            setState(prev => ({ ...prev, researchSteps: upsertAgentStep(prev.researchSteps, json) }));
                         } else if (json.type === "thought_time") {
                             setState(prev => ({ ...prev, thoughtTime: json.time || 0 }));
                         } else if (json.type === "reasoning") {

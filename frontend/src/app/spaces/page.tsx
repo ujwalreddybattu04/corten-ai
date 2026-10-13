@@ -121,7 +121,7 @@ export default function SpacesPage() {
                 <header className="sv-home-head">
                     <div>
                         <h1>Spaces</h1>
-                        <p>Organize research by project. Each Space keeps its own instructions, files, threads and people.</p>
+                        <p>Organize research by project. Each Space has its own agent and tools, instructions, files, threads and people.</p>
                     </div>
                     <button className="sx-btn sx-btn--primary sv-new" onClick={() => setCreating(true)}><Plus size={16} /> New Space</button>
                 </header>

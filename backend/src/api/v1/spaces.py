@@ -43,6 +43,15 @@ class SpaceFields(BaseModel):
     color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     links: Optional[list[str]] = Field(default=None, max_length=100)
     webSearch: Optional[bool] = None
+    template: Optional[str] = Field(default=None, max_length=40)
+
+    @field_validator("template")
+    @classmethod
+    def known_template(cls, value):
+        from src.services.agents import space_templates
+        if value is not None and space_templates.get(value) is None:
+            raise ValueError("Choose one of the available templates")
+        return value
 
     @field_validator("name")
     @classmethod
@@ -73,7 +82,14 @@ class SpaceFields(BaseModel):
 
 
 class SpaceCreate(SpaceFields):
-    name: str = Field(min_length=1, max_length=100)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def has_name(self):
+        # A template supplies its own name; otherwise one is required.
+        if not self.name and not self.template:
+            raise ValueError("Name the Space or choose a template")
+        return self
 
 
 class SpaceUpdate(SpaceFields):
@@ -166,6 +182,14 @@ async def import_spaces(body: ImportRequest, user: str = Depends(get_current_use
         imported[item.legacyId] = str(space.id)
     await db.commit()
     return {"imported": imported, "skipped": skipped}
+
+
+@router.get("/templates")
+async def list_templates(user: str = Depends(get_current_user_id)):
+    """Templates and the tools each one gives a Space's agent."""
+    from src.services.agents import space_templates
+    return {"items": [space_templates.public(t) for t in space_templates.TEMPLATES],
+            "featured": list(space_templates.FEATURED), "categories": list(space_templates.CATEGORIES)}
 
 
 @router.get("/invitations")

@@ -129,6 +129,23 @@ class SearchOrchestrator:
             # Only the answer step sees the guidance; routing and output detection use the question as asked.
             answer_query = query + hint
 
+            # ── SPACE AGENT: a Space answers with its template's agent and tools ─
+            # Kept on the standard path: files-only Spaces (no agent tools), Corten's own intents, memory recall,
+            # context questions (handled above), image questions (vision model) and requests for a downloadable file.
+            if (space is not None and settings.SPACE_AGENTS_ENABLED and space.tools and not context_question
+                    and query_type not in _KEEP_ROUTE and not turn.images and not file_builder.detect(asked)):
+                from src.services.agents.space_agent import run_space_agent
+                documents = turn.documents + [doc for doc in turn.context_documents if document_relevant(doc, asked)]
+                logger.info("[Orchestrator] Space agent: template=%s tools=%d documents=%d",
+                            space.template, len(space.tools), len(documents))
+                async for event in run_space_agent(
+                        asked, messages, space, turn,
+                        attachments=attachment_sources(documents, asked, 24_000) if documents else None,
+                        wants_artifact=artifacts.requested(asked)):
+                    yield event
+                yield _sse("done", {})
+                return
+
             # ── SPACE CONTEXT: files, instructions and source preferences ─
             instructions = space.prompt_text() if space else ""
             space_sources, files_only = [], False
