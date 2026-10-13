@@ -13,6 +13,7 @@ import { splitArtifacts, type Artifact } from "@/lib/artifacts";
 import type { GeneratedFile } from "@/lib/chatApi";
 import { ArtifactCard, FileCards, ThinkingPanel, linkCitations } from "@/components/chat/AnswerExtras";
 import { protectCurrency } from "@/lib/currency";
+import { citationNumbers, sourceLabel, stripLeadingHeading } from "@/lib/citations";
 
 // Premium Formatting Dependencies
 import remarkMath from "remark-math";
@@ -321,14 +322,27 @@ const AnswerStream = memo(({
                 try { decodedHref = decodeURIComponent(decodedHref); } catch { /* A literal % is valid in a link label or source. */ }
                 // Hide only explicit internal citation links. Ordinary numeric links remain intact.
                 if (/^(?:citation|cite):\s*\d+(?:\s*,\s*\d+)*$/i.test(decodedHref.trim())) return <></>;
-                // [n] citations become chips that open their source.
-                const cite = /^#cite-(\d+)$/.exec(decodedHref.trim());
-                if (cite) {
-                    const number = Number(cite[1]);
-                    const source = sources.find(item => item.citationIndex === number) ?? sources[number - 1];
-                    if (!source?.url) return <sup className="cx-cite cx-cite--plain">{number}</sup>;
-                    return <a href={source.url} className="cx-cite" target="_blank" rel="noopener noreferrer"
-                        title={`${source.title || source.domain} — ${source.domain}`} aria-label={`Source ${number}: ${source.title || source.domain}`}>{number}</a>;
+                // A run of citations is one source pill: the first source's site, "+N" for the others.
+                const numbers = citationNumbers(decodedHref);
+                if (numbers) {
+                    const cited = numbers.map(number => sources.find(item => item.citationIndex === number) ?? sources[number - 1])
+                        .filter((source, index, all): source is SearchSource => !!source?.url && all.findIndex(other => other?.url === source.url) === index);
+                    // Sources arrive before the answer; a citation with no known source is not shown at all.
+                    if (!cited.length) return <></>;
+                    const [first, ...others] = cited;
+                    const names = cited.map(source => `${source.title || sourceLabel(source)} (${sourceLabel(source)})`);
+                    return (
+                        <a href={first.url} className="cx-cite" target="_blank" rel="noopener noreferrer" title={names.join("\n")}
+                            aria-label={`Sources: ${names.join("; ")}`}>
+                            {first.favicon && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img className="cx-cite-icon" src={first.favicon} alt="" width={12} height={12} loading="lazy"
+                                    onError={event => { (event.target as HTMLImageElement).style.display = "none"; }} />
+                            )}
+                            <span className="cx-cite-label">{sourceLabel(first)}</span>
+                            {others.length > 0 && <span className="cx-cite-more">+{others.length}</span>}
+                        </a>
+                    );
                 }
 
                 // Standard text hyperlink
@@ -435,7 +449,7 @@ const AnswerStream = memo(({
                                 rehypePlugins={[rehypeKatex]}
                                 components={markdownComponents}
                             >
-                                {linkCitations(protectCurrency(segment.text))}
+                                {linkCitations(protectCurrency(index === 0 ? stripLeadingHeading(segment.text, sources.length > 0) : segment.text))}
                             </ReactMarkdown>
                         ))}
                         <FileCards files={files} />

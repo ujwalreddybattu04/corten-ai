@@ -89,6 +89,45 @@ def test_provider_citation_glyphs_are_normalized_across_every_chunk_boundary():
         assert actual == "A supported fact[1] and another[1]. Original `NCT55500001` [1]."
 
 
+def test_records_carry_what_their_fields_mean_and_do_not_show():
+    # Real-model briefs called a record update the start of recruitment, a generic "the first generic" and an
+    # unspecified efficacy supplement a reason to raise forecasts.
+    trial = record(); trial["organization"] = "Memorial Sloan Kettering Cancer Center"
+    notes = " ".join(service.record_notes(trial))
+    assert "last updated" in notes and "not the study's start" in notes and "investigator-initiated" in notes
+    assert "Memorial" not in notes                      # source data never enters the authoritative notes
+    assert "investigator-initiated" not in " ".join(service.record_notes(record()))   # "Example Pharma" is a company
+    generic = {"source": "fda", "summary": "Zydus. Application ANDA218112, submission ORIG 1.", "details": {"application": "ANDA218112", "action": "FDA original approval"}}
+    assert "does not show whether it is the first generic" in " ".join(service.record_notes(generic))
+    supplement = {"source": "fda", "summary": "Lilly. Application NDA215866, submission SUPPL 21. Efficacy", "details": {"application": "NDA215866", "action": "FDA supplemental approval"}}
+    assert "does not name a new indication" in " ".join(service.record_notes(supplement))
+    assert "reported on" in " ".join(service.record_notes({"source": "news", "details": {}}))
+    messages = service.model_messages(trial, feed(trial)["sources"][0], "brief", [], "brief", "auto")
+    evidence = json.loads(messages[1]["content"].split("\n", 1)[1])
+    assert evidence["how_to_read_this_record"] == service.record_notes(trial)
+    assert "Today is " in messages[0]["content"] and "the next seven days" in messages[0]["content"]
+    follow_up = service.model_messages(trial, feed(trial)["sources"][0], "Any news this week?", [], "question", "auto")
+    assert "'this week' is the week of Monday" in follow_up[-1]["content"]
+
+
+def test_every_brief_keeps_the_same_three_sections_while_streaming():
+    raw = ("The record was updated on 13 October 2026 [1].\n**Why it matters**  \nAn investigator-initiated study.\n"
+           "**Watch** – no change yet.\n- Results on ClinicalTrials.gov.\n- A sponsor update.")
+    expected = ("The record was updated on 13 October 2026 [1].\n\n### Why it matters\nAn investigator-initiated study.\n"
+                "\n### Forecast impact\n**Watch** – no change yet.\n\n### What to watch\n- Results on ClinicalTrials.gov.\n- A sponsor update.")
+    for boundary in range(len(raw) + 1):
+        sections = service.BriefSections()
+        assert sections.push(raw[:boundary]) + sections.push(raw[boundary:]) + sections.push("", final=True) == expected
+    # With no headings at all, the second paragraph becomes "Why it matters".
+    sections = service.BriefSections()
+    plain = sections.push("Opening [1].\nInterpretation.\n**Material** – generic entry.\n- Launch date.", final=True)
+    assert plain == ("Opening [1].\n\n### Why it matters\nInterpretation.\n\n### Forecast impact\n**Material** – generic entry."
+                     "\n\n### What to watch\n- Launch date.")
+    # Correct headings pass through unchanged in meaning.
+    sections = service.BriefSections()
+    assert sections.push("Opening.\n### Why it matters\nText.", final=True) == "Opening.\n\n### Why it matters\nText."
+
+
 class Stream:
     def __init__(self, finish="stop", fail=False): self.finish, self.fail, self.closed = finish, fail, False
     async def __aiter__(self):

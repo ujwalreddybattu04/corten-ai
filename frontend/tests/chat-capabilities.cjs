@@ -78,12 +78,27 @@ test("Mermaid labels with syntax characters are quoted; valid diagrams are untou
 });
 
 test("citations become source links outside code only", () => {
-    const { linkCitations } = lib("citations");
-    assert.equal(linkCitations("Revenue grew [1] and [2, 3]."), "Revenue grew [1](#cite-1) and [2](#cite-2)[3](#cite-3).");
-    assert.equal(linkCitations("Launch date 【1】"), "Launch date [1](#cite-1)");
-    assert.equal(linkCitations("Rates 【2†source】 and 【3†L1-L4】"), "Rates [2](#cite-2) and [3](#cite-3)");
-    assert.equal(linkCitations("Keep `arr[1]` and\n```\nx[2]\n```\nbut cite [4]"), "Keep `arr[1]` and\n```\nx[2]\n```\nbut cite [4](#cite-4)");
-    assert.equal(linkCitations("A real [1](https://example.com) link"), "A real [1](https://example.com) link");
+    const { linkCitations, citationNumbers, sourceLabel, stripLeadingHeading } = lib("citations");
+    // Live: "…patterns 1 2 5 6 ." showed four chips before the full stop. A run is one pill, after the punctuation.
+    assert.equal(linkCitations("raw data [1][2][5][6]. These networks [3] [7]."),
+        "raw data.[1,2,5,6](#cite-1-2-5-6) These networks.[3,7](#cite-3-7)");
+    assert.equal(linkCitations("Revenue grew [1] and [2, 3], while [2] fell"), "Revenue grew[1](#cite-1) and,[2,3](#cite-2-3) while[2](#cite-2) fell");
+    assert.equal(linkCitations("Launch date 【1】"), "Launch date[1](#cite-1)");
+    assert.equal(linkCitations("Rates 【2†source】 and 【3†L1-L4】."), "Rates[2](#cite-2) and.[3](#cite-3)");
+    assert.equal(linkCitations("Keep `arr[1]` and\n```\nx[2]\n```\nbut cite [4]"), "Keep `arr[1]` and\n```\nx[2]\n```\nbut cite[4](#cite-4)");
+    assert.equal(linkCitations("A real [1](https://example.com) link, in 2026 [2026]"), "A real [1](https://example.com) link, in 2026 [2026]");
+    assert.deepEqual(citationNumbers("#cite-1-2-5"), [1, 2, 5]);
+    assert.equal(citationNumbers("https://example.com"), null);
+    assert.equal(sourceLabel({ domain: "www.aws.amazon.com" }), "aws.amazon.com");
+    assert.equal(sourceLabel({ domain: "", url: "https://en.wikipedia.org/wiki/X" }), "en.wikipedia.org");
+    assert.equal(sourceLabel({ domain: "attachment", title: "Board memo Q3.pdf" }), "Board memo Q3.pdf");
+    assert.equal(sourceLabel({ domain: "pubmed.ncbi.nlm.nih.gov.example-long-host.org" }).length, 25);
+    // Researched answers never open with a heading; a requested document keeps its title.
+    assert.equal(stripLeadingHeading("## What is Deep Learning?\n\nDeep learning is…", true), "Deep learning is…");
+    assert.equal(stripLeadingHeading("## Overview\nText", true), "Text");
+    assert.equal(stripLeadingHeading("# Why we moved to the cloud\n\nOur journey…", false), "# Why we moved to the cloud\n\nOur journey…");
+    assert.equal(stripLeadingHeading("## What is GLP-1?", false), "");
+    assert.equal(stripLeadingHeading("#1 ranked by revenue", true), "#1 ranked by revenue");
 });
 
 test("amounts in dollars stay text while formulas still render as math", () => {
