@@ -25,7 +25,7 @@
 .settings-button:hover:not(:disabled) { background:var(--color-bg-hover); }
 .settings-button-primary { background:var(--color-text-primary);color:var(--color-text-inverse);border-color:transparent; }
 .settings-button-primary:hover:not(:disabled) { background:#e4e4e7; }
-.settings-page button:disabled { opacity:.45;cursor:not-allowed; }
+.settings-page button:disabled,.settings-page button[aria-disabled="true"] { opacity:.45;cursor:not-allowed; }
 .settings-form-footer { display:flex;justify-content:space-between;gap:16px;align-items:center;margin:5px 0 28px; }
 .settings-message { display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.7;color:var(--color-text-secondary);overflow-wrap:anywhere; }
 .settings-message[role="alert"],.settings-message-error { color:#f0a8a8; }

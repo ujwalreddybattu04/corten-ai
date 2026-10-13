@@ -87,7 +87,7 @@ export default function PersonalizationSettings({ section = "responses" }: { sec
 
             {prefs && <div className="cx-settings-block" hidden={section !== "responses"}>
                 <h3>Response style</h3>
-                <div className="cx-style-grid" role="radiogroup" aria-label="Response style" onKeyDown={event => {
+                <div className="cx-style-grid" role="radiogroup" aria-label="Response style" aria-busy={!!busy} onKeyDown={event => {
                     if (busy || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
                     event.preventDefault();
                     const index = STYLES.findIndex(style => style.value === selectedStyle);
@@ -97,8 +97,8 @@ export default function PersonalizationSettings({ section = "responses" }: { sec
                 }}>
                     {STYLES.map(style => (
                         <button key={style.value} id={`settings-style-${style.value}`} type="button" role="radio" aria-checked={selectedStyle === style.value} tabIndex={selectedStyle === style.value ? 0 : -1}
-                            className={`cx-style ${selectedStyle === style.value ? "cx-style--active" : ""}`} disabled={!!busy}
-                            onClick={() => style.value === "custom" ? setStyleChoice("custom") : style.value !== prefs.style ? void update({ style: style.value }, `${style.label} style selected.`) : setStyleChoice(null)}>
+                            className={`cx-style ${selectedStyle === style.value ? "cx-style--active" : ""}`} aria-disabled={!!busy}
+                            onClick={() => { if (busy) return; if (style.value === "custom") setStyleChoice("custom"); else if (style.value !== prefs.style) void update({ style: style.value }, `${style.label} style selected.`); else setStyleChoice(null); }}>
                             <strong>{style.label}</strong><span>{style.description}</span>
                         </button>
                     ))}

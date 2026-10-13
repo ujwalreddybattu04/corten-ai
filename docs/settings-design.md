@@ -14,9 +14,10 @@ retry preserves unsaved instructions. Mutations are serialized to prevent stale
 list updates. File deletion requires confirmation, and failed deletion keeps the
 file available for retry. Bulk memory deletion retains its confirmation.
 
-Local browser review passed seven scenario groups: profile validation/save/error
+Local browser review passed eight scenario groups: profile validation/save/error
 recovery, response drafts and styles, memory controls, file confirmation and
-recovery, partial loading failures, keyboard navigation, and all five sections
+recovery, partial loading failures, section and response-style keyboard navigation,
+and all five sections
 at five widths from 320 to 1440 pixels. These use isolated API fixtures, with no
 real account edits or browser exceptions. TypeScript and scoped lint passed.
 Hosted verification is recorded after release.
