@@ -66,6 +66,36 @@ test("links, roles and sizes are normalized consistently with the server", () =>
     assert.equal(s.relativeTime(Date.now() - 10_000), "Just now");
 });
 
+test("Space icons and template icons are exactly the emoji the server accepts", () => {
+    const server = fs.readFileSync(path.join(__dirname, "../../backend/src/services/space_service.py"), "utf8");
+    const accepted = [...server.match(/EMOJI = \(([\s\S]*?)\)/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    const visuals = fs.readFileSync(path.join(__dirname, "../src/components/spaces/SpaceVisuals.tsx"), "utf8");
+    const offered = [...visuals.match(/SPACE_EMOJI = \[([\s\S]*?)\]/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    assert.ok(accepted.length >= 30);
+    assert.deepEqual(offered, accepted, "the picker offers exactly what the server accepts");
+    const { SPACE_TEMPLATES } = load(path.join(__dirname, "../src/lib/spaceTemplates.ts"));
+    for (const template of SPACE_TEMPLATES) assert.ok(accepted.includes(template.icon), template.name);
+});
+
+test("empty Spaces suggest their template's questions, or questions every Space answers well", () => {
+    const { SPACE_TEMPLATES, starterQuestions } = load(path.join(__dirname, "../src/lib/spaceTemplates.ts"));
+    const market = SPACE_TEMPLATES.find(t => t.id === "tpl_market_access");
+    // Created from a template (instructions unchanged), or renamed copy, or same name with edited instructions.
+    const fromTemplate = starterQuestions({ name: "My launch", instructions: market.instructions }, false);
+    assert.equal(fromTemplate.length, 3);
+    assert.match(fromTemplate[0], /HTA/);
+    assert.deepEqual(starterQuestions({ name: " market access & pricing ", instructions: "Custom" }, false), fromTemplate);
+    // Files come first, still three in total.
+    const withFiles = starterQuestions({ name: "My launch", instructions: market.instructions }, true);
+    assert.deepEqual(withFiles, ["Summarize the key points across our files", ...fromTemplate.slice(0, 2)]);
+    // Any other Space: its overview, news on its topic, a briefing.
+    assert.deepEqual(starterQuestions({ name: "Board Prep", instructions: "" }, false),
+        ["What's this Space for?", "What's new this week?", "Give me a briefing on Board Prep"]);
+    for (const template of SPACE_TEMPLATES) {
+        assert.equal(starterQuestions(template, false).length, 3, `${template.name} has three starters`);
+    }
+});
+
 test("Space screens use the shared Space API instead of browser-only records", () => {
     for (const file of ["page.tsx", "[id]/page.tsx", "templates/page.tsx", "join/[token]/page.tsx"]) {
         const source = fs.readFileSync(path.join(__dirname, "../src/app/spaces", file), "utf8");

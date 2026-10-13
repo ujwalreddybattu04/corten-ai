@@ -15,6 +15,10 @@ This follows the workflow of Perplexity's Spaces, which Perplexity now calls Pro
 
    On the Space page, instructions, files, links and sources sit in the right-hand column. The composer shows which sources answers will use.
 3. **Ask** from the Space page. The composer offers the same answer modes and attachments as the main search. The thread is saved to the Space for all members and to the author's own history. The thread list shows the opening of each answer.
+   - Every answer knows the Space it was asked in: its name, purpose, file names, priority sites, web-search setting and instructions. All of it is labelled to the model as member-written context, never as evidence.
+   - A question with nothing of its own to look up, such as "What's this about?" or "What is this Space for?", gets an overview of the Space when it opens a thread: what the Space is for, what it holds and three questions to ask next. Its files are summarized when it has any. In a follow-up, the same question explains the previous answer. Neither case searches the web for the phrase.
+   - "What's new?" or "Any updates this week?" opening a thread searches news on the Space's topic.
+   - An empty Space suggests first questions. Spaces created from a template suggest that template's own questions.
 4. **Share** using either:
    - an invitation to a specific email address, which appears in the invitee's Spaces page after sign-in (valid 14 days, single use, bound to that email), or
    - an invitation link (valid 7 days, reusable, revocable).

@@ -36,6 +36,32 @@ def about_attachments(query: str) -> bool:
         and len(terms) <= 6
 
 
+# Words that only point at the workspace itself ("what is this Space for?", "what can I do here?").
+_SPACE_WORDS = set("space spaces here project workspace purpose about use used using work works start begin can".split())
+_POINTING = re.compile(r"\b(?:this|here|space|it|you|what|how|help)\b", re.I)
+# Words that only ask for recent changes, with no topic of their own ("what's new?", "any updates this week?").
+_FRESHNESS_WORDS = set("new news latest recent recently update updates updated today week weekly month monthly year "
+                       "changes changed happening developments trends any".split())
+
+
+def refers_to_context(query: str) -> bool:
+    """A question with nothing of its own to look up ("what's this about?", "what is this Space for?",
+    "how does this work?"). It refers to its context: the Space when it opens a thread there, the previous
+    answer in a follow-up, attached files when sent with them. Searching the web for the phrase itself
+    finds dictionary entries and song lyrics instead."""
+    if OUTSIDE_INFORMATION.search(query):
+        return False
+    terms = [term for term in query_terms(query) if term not in _INSTRUCTION_WORDS and term not in _SPACE_WORDS]
+    return not terms and bool(_POINTING.search(query))
+
+
+def freshness_only(query: str) -> bool:
+    """A request for what is new with no topic of its own. Inside a Space the topic is the Space."""
+    terms = query_terms(query)
+    return bool(terms) and all(term in _FRESHNESS_WORDS or term in _INSTRUCTION_WORDS or term.isdigit() for term in terms) \
+        and any(term in _FRESHNESS_WORDS for term in terms)
+
+
 def document_relevant(doc: dict, query: str) -> bool:
     """Whether a document from an earlier message bears on this question: the question refers to it,
     names it, or shares a good part of its key words with it. Unrelated follow-ups (a diagram, a

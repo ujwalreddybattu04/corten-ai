@@ -13,6 +13,7 @@ import {
     spacesApi, uploadSpaceFile, canEdit, relativeTime, formatBytes, normalizeLink, linkHost, ROLE_LABELS,
     ACCEPTED_FILES, MAX_FILE_BYTES, type Space, type SpaceFields, type SpaceFile, type SpaceThreadSummary,
 } from "@/lib/spacesApi";
+import { starterQuestions } from "@/lib/spaceTemplates";
 import { useAttachments } from "@/hooks/useAttachments";
 import { AttachButton, AttachmentTray, ModeMenu, filesFromTransfer } from "@/components/chat/ComposerControls";
 import { PersonAvatar, SpaceIcon } from "@/components/spaces/SpaceVisuals";
@@ -196,8 +197,11 @@ function Composer({ space, fileCount, draft, setDraft }: { space: Space; fileCou
         event?.preventDefault();
         if (!draft.trim()) return;
         if (attachments.uploading) { setError("Wait for your files to finish uploading."); return; }
-        try { router.push(questionPath(draft, "all", space.id, "search", attachments.ready)); }
-        catch (failure) { setError(failure instanceof Error ? failure.message : "Unable to open this question."); }
+        try {
+            router.push(questionPath(draft, "all", space.id, "search", attachments.ready));
+            // The question now lives in its thread; coming back to the Space starts from an empty box.
+            setDraft("");
+        } catch (failure) { setError(failure instanceof Error ? failure.message : "Unable to open this question."); }
     };
     const scopeHint = space.webSearch
         ? `Answers search the web${fileCount ? " and this Space's files" : ""}${space.links.length ? `, checking ${space.links.length} priority site${space.links.length === 1 ? "" : "s"} first` : ""}.`
@@ -248,11 +252,7 @@ function ThreadList({ space, threads, next, userIsOwner, hasFiles, onSuggest, on
         catch (failure) { setError(failure instanceof Error ? failure.message : "The thread could not be removed."); }
         finally { setRemoving(""); setConfirming(""); }
     };
-    const suggestions = [
-        ...(hasFiles ? ["Summarize the key points across our files"] : []),
-        `Give me a briefing on ${space.name}`,
-        "What are the most important recent developments here?",
-    ];
+    const suggestions = starterQuestions(space, hasFiles);
     return (
         <section className="sv-threads" aria-labelledby="threads-heading">
             <h2 id="threads-heading" className="sv-section-title">Threads {threads.length > 0 && <span className="sv-count">{space.threadCount}</span>}</h2>

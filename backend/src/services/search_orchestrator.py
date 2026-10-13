@@ -21,7 +21,8 @@ from typing import AsyncGenerator
 from src.services.llm_service import groq_llm_service, ReasoningChunk
 from src.services.llm_runtime import LLMProviderError, llm_error_details
 from src.services import answer_modes, artifacts, file_builder, personalization
-from src.services.chat_context import TurnContext, about_attachments, attachment_sources, document_relevant
+from src.services.chat_context import (TurnContext, about_attachments, attachment_sources, document_relevant,
+                                       freshness_only, refers_to_context)
 from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
@@ -39,6 +40,20 @@ _SEARCH_CACHE_TTL = 300  # 5 minutes
 _NO_FILE_SEARCH = {"greeting", "identity", "question_recall", "conversation", "conversation_note"}
 NO_SPACE_EVIDENCE = ("I couldn't find information about this in this Space's files. Upload a relevant file, "
                      "or turn on web search in the Space settings.")
+# Router intents a context question must not override: Corten's own answers (application_facts.self_answer),
+# maths, company lookups and conversation recall. A clarifying question gives way only to a Space overview.
+_KEEP_ROUTE = {"greeting", "identity", "agents", "capabilities", "training", "forecast_explanation", "clarification",
+               "math", "company", "question_recall", "conversation", "conversation_note"}
+SPACE_OVERVIEW = ("\n\n(The user is asking about this Space itself. In a few short sentences say what the Space is for, "
+                  "what it holds and how answers here are shaped by its instructions, using only the Space details and any "
+                  "file passages provided; never invent contents. If it has no files yet, say so and that files and links "
+                  "can be added. Then suggest three specific questions worth asking next in this Space, with real examples "
+                  "that fit its purpose rather than placeholders such as 'drug X'.)")
+FOLLOW_UP = ("\n\n(The user is asking about the previous answer in this conversation. Explain in plain terms what it "
+             "is about, using only what the conversation says. Do not add new facts, consequences or figures.)")
+NO_CONTEXT = ("\n\n(The question does not say what it refers to and there is no earlier conversation or file. If it "
+              "asks what you can do, briefly describe how you can help. Otherwise ask in one or two sentences what "
+              "they would like to know, and mention they can name a topic, paste text, attach a file or share a link.)")
 
 # Regex to detect and cut off LLM-generated source lists
 _CUTOFF_PATTERN = re.compile(
@@ -73,6 +88,7 @@ class SearchOrchestrator:
             yield _sse("status", {"content": f"Understanding \"{short_query}\""})
 
             route = await smart_router.route(query, focus_mode, messages)
+            asked = query  # as typed; the router may rewrite follow-ups into standalone questions
             query = route.get("resolved_query", query)
             strategy = route.get("strategy", STRATEGY_STANDARD)
             if route.get("requires_search") is False:
@@ -86,17 +102,31 @@ class SearchOrchestrator:
                     and not (turn.documents or turn.images):
                 # Questions about the user are answered from saved memory, never by searching the web.
                 strategy, query_type, selected_tool_names = STRATEGY_DIRECT, "question_recall", []
+            # A question with nothing to look up ("what's this about?") is about its context, never a phrase to
+            # search: the Space when it opens a thread there, the previous answer in a follow-up. Attachments
+            # are handled below; the router's own intents (greetings, identity, memory, maths) are kept.
+            opens_space = space is not None and not messages
+            context_question = bool(not (turn.documents or turn.images) and refers_to_context(asked) and (
+                query_type not in _KEEP_ROUTE or (query_type == "clarification" and opens_space)))
+            space_overview = context_question and opens_space
+            hint = ""
+            if context_question:
+                strategy, selected_tool_names = STRATEGY_DIRECT, []
+                query_type = "space_overview" if space_overview else "context_question"
+                hint = SPACE_OVERVIEW if space_overview else FOLLOW_UP if messages else NO_CONTEXT
             if strategy == STRATEGY_DIRECT:
                 selected_tool_names = [name for name in selected_tool_names if name == "calculator" and query_type == "math"]
+            # Only the answer step sees the guidance; routing and output detection use the question as asked.
+            answer_query = query + hint
 
             # ── SPACE CONTEXT: files, instructions and source preferences ─
-            instructions = space.instructions if space else ""
+            instructions = space.prompt_text() if space else ""
             space_sources, files_only = [], False
             if space:
                 files_only = not space.web_search
                 if space.has_files and query_type not in _NO_FILE_SEARCH:
                     yield _sse("status", {"content": f"Searching files in {space.name}"})
-                    space_sources = await space.retrieve(query)
+                    space_sources = await space.retrieve(query, broad=space_overview)
                     if space_sources:
                         yield _sse("thought", {"content": f"Found relevant passages in {len(space_sources)} Space "
                                                           f"file{'s' if len(space_sources) != 1 else ''}"})
@@ -243,7 +273,7 @@ class SearchOrchestrator:
                     return
 
                 async for event in _relay(groq_llm_service.stream_answer(
-                        query, [], messages, focus_mode, space_instructions=instructions,
+                        answer_query, [], messages, focus_mode, space_instructions=instructions,
                         profile=profile, personal=turn.personal, artifact=wants_artifact)):
                     yield event
 
@@ -277,9 +307,10 @@ class SearchOrchestrator:
             # ── QUICK & STANDARD PATHS ────────────────────────────────────
             # Now powered by the Tool System
 
-            # Build tool context
+            # Build tool context. "What's new?" opening a Space thread means news on the Space's topic.
+            search_query = f"{query} {space.name}" if space and not messages and freshness_only(query) else query
             tool_context = ToolContext(
-                query=query,
+                query=search_query,
                 query_type=query_type,
                 complexity=complexity,
                 strategy=strategy,
@@ -313,7 +344,7 @@ class SearchOrchestrator:
             # Routing already supplies the research intent. A second AI request
             # used only for progress text would consume quota without improving search.
 
-            yield _sse("query_step", {"content": query})
+            yield _sse("query_step", {"content": search_query})
 
             # Emit tool execution events
             for tool in primary_tools:
@@ -449,7 +480,7 @@ class SearchOrchestrator:
             buffer = ""
             # The subject is already resolved. Old assistant claims must not contaminate company facts.
             answer_history = [] if query_type == "company" else messages
-            async for chunk in groq_llm_service.stream_answer(query, enriched_results, answer_history, focus_mode,
+            async for chunk in groq_llm_service.stream_answer(answer_query, enriched_results, answer_history, focus_mode,
                                                               company_lookup=query_type == "company",
                                                               space_instructions=instructions,
                                                               profile=None if query_type == "company" else profile,

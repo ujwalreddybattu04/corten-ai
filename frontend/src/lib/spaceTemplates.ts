@@ -86,6 +86,74 @@ export const SPACE_TEMPLATES: SpaceTemplate[] = [
     },
 ];
 
+/** Expert first questions for Spaces started from a template. */
+const STARTERS: Record<string, string[]> = {
+    tpl_market_access: [
+        "Compare HTA outcomes for recent oncology launches in Germany, France and the UK",
+        "Which EU markets reimburse new medicines fastest, and why?",
+        "Summarize this year's EU pricing and reimbursement policy changes",
+    ],
+    tpl_competitive: [
+        "What changed in our main competitors' pipelines this month?",
+        "Which deals and partnerships did competitors announce this quarter?",
+        "Compare the late-stage oncology pipelines of the top five companies",
+    ],
+    tpl_regulatory: [
+        "What did the EMA's CHMP recommend at its latest meeting?",
+        "Which FDA approvals this month matter most for oncology?",
+        "Summarize new MHRA guidance published this quarter",
+    ],
+    tpl_research: [
+        "What does recent research say about AI in drug discovery?",
+        "Compare the leading explanations for long COVID",
+        "Which 2026 papers on CAR-T therapy are most cited?",
+    ],
+    tpl_data: [
+        "How should I compare growth rates across markets of different sizes?",
+        "Which chart best shows market share changing over time?",
+        "How do I check a sales forecast for seasonality?",
+    ],
+    tpl_patents: [
+        "Find recent patents on mRNA delivery technologies",
+        "Who holds the key patents for oral GLP-1 formulations?",
+        "Summarize prior art for solid-state battery electrolytes",
+    ],
+    tpl_study: [
+        "Turn the key ideas of macroeconomics into a study guide",
+        "Give me ten practice questions on cell biology, with answers",
+        "Explain the Krebs cycle in simple terms",
+    ],
+    tpl_tutor: [
+        "Help me understand compound interest step by step",
+        "Walk me through solving a quadratic equation",
+        "How do vaccines train the immune system?",
+    ],
+    tpl_code: [
+        "How do I paginate a REST API in FastAPI?",
+        "Explain async and await in JavaScript with an example",
+        "What is the cleanest way to retry failed HTTP requests in Python?",
+    ],
+    tpl_writing: [
+        "Make my executive summary more concise",
+        "Suggest three openings for a product launch email",
+        "How can I make a status update sound confident but not overpromising?",
+    ],
+    tpl_trip: [
+        "Plan a 5-day trip to Lisbon on a mid-range budget",
+        "When is the best time to visit Japan with fewer crowds?",
+        "Plan a family-friendly weekend in Barcelona",
+    ],
+};
+
+/** First questions to suggest in an empty Space: the template's own when the Space came from one,
+ *  otherwise questions every Space can answer well (its overview, news on its topic, its files). */
+export function starterQuestions(space: { name: string; instructions: string }, hasFiles: boolean): string[] {
+    const template = SPACE_TEMPLATES.find(item => item.instructions === space.instructions)
+        ?? SPACE_TEMPLATES.find(item => item.name.toLowerCase() === space.name.trim().toLowerCase());
+    const general = template ? STARTERS[template.id] ?? [] : ["What's this Space for?", "What's new this week?", `Give me a briefing on ${space.name}`];
+    return [...(hasFiles ? ["Summarize the key points across our files"] : []), ...general].slice(0, 3);
+}
+
 /** Templates shown on the Spaces home page. */
 export const FEATURED_TEMPLATES = ["tpl_market_access", "tpl_competitive", "tpl_regulatory", "tpl_research", "tpl_data", "tpl_writing"]
     .map(id => SPACE_TEMPLATES.find(template => template.id === id)!);

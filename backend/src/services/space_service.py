@@ -573,6 +573,20 @@ async def retrieve(db, space_id: UUID, query: str, broad: bool = False) -> list[
     } for file_id, passages in grouped.items() if file_id in names]
 
 
+PROMPT_FILE_NAMES = 20
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_SPACE_TAG = re.compile(r"<\s*/?\s*space\s*>", re.I)
+
+
+def prompt_safe(text: str, limit: int, single_line: bool = False) -> str:
+    """Member-written text for the prompt: no control characters, no tags that would end the Space
+    section early, bounded length."""
+    text = _SPACE_TAG.sub("", _CONTROL.sub(" ", text or ""))
+    if single_line:
+        text = re.sub(r"\s+", " ", text)
+    return text.strip()[:limit]
+
+
 @dataclass
 class SpaceContext:
     """What a question asked inside a Space carries into answer generation."""
@@ -582,15 +596,39 @@ class SpaceContext:
     web_search: bool = True
     domains: list[str] = field(default_factory=list)
     has_files: bool = False
+    description: str = ""
+    file_names: list[str] = field(default_factory=list)
+    file_count: int = 0
 
-    async def retrieve(self, query: str) -> list[dict]:
+    def prompt_text(self) -> str:
+        """The Space as the model sees it: what it is for, what it holds, then its instructions.
+        Without this, "what's this about?" asked in a Space has nothing to refer to."""
+        lines = [f"Name: {prompt_safe(self.name, 100, single_line=True)}"]
+        description = prompt_safe(self.description, 1000, single_line=True)
+        if description:
+            lines.append(f"Purpose: {description}")
+        names = [name for name in (prompt_safe(item, 100, single_line=True) for item in self.file_names) if name]
+        # Stated even when empty, so the model never assumes the Space holds material it does not.
+        if names:
+            more = max(0, self.file_count - len(names))
+            lines.append(f"Files ({self.file_count}): " + "; ".join(names) + (f"; and {more} more" if more else ""))
+        else:
+            lines.append(f"Files: {self.file_count}" if self.file_count else "Files: none yet")
+        lines.append("Priority sites: " + (", ".join(self.domains) if self.domains else "none"))
+        lines.append("Web search: on" if self.web_search else "Web search: off (answers use only this Space's files)")
+        instructions = prompt_safe(self.instructions, 8000)
+        # Instructions go last so the Space's identity always fits.
+        return "\n".join(lines) + ("\n\nInstructions:\n" + instructions if instructions else "")
+
+    async def retrieve(self, query: str, broad: bool = False) -> list[dict]:
         if not self.has_files:
             return []
         from src.db.session import async_session_factory
         async with async_session_factory() as db:
             # Unmatched questions get no file passages, so a files-only Space never answers
-            # unrelated questions from model knowledge. "Summarize the document" still works.
-            return await retrieve(db, self.space_id, query)
+            # unrelated questions from model knowledge. "Summarize the document" still works,
+            # and broad questions about the Space get the opening of its newest files.
+            return await retrieve(db, self.space_id, query, broad=broad)
 
 
 def link_domains(links: list[str]) -> list[str]:
@@ -605,6 +643,9 @@ def link_domains(links: list[str]) -> list[str]:
 
 async def search_context(db, space_id, user_id) -> SpaceContext:
     space, _ = await access(db, space_id, user_id, "editor")
-    has_files = bool(await db.scalar(select(SpaceFile.id).where(SpaceFile.space_id == space.id).limit(1)))
+    file_count = await db.scalar(select(func.count()).select_from(SpaceFile).where(SpaceFile.space_id == space.id)) or 0
+    names = (await db.scalars(select(SpaceFile.filename).where(SpaceFile.space_id == space.id)
+                              .order_by(SpaceFile.created_at.desc()).limit(PROMPT_FILE_NAMES))).all() if file_count else []
     return SpaceContext(space_id=space.id, name=space.name, instructions=(space.custom_instructions or "").strip(),
-                        web_search=bool(space.web_search), domains=link_domains(space.links), has_files=has_files)
+                        web_search=bool(space.web_search), domains=link_domains(space.links), has_files=file_count > 0,
+                        description=(space.description or "").strip(), file_names=list(names), file_count=file_count)
