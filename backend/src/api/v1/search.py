@@ -76,7 +76,10 @@ async def generate_title(request: TitleRequest):
     try:
         from src.services.conversation_memory import conversation_intent
         from src.services.thread_titles import fallback_title, is_greeting
+        from src.services.app_state import selection_question
         fallback = fallback_title(request.query)
+        if selection_question(request.query):
+            return {"title": "Chat mode selection", "source": "local"}
         if conversation_intent(request.query) or is_greeting(request.query):
             return {"title": fallback, "source": "local"}
         from src.services.llm_service import groq_llm_service

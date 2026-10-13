@@ -28,6 +28,7 @@ from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
 from src.config.settings import settings
 from src.services.application_facts import self_answer
+from src.services.app_state import selection_answer
 from src.services.agents.query_context import clean_history
 from src.services.conversation_memory import recall_answer, acknowledge_note, MISSING_HISTORY
 from src.services.answer_grounding import verify_company_answer, UNVERIFIED_ANSWER, company_answer_cache_key
@@ -74,6 +75,15 @@ class SearchOrchestrator:
         """
         if not query.strip():
             yield _sse("error", {"message": "Query cannot be empty"})
+            yield _sse("done", {})
+            return
+
+        # Current selector state comes from the authorized request, not previous
+        # answers, provider inference, attached material or an external search.
+        turn = turn or TurnContext()
+        selected = selection_answer(query, turn, focus_mode)
+        if selected is not None:
+            yield _sse("token", {"content": selected})
             yield _sse("done", {})
             return
 

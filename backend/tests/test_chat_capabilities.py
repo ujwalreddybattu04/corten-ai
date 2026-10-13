@@ -89,6 +89,19 @@ def png(width=40, height=30, mode="RGBA", color=(200, 30, 30, 128), exif=False):
 
 # ── Modes ────────────────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,label", [("auto", "Auto"), ("fast", "Fast"), ("pro", "Pro"), ("think", "Extended thinking")])
+async def test_current_selection_reaches_stream_through_authenticated_api(client, mode, label):
+    with patch("src.services.search_orchestrator.smart_router.route", AsyncMock(side_effect=AssertionError("No search routing"))):
+        response = await client.post("/api/v1/search/stream", headers=as_user(ALICE), json={
+            "query": "which mode i selected now ??", "mode": mode, "incognito": True,
+            "messages": [{"role": "assistant", "content": "You selected another mode yesterday."}]})
+    assert response.status_code == 200
+    events = [json.loads(line.removeprefix("data: ")) for line in response.text.splitlines() if line.startswith("data: ")]
+    assert [event["type"] for event in events] == ["token", "done"]
+    assert f"**{label}**" in events[0]["content"]
+
+
 def test_answer_modes_choose_capable_models():
     assert answer_modes.resolve("auto").model == settings.DEFAULT_MODEL
     assert answer_modes.resolve("auto", complexity=5).model == settings.HEAVY_MODEL
