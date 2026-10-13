@@ -14,12 +14,14 @@ export default function SignOutDialog({ onCancel, onConfirm }: {
         const element = dialog.current;
         if (!element) return;
         const overflow = document.body.style.overflow;
+        const ownsScrollLock = overflow !== "hidden";
         const previous = document.activeElement as HTMLElement | null;
-        document.body.style.overflow = "hidden";
+        if (ownsScrollLock) document.body.style.overflow = "hidden";
         if (!element.open) element.showModal();
         cancel.current?.focus();
         return () => {
-            element.close(); document.body.style.overflow = overflow;
+            element.close();
+            if (ownsScrollLock) document.body.style.overflow = overflow;
             if (previous?.isConnected) previous.focus({ preventScroll: true });
         };
     }, []);
