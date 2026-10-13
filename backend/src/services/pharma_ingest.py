@@ -13,7 +13,7 @@ from src.services.pharma_catalog import SOURCE_CATALOG,TRADE_DOMAINS
 from src.services.pharma_repository import store_record,register_drug,seed_identities,link_drugs
 from src.services.pharma_sources import (
     FDA_DRUGS_RSS,FDA_SAFETY_RSS,EMA_JSON,TRADE_FEEDS,USER_AGENT,
-    read_response,get_json,rss_records,clinical_records,fda_records,ema_records,indexed_news,
+    read_response,get_json,rss_records,clinical_records,fda_records,ema_records,indexed_news,publisher_feed,drug_recalls,
 )
 
 logger=logging.getLogger(__name__)
@@ -40,8 +40,15 @@ async def fetch_source(client,name,since,until,state):
         return records,[],{**metadata,"next_cursor":cursor,"window":window,"rejected_records":rejected,"limited":bool(cursor) or bool(rejected)}
     if name in ("fda_updates","fda_safety"):
         url=FDA_DRUGS_RSS if name=="fda_updates" else FDA_SAFETY_RSS
-        async with client.stream("GET",url) as response:body=await read_response(response)
-        records,metadata=rss_records(body,name,("fda.gov",),since,until)
+        try:
+            prior=state.metadata_json if state else {}
+            retry=prior.get('primary_feed_retry_at')
+            if retry and datetime.fromisoformat(retry)>datetime.now(timezone.utc):raise ValueError('Primary publisher cooldown')
+            body=await publisher_feed(client,url,("fda.gov",))
+            records,metadata=rss_records(body,name,("fda.gov",),since,until)
+        except (ValueError,httpx.HTTPError):
+            records,metadata=await drug_recalls(client,since,until) if name=="fda_safety" else await indexed_news(client,name,since,until)
+            metadata={**metadata,'primary_feed_unavailable':True,'primary_feed_retry_at':retry if retry and datetime.fromisoformat(retry)>datetime.now(timezone.utc) else (datetime.now(timezone.utc)+timedelta(days=1)).isoformat()}
         return records,[],metadata
     if name=="ema":
         data=await get_json(client,EMA_JSON,limit=32*1024*1024)
@@ -51,7 +58,7 @@ async def fetch_source(client,name,since,until,state):
         failures=[]
         for url in TRADE_FEEDS:
             try:
-                async with client.stream("GET",url) as response:body=await read_response(response)
+                body=await publisher_feed(client,url,TRADE_DOMAINS)
                 records,metadata=rss_records(body,name,TRADE_DOMAINS,since,until)
                 if records:return records,[],metadata
             except (httpx.HTTPError,ValueError) as failure:failures.append(type(failure).__name__)
@@ -66,8 +73,9 @@ async def ingest_source(name,now):
         state=await db.get(PharmaSourceState,name)
         previous=state.checked_at if state else None
         retry_at=(state.metadata_json or {}).get("retry_at") if state else None
-        if retry_at and datetime.fromisoformat(retry_at)>now:return {"source":name,"deferred":True}
-        interval=timedelta(minutes=15) if name=="trials" and state and state.metadata_json.get("next_cursor") else timedelta(hours=6 if name in ("company","news","ema") else 1)
+        repaired_redirect=name in ('fda_updates','fda_safety') and state and state.metadata_json.get('last_error')=='HTTP_302'
+        if retry_at and datetime.fromisoformat(retry_at)>now and not repaired_redirect:return {"source":name,"deferred":True}
+        interval=timedelta(minutes=15) if name=="trials" and state and state.metadata_json.get("next_cursor") else timedelta(hours=6 if name in ("company","news","ema") or name=='fda_updates' and state and state.metadata_json.get('method')=='domain_restricted_search_index' else 1)
         if previous and state.status in ("available","empty") and now-previous<interval:return {"source":name,"fresh":True}
         since=(now.date()-timedelta(days=89)).isoformat();until=now.date().isoformat()
         try:

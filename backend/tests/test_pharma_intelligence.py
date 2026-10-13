@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import pytest
-from src.services.pharma_catalog import drug_identity, unique_aliases, mentioned_drugs
-from src.services.pharma_sources import rss_records, ema_records, safe_source_url, publication_date
+from src.services.pharma_catalog import AliasMatcher, drug_identity, unique_aliases, mentioned_drugs
+from src.services.pharma_sources import rss_records, ema_records, safe_source_url, publication_date, publisher_feed, drug_recalls, fda_records
 from src.services.pharma_bedrock_analysis import evidence_messages, validate_answer
 from src.services.llm_runtime import LLMProviderError
 from src.services.pharma_bedrock_analysis import source_summary
@@ -22,6 +22,14 @@ def test_verified_alias_and_ambiguous_names_and_combinations():
     assert mentioned_drugs({"title":"Reblozyl update"},aliases)==[drug]
     assert mentioned_drugs({"title":"Reblozylous update"},aliases)==[]
 
+
+def test_literal_matcher_preserves_overlaps_unicode_and_word_boundaries():
+    aliases={"example":"single","example acetate":"salt","药物":"chinese","x.y":"literal"}
+    matcher=AliasMatcher(aliases)
+    assert matcher.match("example acetate / 药物 / x.y")==["chinese","literal","salt","single"]
+    assert matcher.match("examples / xay / 药物名 / _example")==[]
+    assert mentioned_drugs({"title":"ＥＸＡＭＰＬＥ   acetate"},aliases,matcher)==["salt","single"]
+
 def test_source_dates_urls_and_xml_fail_closed():
     assert not publication_date("unknown")
     assert not safe_source_url("https://fda.gov.evil.example/news",("fda.gov",))
@@ -30,6 +38,39 @@ def test_source_dates_urls_and_xml_fail_closed():
     xml=b'<rss><channel><item><title>Drug update</title><link>https://www.fda.gov/drugs/news</link><pubDate>Wed, 14 Oct 2026 00:00:00 GMT</pubDate><description>Tablet recall</description></item><item><title>Undated</title></item></channel></rss>'
     rows,meta=rss_records(xml,"fda_safety",("fda.gov",),"2026-10-01","2026-10-14")
     assert len(rows)==1 and rows[0][2][0]["kind"]=="safety_alert" and meta["undated_excluded"]==1
+
+
+@pytest.mark.asyncio
+async def test_publisher_redirects_stay_on_verified_hosts_and_reject_abuse_pages():
+    import httpx
+    requests=[]
+    def handler(request):
+        requests.append(str(request.url))
+        return httpx.Response(302,headers={'Location':'/apology_objects/abuse-detection-apology.html'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ValueError):await publisher_feed(client,'https://www.fda.gov/rss.xml',('fda.gov',))
+    assert len(requests)==1
+
+
+@pytest.mark.asyncio
+async def test_drug_recall_report_date_is_not_initiation_and_devices_are_excluded():
+    import httpx
+    record={'product_type':'Drugs','recall_number':'D-0001-2026','report_date':'20261014','recall_initiation_date':'20260912','classification':'Class II','status':'Ongoing','product_description':'Example tablets','reason_for_recall':'Incorrect label','recalling_firm':'Example'}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'results':[record,{**record,'product_type':'Devices','recall_number':'Z-0001-2026'}]}))) as client:
+        rows,meta=await drug_recalls(client,'2026-10-01','2026-10-14')
+    assert len(rows)==1 and rows[0][0]['date']=='2026-10-14' and rows[0][0]['details']['recall_initiation_date']=='2026-09-12'
+    assert rows[0][0]['date_label']=='FDA enforcement report date' and meta['method']=='openfda_drug_enforcement'
+
+
+@pytest.mark.asyncio
+async def test_generic_supplement_does_not_become_an_original_generic_approval():
+    import httpx
+    record={'application_number':'ANDA123456','products':[{'brand_name':'Example','active_ingredients':[{'name':'Example ingredient'}]}],
+            'submissions':[{'submission_type':kind,'submission_number':str(n),'submission_status':'AP','submission_status_date':'20261014'} for n,kind in enumerate(['ORIG','SUPPL'])]}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'results':[record]}))) as client:
+        rows,_=await fda_records(client,'2026-10-01','2026-10-14')
+    assert [r[2][0]['kind'] for r in rows]==['fda_generic_approval','fda_supplemental_approval']
+    assert 'FDA generic approval' in rows[0][0]['title']
 
 def test_ema_positive_opinion_is_not_authorisation():
     record={"category":"human","name_of_medicine":"Example","ema_product_number":"EMEA/H/C/123",

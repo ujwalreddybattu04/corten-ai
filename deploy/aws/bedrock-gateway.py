@@ -69,11 +69,18 @@ def validated_request(value):
 
 
 def aws(operation,body,timeout):
-    # Lists and stdin keep source text out of shell syntax, process arguments and files.
-    completed=subprocess.run(["aws","bedrock-runtime",operation,"--region",REGION,"--cli-input-json","file:///dev/stdin",
-        "--cli-connect-timeout","5","--cli-read-timeout",str(timeout),"--output","json"],
-        input=json.dumps(body,ensure_ascii=False),capture_output=True,text=True,timeout=timeout+10,
-        env={**os.environ,"AWS_MAX_ATTEMPTS":"1","AWS_RETRY_MODE":"standard"})
+    # An anonymous RAM file supports CLI file loading without
+    # putting prompts in shell syntax, process arguments or persistent files.
+    descriptor=os.memfd_create("corten-bedrock-request",flags=os.MFD_CLOEXEC)
+    try:
+        with os.fdopen(os.dup(descriptor),"wb") as stream:
+            stream.write(json.dumps(body,ensure_ascii=False).encode("utf-8"))
+        os.lseek(descriptor,0,os.SEEK_SET)
+        completed=subprocess.run(["aws","bedrock-runtime",operation,"--region",REGION,"--cli-input-json",f"file:///proc/self/fd/{descriptor}",
+            "--cli-connect-timeout","5","--cli-read-timeout",str(timeout),"--output","json"],
+            pass_fds=(descriptor,),capture_output=True,text=True,timeout=timeout+10,
+            env={**os.environ,"AWS_MAX_ATTEMPTS":"1","AWS_RETRY_MODE":"standard","AWS_PAGER":"","AWS_CLI_FILE_ENCODING":"UTF-8"})
+    finally:os.close(descriptor)
     if completed.returncode:raise RuntimeError("Bedrock operation unavailable")
     value=json.loads(completed.stdout)
     if not isinstance(value,dict):raise ValueError("Invalid provider response")

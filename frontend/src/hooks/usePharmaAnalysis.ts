@@ -51,7 +51,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                 } else if (event.type === "related") {
                     const questions = (event as unknown as { questions?: unknown }).questions;
                     if (Array.isArray(questions)) setRelated(questions.filter((q): q is string => typeof q === "string").slice(0, 5));
-                } else if (event.type === "analysis_meta") {
+                } else if (event.type === "analysis_meta" && query === PHARMA_ANALYSIS_PROMPT) {
                     const metadata = event as unknown as { model?: unknown; basis?: unknown };
                     if (typeof metadata.model === "string") setModel(metadata.basis === "source_summary" ? "Source-based summary" : metadata.model === "amazon.nova-pro-v1:0" ? "Amazon Nova Pro · AWS Bedrock" : metadata.model === "amazon.nova-lite-v1:0" ? "Amazon Nova Lite · AWS Bedrock" : "");
                 }

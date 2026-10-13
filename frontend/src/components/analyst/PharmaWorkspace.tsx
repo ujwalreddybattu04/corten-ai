@@ -221,6 +221,7 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
             <a href={provider.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={13} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
             <span className={`pi-source-status ${provider.status === "stale" || provider.status === "unavailable" || provider.status === "authentication_required" ? "pi-status-attention" : ""}`}>{SOURCE_STATUS[provider.status]}</span>
             <p>{provider.scope}</p><p>{provider.cadence}</p>
+            {provider.coverage?.coverage && <p>{provider.coverage.coverage}</p>}
             <dl><div><dt>Successful check</dt><dd>{checkedDate(provider.checked_at)}</dd></div>
               {provider.source_updated_at && <div><dt>Dataset date</dt><dd>{eventDate(provider.source_updated_at)}</dd></div>}
             </dl>

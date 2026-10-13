@@ -2,8 +2,9 @@
 import json
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,urljoin
 import xml.etree.ElementTree as ET
+from urllib.parse import urlencode
 import httpx
 from src.config.settings import settings
 from src.services.pharma_catalog import COMPANIES, TRADE_DOMAINS
@@ -15,6 +16,7 @@ FDA_SAFETY_RSS="https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feed
 EMA_JSON="https://www.ema.europa.eu/en/documents/report/medicines-output-medicines_json-report_en.json"
 TRADE_FEEDS=("https://pharmatimes.com/feed/","https://www.fiercebiotech.com/rss/xml")
 FDA_URL="https://api.fda.gov/drug/drugsfda.json"
+ENFORCEMENT_URL="https://api.fda.gov/drug/enforcement.json"
 TRIALS_URL="https://clinicaltrials.gov/api/v2/studies"
 USER_AGENT="Corten-Pharma/1.0 (public scientific metadata; bounded periodic ingestion)"
 
@@ -55,10 +57,24 @@ async def read_response(response,limit=2_000_000):
     return bytes(body)
 
 
+async def publisher_feed(client,url,domains):
+    for _ in range(4):
+        async with client.stream("GET",url) as response:
+            if response.status_code in (301,302,303,307,308):
+                target=safe_source_url(urljoin(url,response.headers.get("Location","")),domains)
+                if not target or target==url or '/apology_objects/' in urlsplit(target).path:raise ValueError("Publisher access unavailable")
+                url=target;continue
+            return await read_response(response)
+    raise ValueError("Publisher redirect limit reached")
+
+
 async def get_json(client,url,limit=2_000_000,**kwargs):
     async with client.stream("GET",url,headers={"User-Agent":USER_AGENT,"Accept":"application/json"},**kwargs) as response:
-        if response.status_code==404 and url==FDA_URL:
-            body=await response.aread()
+        if response.status_code==404 and url in (FDA_URL,ENFORCEMENT_URL):
+            body=bytearray()
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk)
+                if len(body)>10000:raise ValueError("Invalid source error response")
             if len(body)<=10000 and json.loads(body).get("error",{}).get("code")=="NOT_FOUND":return {"results":[]}
         return json.loads(await read_response(response,limit))
 
@@ -186,8 +202,8 @@ def ema_records(data,since,until):
 
 async def indexed_news(client,source,since,until):
     if not settings.TAVILY_API_KEY:raise ValueError("Indexed news provider not configured")
-    domains=list(COMPANIES) if source=="company" else list(TRADE_DOMAINS)
-    query='drug clinical trial regulatory pharmaceutical press release' if source=='company' else 'pharmaceutical biotechnology clinical trial regulatory news'
+    domains=list(COMPANIES) if source=="company" else ['fda.gov'] if source=='fda_updates' else list(TRADE_DOMAINS)
+    query='drug clinical trial regulatory pharmaceutical press release' if source=='company' else 'FDA drug approvals announcements press release' if source=='fda_updates' else 'pharmaceutical biotechnology clinical trial regulatory news'
     async with client.stream("POST","https://api.tavily.com/search",headers={"Authorization":"Bearer "+settings.TAVILY_API_KEY},
         json={"query":query,"search_depth":"basic","max_results":15,"include_domains":domains,
             "start_date":since,"end_date":until,"include_published_date":True,"include_answer":False,"include_raw_content":False}) as response:
@@ -202,14 +218,41 @@ async def indexed_news(client,source,since,until):
             for marker in ("press-release","press_releases","media-releases","/news/details/")):
             continue
         host=urlsplit(url).hostname
-        issuer=next((name for domain,name in COMPANIES.items() if host==domain or host.endswith('.'+domain)),host.replace('www.',''))
+        issuer='FDA' if source=='fda_updates' else next((name for domain,name in COMPANIES.items() if host==domain or host.endswith('.'+domain)),host.replace('www.',''))
         title=clean_text(entry.get("title"),500);summary=clean_text(entry.get("content"),500)
         if not title:continue
-        kind="press_release" if source=="company" else "trade_report"
+        kind="press_release" if source=="company" else "fda_announcement" if source=='fda_updates' else "trade_report"
         item={"id":source+":"+digest(url),"source":source,"title":title,"summary":summary,"date":when,
-            "date_label":"Indexed publication date","organization":issuer,"url":url,"category":"Company news" if source=="company" else "Industry news",
-            "tags":["Official company source" if source=="company" else "Trade reporting"],"details":{"publisher":issuer},
+            "date_label":"Indexed publication date","organization":issuer,"url":url,"category":"Company news" if source=="company" else "Regulatory" if source=='fda_updates' else "Industry news",
+            "tags":["Official company source" if source=="company" else "Official FDA source" if source=='fda_updates' else "Trade reporting"],"details":{"publisher":issuer},
             "evidence":{"coverage":"Search-index headline and short excerpt; original page not fully retrieved","publication_date":when}}
-        event={"kind":kind,"label":"Company publication" if source=="company" else "Trade report","date":when,"date_label":item["date_label"],"changes":[],"baseline":True,"reason":None}
+        event={"kind":kind,"label":"Company publication" if source=="company" else "FDA publication" if source=='fda_updates' else "Trade report","date":when,"date_label":item["date_label"],"changes":[],"baseline":True,"reason":None}
         rows.append((item,{"title":title,"summary":summary,"url":url,"published_date":when},[event]))
-    return rows,{"limited":len(data["results"])>=15 or bool(undated),"undated_excluded":undated,"method":"domain_restricted_search_index","monitored_domains":domains}
+    return rows,{"limited":True,"undated_excluded":undated,"method":"domain_restricted_search_index","monitored_domains":domains,
+        "coverage":"Search-index discovery of dated official publications" if source in ('company','fda_updates') else "Search-index discovery of dated trade publications"}
+
+
+async def drug_recalls(client,since,until):
+    """Structured official drug-only enforcement reports, preserving both date meanings."""
+    url=ENFORCEMENT_URL
+    params={'search':f'report_date:[{since.replace("-","")} TO {until.replace("-","")}]','sort':'report_date:desc','limit':100}
+    auth=httpx.BasicAuth(settings.OPENFDA_API_KEY,'') if settings.OPENFDA_API_KEY else None
+    data=await get_json(client,url,limit=8_000_000,params=params,auth=auth)
+    if not isinstance(data,dict) or not isinstance(data.get('results'),list):raise ValueError('Invalid FDA enforcement response')
+    rows=[]
+    for raw in data['results']:
+        when=iso_date(raw.get('report_date'));identifier=raw.get('recall_number')
+        if str(raw.get('product_type','')).casefold()!='drugs' or not isinstance(identifier,str) or not identifier or len(identifier)>80 or not when or not since<=when<=until:continue
+        description=clean_text(raw.get('product_description'),500);reason=clean_text(raw.get('reason_for_recall'),1200)
+        original=url+'?'+urlencode({'search':'recall_number:"'+identifier+'"'})
+        details={'recall_number':identifier,'classification':clean_text(raw.get('classification'),80),'recall_status':clean_text(raw.get('status'),80)}
+        initiated=iso_date(raw.get('recall_initiation_date'))
+        if initiated:details['recall_initiation_date']=initiated
+        item={'id':'fda_safety:recall:'+identifier,'source':'fda_safety','title':description[:240] or identifier,'summary':reason[:500],
+              'date':when,'date_label':'FDA enforcement report date','organization':clean_text(raw.get('recalling_firm'),240),'category':'Drug recall',
+              'url':original,'tags':['Official FDA drug recall',details['classification']],'details':details,
+              'evidence':{'report_date':when,'recall_initiation_date':initiated,'coverage':'Structured FDA enforcement report; classification and scope are source facts'}}
+        event={'kind':'safety_alert','label':'FDA drug recall report','date':when,'date_label':item['date_label'],'changes':[],'baseline':True,'reason':reason or None}
+        selected={k:raw.get(k) for k in ('recall_number','report_date','recall_initiation_date','classification','status','product_description','reason_for_recall','recalling_firm','distribution_pattern','code_info','product_quantity')}
+        rows.append((item,selected,[event]))
+    return rows,{'limited':data.get('meta',{}).get('results',{}).get('total',0)>100,'method':'openfda_drug_enforcement','coverage':'Classified FDA drug enforcement reports; report date differs from recall initiation'}

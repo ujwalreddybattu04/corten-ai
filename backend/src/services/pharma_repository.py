@@ -5,7 +5,7 @@ from sqlalchemy import and_, or_, select, delete
 from sqlalchemy.dialects.postgresql import insert
 from src.db.session import async_session_factory
 from src.models.pharma import PharmaDocument, PharmaSnapshot, PharmaEvent, PharmaSourceState, PharmaDrug, PharmaDrugAlias, PharmaEventDrug
-from src.services.pharma_catalog import SOURCE_CATALOG, VERIFIED_IDENTITIES, drug_identity, normalize_name, unique_aliases, mentioned_drugs
+from src.services.pharma_catalog import SOURCE_CATALOG, VERIFIED_IDENTITIES, AliasMatcher, drug_identity, normalize_name, unique_aliases, mentioned_drugs
 from src.services.pharma_events import RULE_VERSION, digest, impact, trial_events
 
 
@@ -79,7 +79,7 @@ async def store_record(db,item,raw,events=None,now=None):
 
 async def link_drugs(db):
     aliases=unique_aliases((await db.execute(select(PharmaDrugAlias.alias,PharmaDrugAlias.drug_id))).all())
-    signature=digest(aliases)
+    signature=digest([aliases,"literal-matcher-1"]);matcher=AliasMatcher(aliases)
     state=await db.get(PharmaSourceState,"drug_links")
     since=state.checked_at if state and state.metadata_json.get("aliases_version")==signature else None
     now=datetime.now(timezone.utc)
@@ -91,7 +91,7 @@ async def link_drugs(db):
         batch=(await db.scalars(query.order_by(PharmaEvent.id).limit(200))).all()
         if not batch:break
         for event in batch:
-            drugs=mentioned_drugs(event.evidence["item"],aliases)
+            drugs=mentioned_drugs(event.evidence["item"],aliases,matcher)
             # A later ambiguous alias or corrected article must remove obsolete associations.
             await db.execute(delete(PharmaEventDrug).where(PharmaEventDrug.event_id==event.id,
                 PharmaEventDrug.drug_id.not_in(drugs)))

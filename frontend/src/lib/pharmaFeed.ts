@@ -26,6 +26,7 @@ export interface PharmaSource {
   status: "available" | "empty" | "stale" | "unavailable" | "unconfigured" | "authentication_required";
   checked_at: string | null; source_updated_at: string | null;
   limited?: boolean; items: PharmaItem[];
+  coverage?: { coverage?: string; method?: string };
 }
 export interface PharmaFeed {
   schema_version?: 2;
