@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Dict, Any, List
 
 from src.config.settings import settings
-from src.services.llm_runtime import build_llm_client, LLMProviderError
+from src.services.llm_runtime import build_llm_client, LLMProviderError, LLMQuotaError
 from src.services.article_summary import complete_summary, ArticleSummaryIncompleteError
 from src.services.agents.query_context import clean_history, company_alias
 from src.services.conversation_memory import answer_context, CONVERSATION_SYSTEM_PROMPT
@@ -15,10 +15,11 @@ from src.config.prompts import (
     RAG_SYSTEM_PROMPT, DIRECT_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT,
     TITLE_SYSTEM_PROMPT, FOLLOW_UP_SYSTEM_PROMPT, ARTICLE_SUMMARY_SYSTEM_PROMPT,
     FOCUS_MODE_PROMPTS, FOCUS_MODE_PLANNING_HINTS,
-    COMPANY_FACTS_SYSTEM_PROMPT,
+    COMPANY_FACTS_SYSTEM_PROMPT, date_context, resolve_relative_dates, style_reminder,
 )
 
 logger = logging.getLogger(__name__)
+QUOTA_WAIT_SECONDS = 8   # a provider cooldown this short is waited out instead of failing the answer
 
 
 class ReasoningChunk(str):
@@ -72,7 +73,7 @@ class GroqLLMService:
 
         Injects focus-mode-specific instructions when a specialized mode is active.
         """
-        current_date = datetime.now().strftime("%B %d, %Y")
+        current_date = date_context()
 
         if company_lookup:
             return COMPANY_FACTS_SYSTEM_PROMPT.format(
@@ -157,6 +158,9 @@ class GroqLLMService:
                 "use clearly marked placeholders for missing figures. Do not claim to have reviewed "
                 "financial projections, historical data or market analysis that was not supplied."
             )
+        current_request += resolve_relative_dates(query)
+        if not conversation_only and not company_lookup:
+            current_request += style_reminder(cited=bool(context_results), query=query)
         if artifact:
             current_request += artifacts.REMINDER
         if images:
@@ -169,7 +173,7 @@ class GroqLLMService:
             model_options = {}
             if profile.model.startswith("openai/gpt-oss-"):
                 model_options["reasoning_effort"] = profile.reasoning_effort or "low"
-            stream = await self.client.chat.completions.create(
+            request = dict(
                 messages=messages_payload,
                 model=profile.model,
                 temperature=0.2,
@@ -181,6 +185,21 @@ class GroqLLMService:
                 ] if context_results and not artifact else None,
                 **model_options,
             )
+            try:
+                stream = await self.client.chat.completions.create(**request)
+            except LLMQuotaError as error:
+                # Before any output: each text model has its own per-minute quota, so the other one answers
+                # instead of the user getting "try again in N seconds"; a short cooldown is otherwise waited out.
+                alternate = {settings.DEFAULT_MODEL: settings.HEAVY_MODEL,
+                             settings.HEAVY_MODEL: settings.DEFAULT_MODEL}.get(profile.model)
+                if alternate and not images:
+                    logger.info("Answer model out of quota; answering with %s", alternate)
+                    stream = await self.client.chat.completions.create(**{**request, "model": alternate})
+                elif (error.retry_after_seconds or 99) <= QUOTA_WAIT_SECONDS:
+                    await asyncio.sleep(error.retry_after_seconds + 0.3)
+                    stream = await self.client.chat.completions.create(**request)
+                else:
+                    raise
 
             has_content = False
             async for chunk in stream:

@@ -167,7 +167,11 @@ async def test_identical_tool_calls_are_answered_from_memory():
         events = await run_agent("apple?", data_space(), runtime)
     history.assert_awaited_once()
     assert "You already called this" in runtime.calls[2]["messages"][-1]["content"]
-    assert steps(events) == [("stock_prices", "running"), ("stock_prices", "done")]
+    # Fetched prices are charted even though the model did not draw a chart, and the chart comes first.
+    assert steps(events) == [("stock_prices", "running"), ("stock_prices", "done"),
+                             ("create_chart", "running"), ("create_chart", "done")]
+    answer = answer_text(events)
+    assert answer.count(":::artifact") == 1 and answer.index(":::artifact") < answer.index("Done.")
 
 
 @pytest.mark.asyncio
@@ -424,6 +428,8 @@ async def test_trial_results_separate_started_from_planned_trials():
     assert "22 trials match these filters: 21 have already started" in out and "1 are planned" in out
     assert f"PLANNED start {future} (not yet started)" in out and f"started {YEAR}-03-01" in out
     assert "The first 2" in out and "20 more match but are not shown" in out
+    # The listed range is stated, so the earliest listed start is never presented as the earliest of all.
+    assert f"started between {YEAR}-03-01 and {future}" in out and "do not call any listed date the earliest" in out
     labels = [e["label"] for e in drain(ctx.queue) if e["type"] == "agent_step"]
     assert labels[0] == f"Searching ClinicalTrials.gov: Novo Nordisk · phase 3 · started {YEAR}-01-01 to {YEAR + 1}-01-01"
     # A window that ends today or earlier needs no second count.
@@ -479,6 +485,12 @@ async def test_automatic_chart_draws_fetched_series_once():
     assert await toolkit.auto_chart(ctx) == "" and len(ctx.charts) == 1
     tokens = [e["content"] for e in drain(ctx.queue) if e["type"] == "token"]
     assert len(tokens) == 1 and tokens[0].startswith(':::artifact{type="react" title="Apple Inc. (AAPL)"}')
+    # When every series measures the same thing, the title says what is plotted.
+    ctx = toolkit.RunContext(queue=asyncio.Queue())
+    for country in ("Germany", "France"):
+        ctx.add_dataset(country, [("2024", 0.2), ("2025", 0.4)], "%", "year", "IMF", topic="Real GDP growth (annual %)")
+    await toolkit.auto_chart(ctx)
+    assert ctx.charts[0].startswith(':::artifact{type="react" title="Real GDP growth (annual %): Germany vs France"}')
 
 
 # ── Charts ────────────────────────────────────────────────────────────────────────────────────────

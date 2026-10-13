@@ -65,6 +65,26 @@ Settings → Personalization offers:
 
 `[1]`, `【1】` and `【1†source】` markers in answers become clickable chips that open the cited source.
 
+## Answer style
+
+Search, deep research and Space agents share one answer style (`ANSWER_STYLE` in `backend/src/config/prompts.py`). It
+is based on OpenAI's Model Spec (be clear and direct, format to aid scanning, no filler) and answer-engine practice.
+
+- The first line answers the question in one or two plain sentences, with only the key figure in bold. Answers
+  never open with a heading or a table.
+- The shape follows the question: paragraphs for facts, a short opening plus bullets for "how/why", numbered steps
+  for processes, a table for comparisons, and `##` sections only for long answers. Requested emails and letters
+  are written out directly, with nothing before or after.
+- Figures carry units, currencies ("USD 1.2 billion") and periods. Dates are unambiguous ("12 October 2026").
+  There are no "Takeaway:" labels, closing questions or source lists; the app shows sources and follow-up questions.
+- Each request ends with a short format reminder, because models follow format rules there more reliably than deep in
+  a long system prompt.
+- Dates such as "this Friday", "tomorrow" or "next month" are worked out in code (`resolve_relative_dates`) and
+  given to the model, along with today's weekday and the next seven days. Models cannot be trusted with calendar
+  arithmetic.
+- If the answer model is out of its per-minute quota before writing, the other text model answers. Deep research
+  never shows a blank answer: it retries once, then shows an error.
+
 ## Space agents
 
 Questions asked in a Space with web search on are answered by that Space's agent, which calls live data tools,

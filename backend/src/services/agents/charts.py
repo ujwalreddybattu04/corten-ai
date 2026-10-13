@@ -20,6 +20,7 @@ class Dataset:
     x_kind: str = "date"          # "date", "year" or "category"
     source: str = ""              # human-readable source line
     summary: dict = field(default_factory=dict)
+    topic: str = ""               # what the values measure, e.g. "Real GDP growth (annual %)"
 
 
 def _clean_title(text: str, limit: int = 110) -> str:

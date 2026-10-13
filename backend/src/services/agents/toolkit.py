@@ -61,9 +61,10 @@ class RunContext:
             self.queue.put_nowait(_sse("sources", {"sources": previews, "items": previews}))
         return numbers
 
-    def add_dataset(self, label: str, points: list, unit: str, x_kind: str, source: str, summary: dict | None = None) -> str:
+    def add_dataset(self, label: str, points: list, unit: str, x_kind: str, source: str, summary: dict | None = None,
+                    topic: str = "") -> str:
         dataset_id = f"d{len(self.datasets) + 1}"
-        self.datasets[dataset_id] = Dataset(dataset_id, label, points, unit, x_kind, source, summary or {})
+        self.datasets[dataset_id] = Dataset(dataset_id, label, points, unit, x_kind, source, summary or {}, topic)
         return dataset_id
 
     @asynccontextmanager
@@ -153,7 +154,10 @@ async def auto_chart(ctx: RunContext) -> str:
         return ""
     latest = list(ctx.datasets.values())[-1]
     chosen = [d for d in ctx.datasets.values() if d.x_kind == latest.x_kind][-4:]
-    title = " vs ".join(d.label for d in chosen)[:100]
+    topics = {d.topic for d in chosen if d.topic}
+    # Name what is plotted when every series measures the same thing: "Real GDP growth (annual %): Germany vs France".
+    title = ((topics.pop() + ": ") if len(topics) == 1 else "") + " vs ".join(d.label for d in chosen)
+    title = title[:120]
     try:
         async with ctx.step("create_chart", "Drawing the chart") as outcome:
             artifact, description = build_chart(chosen, title)
@@ -371,7 +375,7 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
             [number] = ctx.add_sources([data["source"]])
             s = data["summary"]
             dataset = ctx.add_dataset(f"{data['name']} ({data['symbol']})", data["points"], data["currency"], "date",
-                                      f"{data['provider']}, {data['exchange']}".strip(", "), s)
+                                      f"{data['provider']}, {data['exchange']}".strip(", "), s, topic="Share price")
             cadence = {"1d": "daily", "1wk": "weekly", "1mo": "monthly"}.get(data["interval"], data["interval"])
             text = (f"Dataset {dataset}: {data['name']} ({data['symbol']}) {cadence} closing prices in {data['currency']} "
                     f"on {data['exchange']}, from {data['provider']}, {s['start']} to {s['end']}, {s['count']} points {_cite([number])}. "
@@ -391,7 +395,8 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
                 lines = []
                 for symbol, points in data["series"].items():
                     s = data["summaries"][symbol]
-                    dataset = ctx.add_dataset(f"{data['base']}/{symbol}", points, symbol, "date", "European Central Bank", s)
+                    dataset = ctx.add_dataset(f"{data['base']}/{symbol}", points, symbol, "date", "European Central Bank", s,
+                                              topic="ECB reference rate")
                     lines.append(f"Dataset {dataset}: 1 {data['base']} in {symbol}, {s['start']} to {s['end']}: latest {_fmt(s['last'])}, "
                                  f"change {s['change_pct']}%, high {_fmt(s['high'])} ({s['high_date']}), low {_fmt(s['low'])} ({s['low_date']}).")
                 return "European Central Bank reference rates:\n" + "\n".join(lines) + f" {_cite([number])}", f"{len(data['series'])} series"
@@ -408,7 +413,7 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
             source = "IMF World Economic Outlook" if data["provider"] == "IMF" else "World Bank"
             lines = []
             for country, points in data["series"].items():
-                dataset = ctx.add_dataset(country, points, data["unit"], "year", source)
+                dataset = ctx.add_dataset(country, points, data["unit"], "year", source, topic=data["label"])
                 lines.append(f"Dataset {dataset}: {country}: " + ", ".join(
                     f"{year} {_fmt(value)}{'*' if first and int(year) >= first else ''}" for year, value in points))
             note = (f"\n* = IMF projection (from {first} on), not an outcome; label projected years as projections."
@@ -447,8 +452,13 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
                      f"primary completion {t['primary_completion']} | n={t['enrollment']} | {', '.join(t['conditions'][:2])}"
                      for n, t in zip(numbers, data["trials"])]
             order = "latest start first" if (after or before) else "most recently updated first"
+            starts = sorted(t["start"] for t in data["trials"] if t["start"])
             shown = (f"All {len(lines)} are listed" if data["total"] <= len(lines) else
                      f"The first {len(lines)} ({order}) are listed; {data['total'] - len(lines)} more match but are not shown")
+            if data["total"] > len(lines) and (after or before) and starts:
+                # Otherwise the earliest listed start reads as the earliest start of all matches.
+                shown += (f". The listed trials started between {starts[0]} and {starts[-1]}; the "
+                          f"{data['total'] - len(lines)} not listed started earlier, so do not call any listed date the earliest")
             counts = f"{data['total']} trials match these filters"
             if isinstance(begun, dict) and begun["total"] <= data["total"]:
                 counts += (f": {begun['total']} have already started (start date on or before today) and "

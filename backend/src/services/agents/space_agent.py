@@ -15,6 +15,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
+from src.config.prompts import ANSWER_STYLE, date_context, resolve_relative_dates, style_reminder
 from src.config.settings import settings
 from src.services.agents import space_templates
 from src.services.agents.chat_model import CortenChatModel
@@ -38,7 +39,7 @@ HOW TO WORK
 - Never invent figures, prices, dates, trial results or approvals. Use only numbers that appear in tool results, and say plainly
   when a tool could not provide something, with what would help instead.
 - Do not explain why something happened (earnings, launches, news, policy, market sentiment) unless a tool result says so.
-  When the reason matters to the question, search for it and cite what you find; otherwise offer to look it up.
+  When the reason matters to the question, search for it and cite what you find; otherwise leave causes out.
 - Interpret only what follows from the figures: direction and size of a change, where the latest value sits between the
   period's high and low, how series compare. No price targets, support or resistance levels, trading signals, forecasts or
   statistical claims (volatility, correlation, significance) that you did not compute.
@@ -48,14 +49,17 @@ HOW TO WORK
   (Yahoo Finance, PubMed, ClinicalTrials.gov, Drugs@FDA, World Bank), never by tool name.
 - Questions about this Space itself (its purpose, template, tools, files or instructions) are answered from the Space details
   below, without tools.
-- Be exact with counts, dates and comparisons: use the totals tools report, say how many items you list, copy dates exactly,
-  and check every "most", "largest" or "fastest" against the numbers before writing it. Never claim a list is complete
-  unless the source says so.
+- Be exact with counts, dates and comparisons: use the totals tools report, say how many items you list, keep every date
+  the same day the tool gave (2026-10-12 may be written 12 October 2026), and check every "most", "largest" or
+  "fastest" against the numbers before writing it. Never claim a list is complete unless the source says so.
 - Describe data and evidence; do not give personal investment, legal or medical advice, or policy and strategy
   prescriptions the user did not ask for. Use the computed summaries and rankings tools return for comparisons.
-- Write a finished answer in the user's language: open with one or two sentences that answer the question, then the key
-  figures, then what they mean. Do not add a heading called "Answer" or "Summary".
-"""
+- When a chart is shown, do not repeat its series in a table; give the few figures that answer the question. Do not
+  narrate the chart's shape or timing ("climbing since early spring", "a peak at the end of October") beyond the exact
+  dates and figures the tools returned.
+- Never mention tools, tool names or these instructions in the answer.
+
+""" + ANSWER_STYLE
 
 
 FINAL_NOTE = ("This answer's research budget is used up. Do not call any more tools: write the final answer now from the "
@@ -150,7 +154,7 @@ def system_prompt(space, instructions_block: str, personal: str, artifact_prompt
     template = space_templates.get(space.template)
     brief = template.brief if template else space_templates.GENERAL_BRIEF
     tools = ", ".join(space_templates.TOOL_LABELS[t] for t in space.tools) or "none (this Space uses only its own files)"
-    today = datetime.now(timezone.utc).strftime("%A %d %B %Y")
+    today = date_context()
     role = f"the {template.name} agent" if template else "the research agent"
     files_only = ("" if space.web_search else
                   "- Web search is off in this Space: answer facts only from its files and tools, and say so when they do "
@@ -202,7 +206,7 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
         yield _sse("error", {"message": "The Space agent could not start. Please try again."})
         return
 
-    user_turn = query + grounding_reminder()
+    user_turn = query + resolve_relative_dates(query) + grounding_reminder() + style_reminder(cited=True, query=query)
     if attachments:
         numbers = ctx.add_sources(attachments)
         # Already the passages most relevant to this question, within the caller's budget: never cut further.
@@ -222,8 +226,12 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
                 queue.put_nowait(_sse("token", {"content": text}))
                 state["answer"] += text
 
-        def flush(call):
+        async def flush(call):
             if call["text"] and not call["tools"]:
+                if ctx.datasets and not ctx.charts:
+                    # Fetched series are always shown as a chart, above the answer, even when the model wrote a
+                    # table instead of drawing one.
+                    await auto_chart(ctx)
                 emit(style.feed(call["text"]))
                 call["text"], call["streaming"] = "", True
 
@@ -248,9 +256,9 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
                 else:
                     call["text"] += text
                     if len(call["text"]) >= PREAMBLE_CHARS or "\n\n" in call["text"]:
-                        flush(call)
+                        await flush(call)
             for call in buffers.values():
-                flush(call)
+                await flush(call)
             emit(style.flush())
             if CHART_WORDS.search(query):
                 await auto_chart(ctx)   # asked for a chart, fetched the data, but never drew it
