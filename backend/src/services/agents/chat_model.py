@@ -62,12 +62,14 @@ class CortenChatModel(BaseChatModel):
     async def _astream(self, messages: list[BaseMessage], stop: list[str] | None = None,
                        run_manager: AsyncCallbackManagerForLLMRun | None = None, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
         payload = self._payload(messages, stop, kwargs)
-        model, attempts = self.model, 0
+        model, attempts, rejected = self.model, 0, 0
         while True:
             attempts += 1
             emitted = False
+            # A malformed tool call tends to repeat at the same temperature; vary it on a retry.
+            temperature = self.temperature if not rejected else max(self.temperature, 0.6)
             try:
-                async for generation in self._stream_once({**payload, "model": model}, run_manager):
+                async for generation in self._stream_once({**payload, "model": model, "temperature": temperature}, run_manager):
                     emitted = True
                     yield generation
                 return
@@ -75,6 +77,7 @@ class CortenChatModel(BaseChatModel):
                 # Never retry once output began. The other model has its own quota, so switch first; then a short
                 # provider cooldown is worth waiting for once, because the agent has already done work for this answer.
                 if emitted or attempts >= 3:
+                    error.after_output = emitted
                     raise
                 if self.fallback_model and model != self.fallback_model:
                     model = self.fallback_model
@@ -83,9 +86,11 @@ class CortenChatModel(BaseChatModel):
                     raise
                 await asyncio.sleep((error.retry_after_seconds or 1) + 0.3)
                 model = self.model
-            except LLMProviderError:
+            except LLMProviderError as error:
                 # A dropped stream or a rejected tool call often succeeds on a second try; never after output began.
-                if emitted or attempts >= 2:
+                rejected += 1
+                if emitted or rejected >= 2:
+                    error.after_output = emitted
                     raise
                 await asyncio.sleep(1.0)
 

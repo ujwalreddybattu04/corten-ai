@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 _SEARCH_CACHE_TTL = 300  # 5 minutes
 _NO_FILE_SEARCH = {"greeting", "identity", "question_recall", "conversation", "conversation_note"}
+AGENT_ATTACHMENT_BUDGET = 12_000
 NO_SPACE_EVIDENCE = ("I couldn't find information about this in this Space's files. Upload a relevant file, "
                      "or turn on web search in the Space settings.")
 # Router intents a context question must not override: Corten's own answers (application_facts.self_answer),
@@ -140,7 +141,8 @@ class SearchOrchestrator:
                             space.template, len(space.tools), len(documents))
                 async for event in run_space_agent(
                         asked, messages, space, turn,
-                        attachments=attachment_sources(documents, asked, 24_000) if documents else None,
+                        # Smaller than the standard answer's budget: every agent step re-sends it to the model.
+                        attachments=attachment_sources(documents, asked, AGENT_ATTACHMENT_BUDGET) if documents else None,
                         wants_artifact=artifacts.requested(asked)):
                     yield event
                 yield _sse("done", {})

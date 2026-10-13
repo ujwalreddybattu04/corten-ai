@@ -80,11 +80,12 @@ def tool_names(payload):
     return [item["function"]["name"] for item in payload.get("tools", [])]
 
 
-async def run_agent(query, space, runtime, *, mode="auto", messages=None, **options):
+async def run_agent(query, space, runtime, *, mode="auto", messages=None, raw=False, **options):
     model = CortenChatModel(runtime=runtime, model="openai/gpt-oss-120b", fallback_model="openai/gpt-oss-20b")
     with patch.object(space_agent, "agent_model", lambda _mode: model):
-        raw = [event async for event in space_agent.run_space_agent(query, messages or [], space, TurnContext(mode=mode), **options)]
-    return [json.loads(event[6:]) for event in raw]
+        events = [event async for event in space_agent.run_space_agent(query, messages or [], space, TurnContext(mode=mode), **options)]
+    # SSE comments (keepalives) carry no event.
+    return events if raw else [json.loads(event[6:]) for event in events if event.startswith("data: ")]
 
 
 def answer_text(events):
@@ -337,7 +338,7 @@ async def test_economic_data_comes_from_the_imf_with_projections_and_falls_back_
     monkeypatch.setattr(data_sources, "_fetch", fetch)
     await data_sources.economic_indicator(["DE"], "life_expectancy", 2015, 2020)
     assert all("imf.org" not in url for url, _ in fetch.seen)
-    for countries_, indicator in ((["Germany"], "gdp_growth"), ([], "gdp_growth"), (["DE"], "happiness")):
+    for countries_, indicator in ((["Atlantis"], "gdp_growth"), ([], "gdp_growth"), (["DE"], "happiness")):
         with pytest.raises(DataSourceError):
             await data_sources.economic_indicator(countries_, indicator, 2015, 2020)
 
@@ -556,3 +557,181 @@ def test_migration_recognizes_existing_template_spaces_and_is_reversible():
         with Operations.context(MigrationContext.configure(connection)):
             migration.downgrade()
         assert "template" not in [column["name"] for column in sa.inspect(connection).get_columns("spaces")]
+
+
+# ── Regressions found in review ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_loosely_typed_tool_arguments_are_normalized_instead_of_rejected():
+    # Models send 3 for "3", one string for a list, "2015" for a year and "true" for a flag.
+    ctx, tools = toolbox()
+    trials = AsyncMock(return_value={"total": 0, "trials": [], "sources": []})
+    economy = AsyncMock(side_effect=DataSourceError("stub"))
+    rates = AsyncMock(side_effect=DataSourceError("stub"))
+    papers = AsyncMock(return_value={"total": 0, "articles": [], "sources": []})
+    with patch.object(data_sources, "clinical_trials", trials), patch.object(data_sources, "economic_indicator", economy), \
+         patch.object(data_sources, "exchange_rates", rates), patch.object(data_sources, "pubmed", papers):
+        await tools["clinical_trials"].ainvoke({"sponsor": "Novo Nordisk", "phase": 3})
+        await tools["economic_data"].ainvoke({"countries": "DEU, FRA", "indicator": "gdp_growth", "start_year": "2015", "end_year": 2025})
+        await tools["exchange_rates"].ainvoke({"base": "USD", "symbols": "EUR,JPY"})
+        await tools["pubmed"].ainvoke({"query": "glp-1", "newest_first": "true", "since_year": "2024"})
+        out = await tools["create_chart"].ainvoke({"dataset_ids": "d9", "title": "x"})
+    assert trials.await_args.args[3] == "3"
+    assert economy.await_args.args == (["DEU", "FRA"], "gdp_growth", 2015, 2025)
+    assert rates.await_args.args[1] == ["EUR", "JPY"]
+    assert papers.await_args.kwargs == {"limit": 5, "newest_first": True, "since_year": 2024}
+    assert "Unknown dataset ids d9" in out
+    # The published schemas accept those forms, so the provider's own argument check passes too.
+    schema = json.dumps(tools["economic_data"].tool_call_schema.model_json_schema())
+    assert '"type": "string"' in schema and '"type": "array"' in schema
+
+
+def test_lists_and_country_names_are_understood():
+    assert toolkit._as_list("Germany, France and Italy") == ["Germany", "France", "Italy"]
+    assert toolkit._as_list("EUR JPY") == ["EUR", "JPY"] and toolkit._as_list("d1 d2") == ["d1", "d2"]
+    for name in ("Sri Lanka", "United Kingdom", "Hong Kong"):
+        assert toolkit._as_list(name) == [name]
+    for given, code in [("Germany", "DEU"), ("the United Kingdom", "GBR"), ("UK", "GBR"), ("USA", "USA"), ("us", "USA"),
+                        ("South Korea", "KOR"), ("Sri Lanka", "LKA"), ("de", "DE"), ("ITA", "ITA")]:
+        assert data_sources.country_code(given) == code, given
+    with pytest.raises(DataSourceError, match="Unknown country 'Atlantis'"):
+        data_sources.country_code("Atlantis")
+
+
+@pytest.mark.asyncio
+async def test_economic_data_accepts_country_names(monkeypatch):
+    imf = {"values": {"NGDP_RPCH": {"DEU": {"2024": 0.0}, "GBR": {"2024": 1.1}}}}
+    countries = {"countries": {"DEU": {"label": "Germany"}, "GBR": {"label": "United Kingdom"}}}
+    monkeypatch.setattr(data_sources, "_fetch", fetch_by_url({"v1/countries": countries, "v1/NGDP_RPCH": imf}))
+    data = await data_sources.economic_indicator(["Germany", "the UK", "germany"], "gdp_growth", 2024, 2024)
+    assert list(data["series"]) == ["Germany", "United Kingdom"]
+
+
+def test_periods_are_understood_or_refused_never_silently_replaced():
+    for given, expected in [("1Y", "1y"), ("1 year", "1y"), ("12mo", "1y"), ("6 months", "6m"), ("YTD", "ytd"),
+                            ("30d", "1m"), ("3y", "5y"), ("max", "max"), (None, "6m"), ("2Y", "2y")]:
+        assert data_sources.normalize_period(given) == expected, given
+    with pytest.raises(DataSourceError, match="1m, 3m, 6m"):
+        data_sources.normalize_period("fortnightly")
+
+
+def test_dates_accept_years_and_months_as_range_bounds():
+    assert data_sources.normalize_day("2026") == "2026-01-01"
+    assert data_sources.normalize_day("2026", end=True) == "2026-12-31"
+    assert data_sources.normalize_day("2028-02", end=True) == "2028-02-29"
+    assert data_sources.normalize_day("2026/3/7") == "2026-03-07"
+    assert data_sources.normalize_day(" ") is None
+    for bad in ("last month", "2026-13", "2026-02-30"):
+        with pytest.raises(DataSourceError):
+            data_sources.normalize_day(bad)
+
+
+@pytest.mark.asyncio
+async def test_a_year_only_trial_window_still_separates_started_from_planned():
+    listed = {"total": 22, "trials": [{"nct_id": "NCT1", "title": "T", "phase": "Phase 3", "status": "recruiting", "sponsor": "S",
+                                       "start": f"{YEAR}-03-01", "primary_completion": "", "enrollment": 1, "conditions": []}],
+              "sources": [data_sources._source("NCT1", "https://clinicaltrials.gov/study/NCT1")]}
+    _, tools = toolbox(["clinical_trials"])
+    with patch.object(data_sources, "clinical_trials", AsyncMock(side_effect=[listed, {**listed, "total": 21}])) as search:
+        out = await tools["clinical_trials"].ainvoke({"sponsor": "S", "started_after": str(YEAR), "started_before": str(YEAR)})
+    assert search.await_args_list[0].args[4:6] == (f"{YEAR}-01-01", f"{YEAR}-12-31")
+    assert search.await_args_list[1].args[5] == TODAY.isoformat() and "21 have already started" in out
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_fda_date_is_reported_not_replaced_by_the_last_month(monkeypatch):
+    monkeypatch.setattr(data_sources, "_fetch", fetch_by_url({"api.fda.gov": {"results": []}}))
+    with pytest.raises(DataSourceError, match="Dates must look like"):
+        await data_sources.fda_approvals(approved_since="sometime")
+
+
+@pytest.mark.asyncio
+async def test_when_yahoo_fails_and_the_fallback_cannot_help_the_real_reason_is_reported(monkeypatch):
+    # Stooq answers cloud hosts with an HTML check page; that must not turn into "no data for AAPL".
+    monkeypatch.setattr(data_sources, "_fetch", fetch_by_url({
+        "finance.yahoo.com": DataSourceError("query1.finance.yahoo.com is limiting requests right now. Try again in a minute."),
+        "stooq.com": "<!DOCTYPE html><html><body><noscript>Enable JavaScript</noscript></body></html>"}))
+    with pytest.raises(DataSourceError, match="limiting requests"):
+        await data_sources.stock_history("AAPL", "1m")
+
+
+@pytest.mark.asyncio
+async def test_exchange_rates_use_the_current_frankfurter_api(monkeypatch):
+    fetch = fetch_by_url({"api.frankfurter.dev/v1/latest": {"date": "2026-10-12", "rates": {"EUR": 0.89437}}})
+    monkeypatch.setattr(data_sources, "_fetch", fetch)
+    data = await data_sources.exchange_rates("usd", ["eur"])
+    assert data["rates"] == {"EUR": 0.89437} and fetch.seen[0][0] == "https://api.frankfurter.dev/v1/latest"
+
+
+def test_follow_ups_keep_the_previous_answer_text_after_a_chart():
+    chart = charts.build_chart([charts.Dataset("d1", "Apple Inc. (AAPL)", POINTS, "USD", "date", "Yahoo Finance",
+                                               data_sources.summarize_series(POINTS))], "Apple (AAPL) share price")[0]
+    answer = chart + "\n\nApple closed at $340.97, up 36.39% over six months [1]."
+    model_written = ':::artifact{type="react" title="Revenue dashboard"}\nexport default function App() { return null }\n:::\nDone.'
+    from src.services.conversation_memory import answer_context
+    history = [{"role": "user", "content": "graph apple"}, {"role": "assistant", "content": answer},
+               {"role": "user", "content": "build a dashboard"}, {"role": "assistant", "content": model_written}]
+    kept = answer_context(history, "explain that")
+    assert kept[1]["content"] == "[Chart shown: Apple (AAPL) share price]\n\nApple closed at $340.97, up 36.39% over six months [1]."
+    assert kept[3]["content"] == model_written            # a model-written artifact stays editable
+
+
+@pytest.mark.asyncio
+async def test_attached_documents_reach_the_agent_without_being_cut():
+    passage = "Opening summary. " + "Filler text. " * 600 + "The relevant figure is 42 million euros."
+    runtime = FakeRuntime(text("42 million euros [1]."))
+    await run_agent("what is the figure?", data_space(), runtime,
+                    attachments=[{"title": "report.pdf", "url": "/api/v1/attachments/a1/content", "domain": "attachment",
+                                  "snippet": passage}])
+    assert "The relevant figure is 42 million euros." in runtime.calls[0]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_silent_stretches_send_keepalives(monkeypatch):
+    monkeypatch.setattr(space_agent, "HEARTBEAT_SECONDS", 0.05)
+
+    async def slow(*_args):
+        await asyncio.sleep(0.3)
+        return stock()
+    runtime = FakeRuntime(tool("stock_prices", {"ticker": "AAPL"}), text("Done."))
+    with patch.object(data_sources, "stock_history", slow):
+        events = await run_agent("apple", data_space(), runtime, raw=True)
+    assert ": keepalive\n\n" in events and any('"Done."' in e for e in events)
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_model_call_degrades_to_an_answer_without_tools(monkeypatch):
+    monkeypatch.setattr("src.services.agents.chat_model.asyncio.sleep", AsyncMock())
+    rejected = lambda: LLMProviderError("The AI provider rejected this request.")
+    runtime = FakeRuntime(rejected(), rejected(), text("I could not fetch live prices just now."))
+    events = await run_agent("graph apple", data_space(), runtime)
+    assert answer_text(events) == "I could not fetch live prices just now." and not any(e["type"] == "error" for e in events)
+    assert runtime.calls[1]["temperature"] == 0.6                      # the retry varies the generation
+    final = runtime.calls[2]
+    assert "tools" not in final and "Tools are unavailable" in final["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_agent_setup_failures_never_show_internal_errors():
+    with patch.object(space_agent, "agent_model", lambda _mode: (_ for _ in ()).throw(LLMProviderError("No AI provider is configured."))):
+        events = [json.loads(e[6:]) async for e in space_agent.run_space_agent("q", [], data_space(), TurnContext())]
+    assert events == [{"type": "error", "message": "No AI provider is configured.", "code": "llm_unavailable"}]
+    with patch.object(space_agent, "build_tools", side_effect=KeyError("secret internal detail")):
+        events = [json.loads(e[6:]) async for e in space_agent.run_space_agent("q", [], data_space(), TurnContext())]
+    assert events == [{"type": "error", "message": "The Space agent could not start. Please try again."}]
+
+
+@pytest.mark.asyncio
+async def test_quota_errors_carry_the_retry_time_like_standard_answers():
+    events = await run_agent("q", data_space(), FakeRuntime(LLMQuotaError(90), LLMQuotaError(90)))
+    error = next(e for e in events if e["type"] == "error")
+    assert error["code"] == "llm_rate_limited" and error["retry_after_seconds"] == 90
+
+
+@pytest.mark.asyncio
+async def test_a_dataset_listed_twice_is_drawn_once():
+    ctx, tools = toolbox(["create_chart"])
+    ctx.add_dataset("Apple", POINTS, "USD", "date", "Yahoo Finance", data_sources.summarize_series(POINTS))
+    await tools["create_chart"].ainvoke({"dataset_ids": ["d1", "d1 "], "title": "Apple"})
+    spec = json.loads(re.search(r"^const SPEC = (.*);$", ctx.charts[0], re.M).group(1))
+    assert len(spec["series"]) == 1

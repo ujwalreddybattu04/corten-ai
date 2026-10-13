@@ -101,13 +101,55 @@ def summarize_series(points: list[tuple[str, float]]) -> dict:
 PERIODS = {"1m": ("1mo", "1d"), "3m": ("3mo", "1d"), "6m": ("6mo", "1d"), "ytd": ("ytd", "1d"), "1y": ("1y", "1d"),
            "2y": ("2y", "1d"), "5y": ("5y", "1wk"), "10y": ("10y", "1mo"), "max": ("max", "1mo")}
 TICKER = re.compile(r"^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$")
+PERIOD_WORDS = {"month": "1m", "quarter": "3m", "year": "1y", "ytd": "ytd", "yeartodate": "ytd", "max": "max", "all": "max",
+                "alltime": "max"}
+
+
+def normalize_period(period) -> str:
+    """'1Y', '1 year', '12mo', '6 months', 'YTD' -> a known period. An unrecognized period is an error, never a
+    silent default: a 6-month chart labelled as one year would be wrong."""
+    text = re.sub(r"[\s_\-]+", "", str(period or "6m").lower())
+    if text in PERIODS:
+        return text
+    if text in PERIOD_WORDS:
+        return PERIOD_WORDS[text]
+    match = re.fullmatch(r"(\d+)(m|mo|mos|mon|month|months|y|yr|yrs|year|years|d|day|days|w|wk|week|weeks)", text)
+    if match:
+        count, unit = int(match.group(1)), match.group(2)
+        months = (count * 12 if unit.startswith("y") else count if unit.startswith("m")
+                  else count / 4.3 if unit.startswith("w") else count / 30)
+        for limit, name in ((1, "1m"), (3, "3m"), (6, "6m"), (12, "1y"), (24, "2y"), (60, "5y"), (120, "10y")):
+            if months <= limit + 0.5:
+                return name
+        return "max"
+    raise DataSourceError("Use a period of 1m, 3m, 6m, ytd, 1y, 2y, 5y, 10y or max.")
+
+
+def normalize_day(value, *, end: bool = False) -> str | None:
+    """'2026-01-31', '2026-01' or '2026' -> a YYYY-MM-DD day; a month or year means its first day, or its last day
+    for the end of a range."""
+    if value is None or not str(value).strip():
+        return None
+    text = str(value).strip().replace("/", "-")
+    try:
+        if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", text):
+            return date(*map(int, text.split("-"))).isoformat()
+        if re.fullmatch(r"\d{4}-\d{1,2}", text):
+            year, month = map(int, text.split("-"))
+            first = date(year, month, 1)
+            return ((first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1) if end else first).isoformat()
+        if re.fullmatch(r"\d{4}", text):
+            return date(int(text), 12, 31).isoformat() if end else date(int(text), 1, 1).isoformat()
+    except ValueError:
+        pass
+    raise DataSourceError("Dates must look like 2026-01-31.")
 
 
 async def stock_history(ticker: str, period: str = "6m") -> dict:
     symbol = (ticker or "").strip().upper().replace(" ", "")
     if not TICKER.match(symbol):
         raise DataSourceError("Use an exchange ticker symbol such as AAPL, MSFT, NOVO-B.CO or ^GSPC.")
-    period = period if period in PERIODS else "6m"
+    period = normalize_period(period)
     range_, interval = PERIODS[period]
     try:
         data = await _fetch(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
@@ -117,8 +159,12 @@ async def stock_history(ticker: str, period: str = "6m") -> dict:
             raise DataSourceError(f"No price data found for {symbol}. Check the ticker symbol and exchange suffix "
                                   "(for example NOVO-B.CO for Copenhagen, 7203.T for Tokyo).") from None
         if "." not in symbol and "^" not in symbol and interval == "1d":
-            return await _stooq_history(symbol, period)
-        raise
+            try:
+                return await _stooq_history(symbol, period)
+            except DataSourceError:
+                pass
+        # Report Yahoo's own problem (unreachable, rate limited): "no data" would make the ticker look wrong.
+        raise error from None
     results = (data.get("chart") or {}).get("result") or []
     if not results:
         raise DataSourceError(f"No price data found for {symbol}.")
@@ -142,6 +188,9 @@ async def stock_history(ticker: str, period: str = "6m") -> dict:
 
 async def _stooq_history(symbol: str, period: str) -> dict:
     text = await _fetch("https://stooq.com/q/d/l/", {"s": f"{symbol.lower()}.us", "i": "d"}, as_json=False, cache_ttl=600)
+    # Stooq answers some networks (cloud hosts among them) with an HTML check page instead of CSV.
+    if not text.lstrip().startswith("Date,"):
+        raise DataSourceError("Stooq is unavailable.")
     rows = [line.split(",") for line in text.strip().splitlines()[1:]]
     days = {"1m": 31, "3m": 92, "6m": 183, "ytd": (date.today() - date(date.today().year, 1, 1)).days + 1,
             "1y": 366, "2y": 731}.get(period, 183)
@@ -166,14 +215,13 @@ async def exchange_rates(base: str, symbols: list[str], start: str | None = None
     params = {"from": base, "to": ",".join(s for s in symbols if s != base)}
     if not params["to"]:
         raise DataSourceError("Choose at least one currency different from the base currency.")
+    start, end = normalize_day(start), normalize_day(end, end=True)
     try:
+        # api.frankfurter.app now only redirects here.
         if start:
-            for value in (start, end):
-                if value and not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
-                    raise DataSourceError("Dates must look like 2026-01-31.")
-            data = await _fetch(f"https://api.frankfurter.app/{start}..{end or ''}", params, cache_ttl=3600)
+            data = await _fetch(f"https://api.frankfurter.dev/v1/{start}..{end or ''}", params, cache_ttl=3600)
         else:
-            data = await _fetch("https://api.frankfurter.app/latest", params, cache_ttl=900)
+            data = await _fetch("https://api.frankfurter.dev/v1/latest", params, cache_ttl=900)
     except DataSourceError as error:
         if str(error) == "not found":
             raise DataSourceError("Those currencies are not covered. Rates are the European Central Bank's reference "
@@ -229,6 +277,30 @@ ISO3 = dict(pair.split(":") for pair in (
     "GR:GRC HU:HUN PE:PER KE:KEN UA:UKR HK:HKG TW:TWN QA:QAT KW:KWT MA:MAR LK:LKA NP:NPL ET:ETH GH:GHA SK:SVK LU:LUX "
     "HR:HRV SI:SVN BG:BGR LT:LTU LV:LVA EE:EST IS:ISL CY:CYP MT:MLT").split())
 IMF_API = "https://www.imf.org/external/datamapper/api/v1"
+# Models often name countries instead of coding them; "Germany" or "the UK" should work, not fail a call.
+COUNTRY_NAMES = dict(pair.split(":") for pair in (
+    "united_states:USA usa:USA us:USA america:USA united_states_of_america:USA china:CHN japan:JPN germany:DEU "
+    "india:IND united_kingdom:GBR uk:GBR britain:GBR great_britain:GBR england:GBR france:FRA italy:ITA canada:CAN "
+    "brazil:BRA russia:RUS russian_federation:RUS south_korea:KOR korea:KOR republic_of_korea:KOR australia:AUS "
+    "mexico:MEX spain:ESP indonesia:IDN netherlands:NLD the_netherlands:NLD holland:NLD saudi_arabia:SAU turkey:TUR "
+    "turkiye:TUR switzerland:CHE poland:POL belgium:BEL sweden:SWE argentina:ARG norway:NOR austria:AUT ireland:IRL "
+    "israel:ISR united_arab_emirates:ARE uae:ARE thailand:THA singapore:SGP denmark:DNK philippines:PHL malaysia:MYS "
+    "south_africa:ZAF egypt:EGY nigeria:NGA vietnam:VNM viet_nam:VNM bangladesh:BGD pakistan:PAK chile:CHL "
+    "colombia:COL finland:FIN portugal:PRT czechia:CZE czech_republic:CZE romania:ROU new_zealand:NZL greece:GRC "
+    "hungary:HUN peru:PER kenya:KEN ukraine:UKR hong_kong:HKG taiwan:TWN qatar:QAT kuwait:KWT morocco:MAR "
+    "sri_lanka:LKA nepal:NPL ethiopia:ETH ghana:GHA slovakia:SVK luxembourg:LUX croatia:HRV slovenia:SVN "
+    "bulgaria:BGR lithuania:LTU latvia:LVA estonia:EST iceland:ISL cyprus:CYP malta:MLT").split())
+
+
+def country_code(value) -> str:
+    """'DEU', 'de', 'Germany' or 'the United Kingdom' -> an ISO code; anything else is a clear error."""
+    text = str(value or "").strip()
+    key = re.sub(r"^the_", "", re.sub(r"[^a-z]+", "_", text.lower()).strip("_"))
+    if key in COUNTRY_NAMES:              # names and aliases, including "UK" and "USA"
+        return COUNTRY_NAMES[key]
+    if COUNTRY.match(text.upper()):       # two- or three-letter ISO codes
+        return text.upper()
+    raise DataSourceError(f"Unknown country '{text[:40]}'. Use ISO codes such as DEU, FRA, USA or IND.")
 
 
 async def _imf_indicator(codes: list[str], indicator: str, start_year: int, end_year: int) -> dict:
@@ -258,8 +330,8 @@ async def _imf_indicator(codes: list[str], indicator: str, start_year: int, end_
 async def economic_indicator(countries: list[str], indicator: str, start_year: int, end_year: int) -> dict:
     if indicator not in INDICATORS:
         raise DataSourceError("Choose one of: " + ", ".join(INDICATORS))
-    codes = [c.strip().upper() for c in (countries or []) if c and c.strip()][:6]
-    if not codes or not all(COUNTRY.match(code) for code in codes):
+    codes = list(dict.fromkeys(country_code(c) for c in (countries or []) if c and str(c).strip()))[:6]
+    if not codes:
         raise DataSourceError("Use ISO country codes such as DEU, FRA, USA or IND.")
     this_year = date.today().year
     try:
@@ -325,9 +397,7 @@ async def clinical_trials(query: str | None = None, sponsor: str | None = None, 
     query, sponsor = (query or "").strip()[:200], (sponsor or "").strip()[:120]
     if not query and not sponsor:
         raise DataSourceError("Give a condition, drug or intervention, or a sponsor company.")
-    for value in (started_after, started_before):
-        if value and not DAY.match(value):
-            raise DataSourceError("Dates must look like 2026-01-31.")
+    started_after, started_before = normalize_day(started_after), normalize_day(started_before, end=True)
     filters = []
     phase_digit = re.search(r"[1-4]", str(phase or ""))  # "3", "Phase 3", "PHASE3"
     if phase_digit:
@@ -452,10 +522,9 @@ async def fda_approvals(drug: str | None = None, approved_since: str | None = No
             raise
         applications = [_fda_application(item) for item in data.get("results") or []]
     else:
-        try:
-            since = datetime.strptime(approved_since or "", "%Y-%m-%d").date()
-        except ValueError:
-            since = date.today() - timedelta(days=30)
+        # A malformed date is an error, not a silent "last 30 days": the answer would describe the wrong window.
+        day = normalize_day(approved_since)
+        since = date.fromisoformat(day) if day else date.today() - timedelta(days=30)
         window = f"[{since:%Y%m%d} TO {date.today():%Y%m%d}]"
         search = (f'submissions.submission_type:"ORIG" AND submissions.submission_status:"AP" AND '
                   f'submissions.submission_status_date:{window} AND (application_number:NDA* OR application_number:BLA*)')

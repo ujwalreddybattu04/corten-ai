@@ -34,9 +34,25 @@ def _shorten(content: str, limit: int) -> str:
     return content[:head] + marker + content[-(limit - len(marker) - head):]
 
 
+_ARTIFACT_BLOCK = re.compile(r':::artifact\{([^}\n]*)\}\n[\s\S]*?\n:::')
+
+
+def collapse_data_charts(content: str) -> str:
+    """Charts drawn by Space agents from fetched data (their code carries `const SPEC =`) are regenerated on request
+    and never edited, so history keeps only their title. Otherwise their code would fill the shortened history and
+    hide the answer's text. Artifacts the model wrote stay whole, since a follow-up may edit them."""
+    def replace(match):
+        if "\nconst SPEC = " not in match.group(0):
+            return match.group(0)
+        title = re.search(r'title="([^"\n]*)"', match.group(1))
+        return f"[Chart shown: {title.group(1) if title else 'chart'}]"
+    return _ARTIFACT_BLOCK.sub(replace, content) if ":::artifact" in content else content
+
+
 def clean_history(messages: list | None) -> list[dict[str, str]]:
     valid = [
-        {"role": m["role"], "content": _shorten(m["content"], MAX_MESSAGE_CHARS)}
+        {"role": m["role"], "content": _shorten(collapse_data_charts(m["content"]) if m["role"] == "assistant" else m["content"],
+                                                 MAX_MESSAGE_CHARS)}
         for m in (messages or [])
         if isinstance(m, dict) and m.get("role") in {"user", "assistant"}
         and isinstance(m.get("content"), str) and m["content"].strip()

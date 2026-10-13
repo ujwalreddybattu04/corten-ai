@@ -20,13 +20,14 @@ from src.services.agents import space_templates
 from src.services.agents.chat_model import CortenChatModel
 from src.services.agents.toolkit import RunContext, auto_chart, build_tools
 from src.services.conversation_memory import answer_context
-from src.services.llm_runtime import LLMQuotaError, LLMProviderError
+from src.services.llm_runtime import LLMQuotaError, LLMProviderError, llm_error_details
 
 logger = logging.getLogger(__name__)
 MAX_MODEL_CALLS = 6
 MAX_TOOL_CALLS = 6
 RUN_TIMEOUT = 150
 PREAMBLE_CHARS = 180
+HEARTBEAT_SECONDS = 15
 DONE = object()
 
 WORKING_RULES = """
@@ -59,6 +60,8 @@ HOW TO WORK
 
 FINAL_NOTE = ("This answer's research budget is used up. Do not call any more tools: write the final answer now from the "
               "tool results above, and say plainly what you could not verify.")
+DEGRADED_NOTE = ("Tools are unavailable for the rest of this answer. Write the answer now from the tool results above; "
+                 "if they do not cover the question, say plainly which data you could not fetch. Do not estimate figures.")
 CHART_WORDS = re.compile(r"\b(chart|graph|plot|visuali[sz]|diagram|trend line)", re.I)
 
 
@@ -90,7 +93,20 @@ class FinalAnswer(AgentMiddleware):
             chart = await auto_chart(self.ctx)
             note = FINAL_NOTE + (f" A chart is already shown above the answer ({chart}); do not describe how to draw one." if chart else "")
             request = request.override(tool_choice="none", messages=[*request.messages, HumanMessage(content=note)])
-        return await handler(request)
+        try:
+            return await handler(request)
+        except LLMQuotaError:
+            raise
+        except LLMProviderError as error:
+            # The provider rejected this call twice before any output (usually a malformed tool call). Rather than
+            # lose the whole answer, answer once more with tools off from what has been gathered so far.
+            if getattr(error, "after_output", False) or not request.tools:
+                raise
+            logger.warning("[SpaceAgent] Model call rejected; answering without tools")
+            chart = await auto_chart(self.ctx)
+            note = DEGRADED_NOTE + (f" A chart is already shown above the answer ({chart})." if chart else "")
+            return await handler(request.override(tools=[], tool_choice=None,
+                                                  messages=[*request.messages, HumanMessage(content=note)]))
 
 
 def _sse(event_type: str, data: dict) -> str:
@@ -125,12 +141,9 @@ class CitationStyle:
 
 
 def _history(messages: list, query: str) -> list:
-    """Recent conversation for the agent, with earlier charts collapsed to a one-line note."""
-    turns = []
-    for message in answer_context(messages, query):
-        content = re.sub(r":::artifact\{[^}\n]*title=\"([^\"]*)\"[^}\n]*\}[\s\S]*?(?:\n:::|$)", r"[Chart shown: \1]", message["content"])
-        turns.append(HumanMessage(content=content) if message["role"] == "user" else AIMessage(content=content))
-    return turns
+    """Recent conversation for the agent (earlier data charts are already reduced to their titles)."""
+    return [HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
+            for m in answer_context(messages, query)]
 
 
 def system_prompt(space, instructions_block: str, personal: str, artifact_prompt: str = "") -> str:
@@ -170,21 +183,31 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
     template = space_templates.get(space.template)
     domains = list(dict.fromkeys([*space.domains, *(template.domains if template else ())]))[:10]
     ctx = RunContext(queue=queue, space=space, domains=domains)
-    model = agent_model(turn.mode)
-    tools = build_tools(ctx, space.tools)
-    agent = create_agent(
-        model, tools,
-        system_prompt=system_prompt(space, space_instruction_block(space.prompt_text()), turn.personal,
-                                    artifacts.PROMPT if wants_artifact else ""),
-        # FinalAnswer makes the last allowed call write the answer; the limits below are backstops.
-        middleware=[FinalAnswer(ctx), ModelCallLimitMiddleware(run_limit=MAX_MODEL_CALLS, exit_behavior="end"),
-                    ToolCallLimitMiddleware(run_limit=MAX_TOOL_CALLS, exit_behavior="continue")])
+    try:
+        model = agent_model(turn.mode)
+        tools = build_tools(ctx, space.tools)
+        agent = create_agent(
+            model, tools,
+            system_prompt=system_prompt(space, space_instruction_block(space.prompt_text()), turn.personal,
+                                        artifacts.PROMPT if wants_artifact else ""),
+            # FinalAnswer makes the last allowed call write the answer; the limits below are backstops.
+            middleware=[FinalAnswer(ctx), ModelCallLimitMiddleware(run_limit=MAX_MODEL_CALLS, exit_behavior="end"),
+                        ToolCallLimitMiddleware(run_limit=MAX_TOOL_CALLS, exit_behavior="continue")])
+    except LLMProviderError as error:
+        yield _sse("error", llm_error_details(error))
+        return
+    except Exception:
+        # Never show internal error text to the user.
+        logger.exception("[SpaceAgent] Agent setup failed")
+        yield _sse("error", {"message": "The Space agent could not start. Please try again."})
+        return
 
     user_turn = query + grounding_reminder()
     if attachments:
         numbers = ctx.add_sources(attachments)
+        # Already the passages most relevant to this question, within the caller's budget: never cut further.
         user_turn += "\n\nAttached documents (cite them by number):\n" + "\n\n".join(
-            f"[{n}] {a['title']}\n{a['snippet'][:4000]}" for n, a in zip(numbers, attachments))
+            f"[{n}] {a['title']}\n{a['snippet']}" for n, a in zip(numbers, attachments))
     inputs = {"messages": [*_history(messages, query), HumanMessage(content=user_turn)]}
     yield _sse("status", {"content": f"{template.name} agent is working" if template else "Space agent is working"})
 
@@ -233,7 +256,8 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
                 await auto_chart(ctx)   # asked for a chart, fetched the data, but never drew it
         except (LLMQuotaError, LLMProviderError) as error:
             state["failed"] = True
-            queue.put_nowait(_sse("error", {"message": str(error)}))
+            # Same shape as the standard answer's errors (message, code, retry time).
+            queue.put_nowait(_sse("error", llm_error_details(error)))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -247,9 +271,15 @@ async def run_space_agent(query: str, messages: list, space, turn, *, attachment
     deadline = started + RUN_TIMEOUT
     try:
         while True:
+            remaining = deadline - time.monotonic()
             try:
-                item = await asyncio.wait_for(queue.get(), timeout=max(0.1, deadline - time.monotonic()))
+                item = await asyncio.wait_for(queue.get(), timeout=max(0.1, min(remaining, HEARTBEAT_SECONDS)))
             except asyncio.TimeoutError:
+                if time.monotonic() < deadline:
+                    # Slow sources and provider cooldowns can leave the stream silent; proxies close silent
+                    # streams (CloudFront after 60 s). SSE comments keep it open and are ignored by clients.
+                    yield ": keepalive\n\n"
+                    continue
                 task.cancel()
                 note = ("\n\nThis took longer than expected, so the answer stops here. Ask again for the rest."
                         if state["answer"] else "The agent took too long to answer. Please try again or narrow the question.")

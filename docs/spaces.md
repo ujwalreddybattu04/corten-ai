@@ -85,8 +85,13 @@ questions, and requests for a downloadable file. Setting `SPACE_AGENTS_ENABLED=f
 the standard pipeline without a redeploy of the frontend.
 
 **Known limits.** Prices are end-of-day closes, not live quotes. Yahoo Finance answers from the AWS host (verified
-2026-10-13); if it ever refuses cloud addresses, the Stooq fallback covers US tickers only. The IMF API refuses the AWS
-host (HTTP 403), so hosted answers use the World Bank: past years only, without IMF projections. openFDA is updated weekly and can lag recent approvals, so answers never present it
+2026-10-13). Stooq, the fallback for US tickers, answers the AWS host with a check page rather than data, so when
+Yahoo fails the hosted answer reports Yahoo's error instead of guessing. The IMF API refuses the AWS host (HTTP 403),
+so hosted answers use the World Bank: past years only, without IMF projections.
+
+**Tool arguments.** Tools accept the forms models commonly send (a number for a phase, one string for a list,
+country names such as "Germany" or "the UK", "1Y" or "12 months" for a period, "2026" or "2026-10" for a date) and
+normalize them; anything they cannot understand is refused with a message, never silently replaced. openFDA is updated weekly and can lag recent approvals, so answers never present it
 as complete. Each Groq model allows 8,000 tokens per minute on the current plan. Several long agent answers in the
 same minute can hit that limit; the user then sees the provider's retry time.
 

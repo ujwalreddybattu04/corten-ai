@@ -7,15 +7,16 @@ is not wasted. Failures come back as plain explanations the model can act on, ne
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Optional
+from typing import Annotated, Any, Optional, Union
 from urllib.parse import urlsplit
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from src.services.agents import data_sources
 from src.services.agents.charts import Dataset, build_chart
@@ -166,6 +167,44 @@ async def auto_chart(ctx: RunContext) -> str:
 
 
 # ── Argument schemas (they become the tools' JSON schemas for the model) ────────────────────────────
+# Models often send 3 for "3", "DEU, FRA" for a list, "2015" for a year or "true" for a flag. The provider checks
+# arguments against these schemas before they reach us, so the schemas accept those forms and the validators below
+# normalize them; a strict schema would turn a harmless variation into a failed answer.
+def _as_list(value):
+    """['DEU', 'FRA'], 'DEU, FRA', 'Germany, France and Italy' or 'EUR JPY' -> a list. Spaces separate items only
+    when every item is an upper-case code or a dataset id, so 'Sri Lanka' and 'United Kingdom' stay one name."""
+    if isinstance(value, str):
+        parts = [part.strip() for part in re.split(r"[,;]|\s+and\s+|\s*&\s*", value) if part.strip()]
+        item = r"(?:[A-Z0-9^.\-]{2,10}|d\d+)"
+        if len(parts) == 1 and re.fullmatch(rf"{item}(?:\s+{item})+", parts[0]):
+            parts = parts[0].split()
+        return parts
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _as_text(value):
+    return None if value is None else str(value).strip() or None
+
+
+def _as_year(value):
+    if isinstance(value, int):
+        return value
+    match = re.search(r"\b(1[89]\d\d|2\d\d\d)\b", str(value))
+    if not match:
+        raise ValueError("Give a four-digit year, e.g. 2015.")
+    return int(match.group(1))
+
+
+def _as_flag(value):
+    return value if isinstance(value, bool) else str(value).strip().lower() in ("true", "yes", "1", "y")
+
+
+Codes = Annotated[Union[list[str], str], AfterValidator(_as_list)]
+Year = Annotated[Union[int, str], AfterValidator(_as_year)]
+Flag = Annotated[Union[bool, str], AfterValidator(_as_flag)]
+Text = Annotated[Optional[Union[str, int]], AfterValidator(_as_text)]
+
+
 class SearchArgs(BaseModel):
     query: str = Field(description="What to search for, written as a search engine query.")
 
@@ -189,40 +228,40 @@ class StockArgs(BaseModel):
 
 class FxArgs(BaseModel):
     base: str = Field(description="Three-letter base currency, e.g. EUR.")
-    symbols: list[str] = Field(description="Three-letter target currencies, e.g. ['USD', 'GBP'].")
-    start_date: Optional[str] = Field(default=None, description="YYYY-MM-DD for a history from this date; omit for today's rates.")
-    end_date: Optional[str] = Field(default=None, description="YYYY-MM-DD end of the history; omit for today.")
+    symbols: Codes = Field(description="Three-letter target currencies, e.g. ['USD', 'GBP'].")
+    start_date: Text = Field(default=None, description="YYYY-MM-DD for a history from this date; omit for today's rates.")
+    end_date: Text = Field(default=None, description="YYYY-MM-DD end of the history; omit for today.")
 
 
 class EconomyArgs(BaseModel):
-    countries: list[str] = Field(description="Three-letter ISO country codes, e.g. ['DEU', 'FRA', 'ITA']. Up to 6.")
+    countries: Codes = Field(description="Three-letter ISO country codes, e.g. ['DEU', 'FRA', 'ITA']. Up to 6.")
     indicator: str = Field(description="One of: " + ", ".join(data_sources.INDICATORS))
-    start_year: int = Field(description="First year, e.g. 2015.")
-    end_year: int = Field(description="Last year, e.g. 2025. Later years return IMF projections where available.")
+    start_year: Year = Field(description="First year, e.g. 2015.")
+    end_year: Year = Field(description="Last year, e.g. 2025. Later years return IMF projections where available.")
 
 
 class TrialsArgs(BaseModel):
-    query: Optional[str] = Field(default=None, description="Condition, drug or intervention, e.g. 'semaglutide obesity'.")
-    sponsor: Optional[str] = Field(default=None, description="Sponsor company, e.g. 'Novo Nordisk'. Use this for a company's own trials.")
-    status: Optional[str] = Field(default=None, description="Optional: recruiting, active, completed, not_yet_recruiting, terminated.")
-    phase: Optional[str] = Field(default=None, description="Optional trial phase: 1, 2, 3 or 4.")
-    started_after: Optional[str] = Field(default=None, description="Optional YYYY-MM-DD: only trials starting on or after this date.")
-    started_before: Optional[str] = Field(default=None, description="Optional YYYY-MM-DD: only trials starting on or before this date (use today for trials that have already started).")
+    query: Text = Field(default=None, description="Condition, drug or intervention, e.g. 'semaglutide obesity'.")
+    sponsor: Text = Field(default=None, description="Sponsor company, e.g. 'Novo Nordisk'. Use this for a company's own trials.")
+    status: Text = Field(default=None, description="Optional: recruiting, active, completed, not_yet_recruiting, terminated.")
+    phase: Text = Field(default=None, description="Optional trial phase: 1, 2, 3 or 4.")
+    started_after: Text = Field(default=None, description="Optional YYYY-MM-DD: only trials starting on or after this date.")
+    started_before: Text = Field(default=None, description="Optional YYYY-MM-DD: only trials starting on or before this date (use today for trials that have already started).")
 
 
 class LiteratureArgs(BaseModel):
     query: str = Field(description="Search terms, e.g. 'GLP-1 receptor agonists heart failure'.")
-    newest_first: bool = Field(default=False, description="True to list the most recent publications first.")
+    newest_first: Flag = Field(default=False, description="True to list the most recent publications first.")
 
 
 class PubmedArgs(LiteratureArgs):
     query: str = Field(description="Plain search terms, e.g. 'GLP-1 receptor agonists heart failure randomized'. No date syntax.")
-    since_year: Optional[int] = Field(default=None, description="Only articles published in or after this year, e.g. 2024.")
+    since_year: Optional[Year] = Field(default=None, description="Only articles published in or after this year, e.g. 2024.")
 
 
 class FdaArgs(BaseModel):
-    drug: Optional[str] = Field(default=None, description="Brand or generic name or sponsor, e.g. 'Mounjaro'. Omit to list recent approvals.")
-    approved_since: Optional[str] = Field(default=None, description="YYYY-MM-DD; with no drug, list new NDA/BLA approvals since this date.")
+    drug: Text = Field(default=None, description="Brand or generic name or sponsor, e.g. 'Mounjaro'. Omit to list recent approvals.")
+    approved_since: Text = Field(default=None, description="YYYY-MM-DD; with no drug, list new NDA/BLA approvals since this date.")
 
 
 class WeatherArgs(BaseModel):
@@ -230,10 +269,10 @@ class WeatherArgs(BaseModel):
 
 
 class ChartArgs(BaseModel):
-    dataset_ids: list[str] = Field(description="Dataset ids returned by data tools, e.g. ['d1'] or ['d1', 'd2'].")
+    dataset_ids: Codes = Field(description="Dataset ids returned by data tools, e.g. ['d1'] or ['d1', 'd2'].")
     title: str = Field(description="Short chart title, e.g. 'Apple (AAPL) share price, last 6 months'.")
     chart_type: str = Field(default="auto", description="auto, line, area or bar.")
-    rebase_to_100: bool = Field(default=False, description="True to compare series with different scales or currencies.")
+    rebase_to_100: Flag = Field(default=False, description="True to compare series with different scales or currencies.")
 
 
 def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredTool]:
@@ -385,13 +424,15 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
                               phase: str | None = None, started_after: str | None = None, started_before: str | None = None) -> str:
         async def work():
             today = date.today().isoformat()
-            search = data_sources.clinical_trials(query, sponsor, status, phase, started_after, started_before, limit=15)
+            # Normalized first ("2026" -> 2026-01-01 .. 2026-12-31) so the comparisons below see real days.
+            after = data_sources.normalize_day(started_after)
+            before = data_sources.normalize_day(started_before, end=True)
+            search = data_sources.clinical_trials(query, sponsor, status, phase, after, before, limit=15)
             # A date window reaching past today mixes trials that have started with planned ones; count them apart.
-            split = ((started_after or started_before) and (not started_before or started_before > today)
-                     and (not started_after or started_after <= today))
+            split = (after or before) and (not before or before > today) and (not after or after <= today)
             if split:
                 data, begun = await asyncio.gather(
-                    search, data_sources.clinical_trials(query, sponsor, status, phase, started_after, today, limit=1),
+                    search, data_sources.clinical_trials(query, sponsor, status, phase, after, today, limit=1),
                     return_exceptions=True)
                 if isinstance(data, BaseException):
                     raise data
@@ -405,7 +446,7 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
             lines = [f"[{n}] {t['nct_id']} {t['title'][:100]} | {t['phase']} | {t['status']} | {t['sponsor']} | {started(t)} | "
                      f"primary completion {t['primary_completion']} | n={t['enrollment']} | {', '.join(t['conditions'][:2])}"
                      for n, t in zip(numbers, data["trials"])]
-            order = "latest start first" if (started_after or started_before) else "most recently updated first"
+            order = "latest start first" if (after or before) else "most recently updated first"
             shown = (f"All {len(lines)} are listed" if data["total"] <= len(lines) else
                      f"The first {len(lines)} ({order}) are listed; {data['total'] - len(lines)} more match but are not shown")
             counts = f"{data['total']} trials match these filters"
@@ -476,6 +517,8 @@ def build_tools(ctx: RunContext, allowed: tuple[str, ...]) -> list[StructuredToo
 
     # Charts ────────────────────────────────────────────────────────────────────────────────────────
     async def create_chart(dataset_ids: list[str], title: str, chart_type: str = "auto", rebase_to_100: bool = False) -> str:
+        dataset_ids = list(dict.fromkeys(d.strip() for d in dataset_ids if d.strip()))   # a repeated id is one series
+
         async def work():
             missing = [d for d in dataset_ids if d not in ctx.datasets]
             if not dataset_ids or missing:
