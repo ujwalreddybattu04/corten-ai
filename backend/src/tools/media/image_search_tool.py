@@ -1,5 +1,5 @@
 """
-Image Search Tool — wraps Serper image search as a pluggable tool.
+Image Search Tool — wraps bounded Serper/Tavily image retrieval.
 
 Fires in parallel with web search for visual queries.
 Returns formatted image data for the frontend ImagesGrid component.
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 class ImageSearchTool(BaseTool):
     name = "image_search"
-    description = "Search Google Images for visual content, photos, diagrams, and illustrations"
+    description = "Search for relevant images, photos, diagrams, and illustrations"
     category = ToolCategory.MEDIA
-    version = "1.0.0"
+    version = "1.1.0"
 
-    timeout_seconds = 6.0
-    max_retries = 1
+    timeout_seconds = 10.0
+    max_retries = 0  # Provider fallback and cooldowns are bounded by the service.
     retry_delay_seconds = 0.3
     is_concurrent_safe = True
     priority = 40  # Lower priority — supplementary to web search
@@ -34,10 +34,10 @@ class ImageSearchTool(BaseTool):
     async def execute(self, context: ToolContext) -> ToolResult:
         from src.services.serper_image_service import serper_image_service
 
-        if not settings.SERPER_API_KEY:
+        if not (settings.SERPER_API_KEY or settings.TAVILY_API_KEY):
             return ToolResult(
                 success=False,
-                error="Serper API key not configured",
+                error="Image search provider not configured",
                 tool_name=self.name,
             )
 
@@ -62,7 +62,7 @@ class ImageSearchTool(BaseTool):
             raise
 
     async def health_check(self) -> ToolStatus:
-        if not settings.SERPER_API_KEY:
+        if not (settings.SERPER_API_KEY or settings.TAVILY_API_KEY):
             return ToolStatus.DOWN
         return ToolStatus.HEALTHY
 

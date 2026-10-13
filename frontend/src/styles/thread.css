@@ -2138,6 +2138,17 @@ input:focus-visible {
     animation: lightboxContentOut 0.18s ease-in both;
 }
 
+.image-unavailable {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 140px;
+    padding: 20px;
+    color: #a1a1aa;
+    background: #141416;
+    font-size: 13px;
+}
+
 .lightbox-img {
     max-width: 100%;
     max-height: 78vh;

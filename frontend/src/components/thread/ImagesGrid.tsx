@@ -3,11 +3,25 @@
 import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { SearchImage } from "@/hooks/useSearch";
+import { imageCandidates, imageUrl } from "@/lib/searchImages";
 
 interface ImagesGridProps {
     images: SearchImage[];
     /** strip = horizontal scroll row (Answer tab), grid = full masonry grid (Images tab) */
     mode?: "strip" | "grid";
+}
+
+function RecoverableImage({ image, preview = true, className, lazy = false }: {
+    image: SearchImage; preview?: boolean; className: string; lazy?: boolean;
+}) {
+    const [attempt, setAttempt] = useState(0);
+    const candidates = imageCandidates(image, preview);
+    if (attempt >= candidates.length) return <span className="image-unavailable" role="status">Image unavailable</span>;
+    // Load search assets directly, without an arbitrary-URL image proxy.
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={candidates[attempt]} alt={image.alt || "Search image"} className={className}
+        loading={lazy ? "lazy" : "eager"} decoding="async" referrerPolicy="no-referrer"
+        onError={() => setAttempt(value => value + 1)} />;
 }
 
 // ─── Lightbox ────────────────────────────────────────────────────────────────
@@ -72,14 +86,13 @@ function Lightbox({
                 className={`lightbox-content${closing ? " lightbox-content-closing" : ""}`}
                 onClick={e => e.stopPropagation()}
             >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={img.url} alt={img.alt} className="lightbox-img" />
+                <RecoverableImage key={`${img.url}|${img.thumbnailUrl || ""}`} image={img} preview={false} className="lightbox-img" />
                 {(img.alt || img.sourceUrl) && (
                     <div className="lightbox-footer">
                         {img.alt && <p className="lightbox-caption">{img.alt}</p>}
-                        {img.sourceUrl && (
+                        {imageUrl(img.sourceUrl) && (
                             <a
-                                href={img.sourceUrl}
+                                href={imageUrl(img.sourceUrl)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="lightbox-source-link"
@@ -106,7 +119,7 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
     const [closing, setClosing] = useState(false);
 
 
-    const allImages = (images || []).filter(img => img.url);
+    const allImages = (images || []).filter(img => img && imageCandidates(img).length);
 
     const displayImages = mode === "strip"
         ? allImages.slice(0, 6)
@@ -144,7 +157,8 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
     }, [lightboxIndex, closeLightbox, navigate]);
 
     const lightboxImg = lightboxIndex !== null ? allImages[lightboxIndex] : null;
-    if (allImages.length === 0) return null;
+    if (allImages.length === 0) return mode === "grid"
+        ? <div className="sp-images-loading" role="status">No displayable images for this answer.</div> : null;
 
     // ── STRIP MODE (Answer tab) ───────────────────────────────────────────────
     if (mode === "strip") {
@@ -162,17 +176,8 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
                                 aria-label={img.alt || "View image"}
                                 suppressHydrationWarning
                             >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                    src={img.thumbnailUrl || img.url}
-                                    alt={img.alt}
-                                    className="images-strip-img"
-                                    loading="lazy"
-                                    onError={e => {
-                                        const el = (e.target as HTMLElement).closest(".images-strip-item") as HTMLElement | null;
-                                        if (el) el.style.display = "none";
-                                    }}
-                                />
+                                <RecoverableImage key={`${img.url}|${img.thumbnailUrl || ""}`} image={img}
+                                    className="images-strip-img" lazy />
                                 <div className="images-strip-overlay">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
                                         fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -213,17 +218,8 @@ export default function ImagesGrid({ images, mode = "grid" }: ImagesGridProps) {
                         aria-label={img.alt || "View image"}
                         suppressHydrationWarning
                     >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                            src={img.thumbnailUrl || img.url}
-                            alt={img.alt}
-                            className="images-grid-img-new"
-                            loading="lazy"
-                            onError={e => {
-                                const el = (e.target as HTMLElement).closest(".images-grid-item-new") as HTMLElement | null;
-                                if (el) el.style.display = "none";
-                            }}
-                        />
+                        <RecoverableImage key={`${img.url}|${img.thumbnailUrl || ""}`} image={img}
+                            className="images-grid-img-new" lazy />
                         <div className="images-grid-overlay-new">
                             {img.alt && (
                                 <span className="images-grid-caption-new">{img.alt}</span>
