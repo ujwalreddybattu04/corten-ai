@@ -3,17 +3,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
+  CalendarDays,
+  ChartNoAxesCombined,
   Check,
   ChevronDown,
   Download,
   FileSpreadsheet,
   Info,
   LoaderCircle,
+  ShieldCheck,
+  Table2,
   Upload,
   X,
 } from "lucide-react";
 import { displayValue, saveDownload } from "@/lib/interpolationDisplay";
 import CurveChart from "./CurveChart";
+import InterpolationGuide from "./InterpolationGuide";
 import {
   interpolationService,
   type CsvEncoding,
@@ -171,6 +176,9 @@ export default function YearlyMonthlyWorkspace() {
     }
   };
   const shownInput = result || preview;
+  const timeline = shownInput ? shownInput.yearly.length === 1
+    ? String(shownInput.yearly[0].year)
+    : `${shownInput.yearly[0].year}–${shownInput.yearly.at(-1)?.year}` : "";
   const series = result?.series[column];
   const monthly = useMemo(
     () => result?.monthly.filter((row) => row.year === result.yearly[year]?.year) || [],
@@ -178,6 +186,7 @@ export default function YearlyMonthlyWorkspace() {
   );
   const checks = result?.checks.filter((check) => check.column === column) || [];
   const outside = result?.series.filter((item) => item.outside_range_months > 0) || [];
+  const verified = result?.checks.filter(check => check.passed).length || 0;
   const stage = result ? 3 : preview ? 2 : 1;
   const tabs = [
     ["monthly", "Monthly values"],
@@ -186,13 +195,13 @@ export default function YearlyMonthlyWorkspace() {
   ] as const;
 
   return (
-    <div className="aw-tool">
+    <div className="aw-tool aw-interpolation">
       <div className="aw-tool-heading">
         <div>
-          <span className="aw-eyebrow">Data preparation</span>
-          <h2>Yearly to monthly</h2>
+          <span className="aw-eyebrow">Chryselys analyst tools</span>
+          <h2>Monthly interpolation</h2>
           <p>
-            Convert yearly inputs into a smooth monthly series, with every yearly target checked.
+            Turn yearly targets into a smooth monthly series. Review the curve, verify the targets and export your results.
           </p>
         </div>
         <ol className="aw-workflow" aria-label="Analysis progress">
@@ -212,6 +221,10 @@ export default function YearlyMonthlyWorkspace() {
       </div>
       <div className="aw-tool-layout">
         <aside className="aw-input-panel" aria-label="Interpolation setup">
+          <div className="mi-setup-intro">
+            <span className="mi-panel-icon"><FileSpreadsheet size={18} strokeWidth={1.5} aria-hidden="true" /></span>
+            <div><h3>Set up your analysis</h3><p>Source data and calculation rules</p></div>
+          </div>
           <section className="aw-setup-section" aria-labelledby="aw-input-title">
             <div className="aw-section-title">
               <span>01</span>
@@ -222,6 +235,7 @@ export default function YearlyMonthlyWorkspace() {
               id="aw-csv-upload"
               className="sr-only"
               type="file"
+              tabIndex={-1}
               accept=".csv,text/csv"
               aria-label="Upload yearly CSV"
               onChange={(event) => {
@@ -255,8 +269,8 @@ export default function YearlyMonthlyWorkspace() {
               <span className="aw-upload-icon">
                 <Upload size={20} strokeWidth={1.5} />
               </span>
-              <strong>{file ? "Replace CSV" : "Upload a CSV"}</strong>
-              <span>Choose a file or drop it here</span>
+              <strong>{file ? "Replace CSV" : "Drop your yearly CSV here"}</strong>
+              <span>{file ? "Choose a replacement file" : "or click to browse your files"}</span>
               <small>Up to 10 MB · Multiple value columns</small>
             </button>
             {file && (
@@ -292,8 +306,7 @@ export default function YearlyMonthlyWorkspace() {
               </div>
             )}
             <p className="aw-help">
-              Include a <code>year</code> column and numeric values. Calendar years and relative
-              years are supported. <code>25%</code> and <code>25</code> both mean 25.
+              One <code>year</code> column and one or more value columns.
             </p>
             <a className="aw-example-link" href="/examples/yearly-adoption-example.csv" download>
               <Download size={13} />
@@ -301,9 +314,10 @@ export default function YearlyMonthlyWorkspace() {
             </a>
             <details className="aw-encoding">
               <summary>
-                CSV encoding
+                CSV format &amp; encoding
                 <ChevronDown size={13} />
               </summary>
+              <p className="aw-help">Calendar and relative years are supported. <code>25%</code> and <code>25</code> both mean 25. Common Excel encodings are detected automatically.</p>
               <label htmlFor="aw-encoding-select">File encoding</label>
               <select
                 id="aw-encoding-select"
@@ -351,8 +365,9 @@ export default function YearlyMonthlyWorkspace() {
                 <span className="aw-radio-dot" />
                 <div>
                   <strong>Average</strong>
+                  <small className="mi-mode-rule">12-month mean = yearly target</small>
                   <span>
-                    The 12-month average equals the yearly input. The first month is positive.
+                    The first month is positive.
                   </span>
                 </div>
               </button>
@@ -367,8 +382,9 @@ export default function YearlyMonthlyWorkspace() {
                 <span className="aw-radio-dot" />
                 <div>
                   <strong>Exit</strong>
+                  <small className="mi-mode-rule">December = yearly target</small>
                   <span>
-                    Each December equals the yearly input. The first month is non-negative.
+                    The first month is non-negative.
                   </span>
                 </div>
               </button>
@@ -392,8 +408,7 @@ export default function YearlyMonthlyWorkspace() {
             </button>
           </section>
           <p className="aw-data-note">
-            Your uploaded values stay unchanged. Files are processed for this calculation and are
-            not saved as workspace projects.
+            Uploaded values stay unchanged. Keep your exports; files are not saved as workspace projects.
           </p>
         </aside>
         <div className="aw-results" ref={resultsPanel} aria-busy={busy}>
@@ -430,10 +445,11 @@ export default function YearlyMonthlyWorkspace() {
           {!result && (
             <section
               key={status === "calculating" ? "calculating" : preview?.input_digest || "empty"}
-              className={`aw-empty-state aw-stage-enter ${status === "calculating" ? "aw-calculating" : ""}`}
+              className={`aw-empty-state aw-stage-enter ${preview ? "mi-preview-state" : "mi-start-state"} ${status === "calculating" ? "aw-calculating" : ""}`}
               aria-live="polite"
             >
-              <div className="aw-state-icon">
+              {!preview && status === "idle" && <InterpolationGuide />}
+              {(preview || status !== "idle") && <div className="aw-state-icon">
                 {status === "calculating" || status === "reading" ? (
                   <LoaderCircle className="aw-spin" size={24} strokeWidth={1.5} />
                 ) : preview ? (
@@ -441,7 +457,7 @@ export default function YearlyMonthlyWorkspace() {
                 ) : (
                   <FileSpreadsheet size={24} strokeWidth={1.5} />
                 )}
-              </div>
+              </div>}
               <h3>
                 {status === "calculating"
                   ? "Building the monthly curve"
@@ -449,7 +465,7 @@ export default function YearlyMonthlyWorkspace() {
                     ? "Reading your yearly input"
                     : preview
                       ? "Your yearly input is ready"
-                      : "Start with your yearly data"}
+                      : "From annual targets to monthly detail"}
               </h3>
               <p>
                 {status === "calculating"
@@ -460,6 +476,11 @@ export default function YearlyMonthlyWorkspace() {
                       ? "Review your input, choose Average or Exit, then generate the monthly series."
                       : "Upload a CSV to review its values, generate a monthly curve, and download CSV, JSON or PDF results."}
               </p>
+              {!preview && status === "idle" && <div className="mi-capabilities">
+                <div><CalendarDays size={17} aria-hidden="true" /><strong>Yearly targets</strong><span>Choose Average or Exit</span></div>
+                <div><ShieldCheck size={17} aria-hidden="true" /><strong>Checked results</strong><span>Validate before rounding</span></div>
+                <div><Download size={17} aria-hidden="true" /><strong>Ready to export</strong><span>CSV, JSON and PDF</span></div>
+              </div>}
               {status === "calculating" && (
                 <div className="aw-loading-preview" aria-hidden="true">
                   <div className="aw-loading-grid" />
@@ -468,12 +489,15 @@ export default function YearlyMonthlyWorkspace() {
               )}
               {preview && status !== "calculating" && (
                 <div className="aw-input-preview">
-                  <div>
-                    <span>Input preview</span>
-                    <span>
-                      {preview.yearly[0].year}–{preview.yearly.at(-1)?.year}
-                    </span>
+                  <div className="mi-preview-heading">
+                    <div><h4>Review your yearly input</h4><p>Original values · {timeline}</p></div>
+                    <span className="mi-ready-badge"><Check size={13} aria-hidden="true" /> Input checked</span>
                   </div>
+                  <dl className="mi-input-summary">
+                    <div><dt>Years</dt><dd>{preview.yearly.length}</dd></div>
+                    <div><dt>Value columns</dt><dd>{preview.columns.length}</dd></div>
+                    <div><dt>Expected monthly rows</dt><dd>{preview.yearly.length * 12}</dd></div>
+                  </dl>
                   <div className="aw-table-scroll">
                     <table>
                       <thead>
@@ -516,6 +540,10 @@ export default function YearlyMonthlyWorkspace() {
                   {preview.sorted_input && (
                     <p>Rows have been sorted by year; values are unchanged.</p>
                   )}
+                  <div className="mi-ready-footer">
+                    <p>{mode === "average" ? "Average" : "Exit"} mode selected. Every uploaded year is included.</p>
+                    <button className="mi-calculate" disabled={busy} onClick={() => void generate()}>Create monthly results <ArrowRight size={14} aria-hidden="true" /></button>
+                  </div>
                 </div>
               )}
             </section>
@@ -526,7 +554,7 @@ export default function YearlyMonthlyWorkspace() {
                 <div>
                   <span className="aw-verified">
                     <Check size={14} />
-                    {result.checks.length} yearly constraints verified
+                    {verified} yearly constraints verified
                   </span>
                   <h3>Monthly results</h3>
                   <p>
@@ -554,32 +582,37 @@ export default function YearlyMonthlyWorkspace() {
               </div>
               <dl className="aw-result-summary">
                 <div>
-                  <dt>Timeline</dt>
+                  <dt><CalendarDays size={15} aria-hidden="true" /> Timeline</dt>
                   <dd>
-                    {result.yearly[0].year}–{result.yearly.at(-1)?.year}
+                    {timeline}
                     <span>
                       {result.yearly.length} {result.yearly.length === 1 ? "year" : "years"}
                     </span>
                   </dd>
                 </div>
                 <div>
-                  <dt>Monthly rows</dt>
+                  <dt><Table2 size={15} aria-hidden="true" /> Monthly rows</dt>
                   <dd>
                     {result.monthly.length}
                     <span>All years included</span>
                   </dd>
                 </div>
                 <div>
-                  <dt>Value series</dt>
+                  <dt><ChartNoAxesCombined size={15} aria-hidden="true" /> Value series</dt>
                   <dd>
                     {result.columns.length}
                     <span>Calculated independently</span>
                   </dd>
                 </div>
+                <div>
+                  <dt><ShieldCheck size={15} aria-hidden="true" /> Yearly checks</dt>
+                  <dd>{verified}<span>{verified === result.checks.length ? "All targets verified" : `${result.checks.length - verified} targets need review`}</span></dd>
+                </div>
               </dl>
               <div className="aw-chart-panel">
+                <div className="mi-chart-title"><div><span>Monthly curve</span><h4 title={series.name}>{series.name}</h4></div><span className="mi-mode-badge">{result.mode === "average" ? "Average" : "Exit"} mode</span></div>
                 <div className="aw-chart-header">
-                  <label htmlFor="aw-series-select">Series</label>
+                  <label htmlFor="aw-series-select">View series</label>
                   <select
                     id="aw-series-select"
                     value={column}
@@ -624,7 +657,8 @@ export default function YearlyMonthlyWorkspace() {
                   A single non-negative yearly target uses a flat monthly series.
                 </p>
               )}
-              <section className="aw-review-panel">
+              <section className="aw-review-panel" aria-label="Review calculated values">
+                <div className="mi-review-heading"><h4>Explore the data</h4><span>Monthly values, source targets and validation</span></div>
                 <div className="aw-review-toolbar">
                   <div
                     className="aw-review-tabs"
@@ -775,9 +809,9 @@ export default function YearlyMonthlyWorkspace() {
                                     : check.absolute_error.toExponential(2)}
                                 </td>
                                 <td>
-                                  <span className="aw-check-pass">
-                                    <Check size={12} />
-                                    Verified
+                                  <span className={check.passed ? "aw-check-pass" : "mi-check-fail"}>
+                                    {check.passed ? <Check size={12} /> : <Info size={12} />}
+                                    {check.passed ? "Verified" : "Review required"}
                                   </span>
                                 </td>
                               </tr>

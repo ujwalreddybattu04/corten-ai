@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import WorkspaceTools from "@/components/analyst/WorkspaceTools";
 import "@/styles/analyst-workspace.css";
 import "@/styles/pharma-workspace.css";
+import "@/styles/monthly-interpolation.css";
 
 export const metadata: Metadata = {
   title: "Analyst Workspace | Corten AI",
