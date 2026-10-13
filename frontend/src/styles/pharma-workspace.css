@@ -214,3 +214,6 @@
 @media (prefers-reduced-motion: reduce) { .pi-highlight-card, .pi-activity-chart rect { animation: none; } }
 .pi-reading-note summary { cursor: pointer; font-size: 12px; color: var(--color-text-secondary); }
 .pi-reading-note summary:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 4px; }
+.pi-thumbnail-link { display: block; border-radius: 12px 12px 0 0; }
+.pi-thumbnail-link:focus-visible { outline: 2px solid var(--color-text-secondary); outline-offset: -3px; }
+.pi-highlight-body > div > a { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }

@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { ArrowDownToLine, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Clock3, Database, FileSearch, FlaskConical, RefreshCw, Search, ShieldCheck, X, LayoutGrid, List, ArrowRight } from "lucide-react";
 import { filterPharmaItems, PHARMA_TOPICS, pharmaCsv, pharmaOverview, pharmaThumbnail, PharmaFeed, PharmaItem, PharmaSource, PharmaTopic, requestPharmaFeed, retainPharmaFeed } from "@/lib/pharmaFeed";
 import { saveDownload } from "@/lib/interpolationDisplay";
+import { pharmaFilters, pharmaRecordPath, rememberPharmaRecord } from "@/lib/pharmaRecord";
 
 const SOURCE_LABELS = { fda: "FDA approvals", trials: "Clinical trials", news: "Industry news" };
 const SOURCE_STATUS = { available: "Available", empty: "No recent records", stale: "Previous results · refresh failed", unavailable: "Temporarily unavailable", unconfigured: "News source not connected", authentication_required: "Source access unavailable" };
@@ -16,9 +18,10 @@ function checkedDate(value: string | null) {
 }
 
 export default function PharmaWorkspace({ active }: { active: boolean }) {
-  const [topic, setTopic] = useState<PharmaTopic>("all");
-  const [days, setDays] = useState<7 | 30 | 90>(7);
-  const [source, setSource] = useState("all");
+  const [filters] = useState(() => pharmaFilters(typeof window === "undefined" ? "" : window.location.search));
+  const [topic, setTopic] = useState<PharmaTopic>(filters.topic);
+  const [days, setDays] = useState<7 | 30 | 90>(filters.days);
+  const [source, setSource] = useState(filters.source);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
@@ -101,10 +104,6 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
   const overview = useMemo(() => feed ? pharmaOverview(feed) : null, [feed]);
   const highlights = feed ? [feed.items.find(i => i.source === "fda"), feed.items.find(i => i.source === "trials")].filter((item): item is PharmaItem => !!item) : [];
   const filterSource = (value: string) => { setSource(value); setPage(0); setSelected(null); setNotice(""); };
-  const reviewRecord = (item: PharmaItem) => {
-    setQuery(""); setSource(item.source); setPage(0); setSelected(item.id);
-    window.requestAnimationFrame(() => document.getElementById("pi-records-title")?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }));
-  };
   const exportCsv = () => {
     if (!feed || !filtered.length) return;
     saveDownload(new Blob([pharmaCsv(filtered, feed)], { type: "text/csv;charset=utf-8" }), `pharma-updates-${topic}-${feed.until}.csv`);
@@ -153,7 +152,7 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
         })}
       </div>
       {highlights.length > 0 && !query && source === "all" && <section className="pi-highlights" aria-labelledby="pi-highlights-title"><div className="pi-section-heading"><h3 id="pi-highlights-title">Latest by source</h3></div>
-        <div className="pi-highlight-grid">{highlights.map(item => <article className="pi-highlight-card" key={item.id}><RecordThumbnail item={item} featured /><div className="pi-highlight-body"><span className={`pi-record-kind pi-tone-${item.source}`}>{item.source === "fda" ? "Latest FDA action" : "Latest study update"}</span><h4 title={item.title}>{item.title}</h4><p>{item.organization || "Organization not listed"}</p><div><time dateTime={item.date}>{eventDate(item.date)}</time><button onClick={() => reviewRecord(item)}>Review record<ArrowRight size={14} aria-hidden="true" /></button></div></div></article>)}</div>
+        <div className="pi-highlight-grid">{highlights.map(item => <article className="pi-highlight-card" key={item.id}><Link className="pi-thumbnail-link" href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)} aria-label={`Analyze ${item.title}`}><RecordThumbnail item={item} featured /></Link><div className="pi-highlight-body"><span className={`pi-record-kind pi-tone-${item.source}`}>{item.source === "fda" ? "Latest FDA action" : "Latest study update"}</span><h4 title={item.title}><Link href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)}>{item.title}</Link></h4><p>{item.organization || "Organization not listed"}</p><div><time dateTime={item.date}>{eventDate(item.date)}</time><Link href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)}>Review record<ArrowRight size={14} aria-hidden="true" /></Link></div></div></article>)}</div>
       </section>}
       {overview && feed.items.length > 0 && <div className="pi-insight-grid">
         <section className="pi-activity-widget" aria-labelledby="pi-activity-title">
@@ -193,10 +192,10 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
             {(query || source !== "all") && <button className="pi-button" onClick={() => { setQuery(""); filterSource("all"); }}>Clear filters</button>}
           </div> : <ol className={`pi-record-list pi-layout-${view}`}>
             {visible.map(item => <li key={item.id}>
-              <RecordThumbnail item={item} />
+              <Link className="pi-thumbnail-link" href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)} aria-label={`Analyze ${item.title}`}><RecordThumbnail item={item} /></Link>
               <div className="pi-record-body">
               <div className="pi-record-meta"><span>{item.category}</span><time dateTime={item.date}>{eventDate(item.date)}</time></div>
-              <h4><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ArrowUpRight size={14} aria-hidden="true" /><span className="sr-only"> (opens original source in a new tab)</span></a></h4>
+              <h4><Link href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)}>{item.title}<ArrowRight size={14} aria-hidden="true" /></Link></h4>
               <p className="pi-record-summary">{item.summary || "Open the original source for the full record."}</p>
               <div className="pi-record-footer"><span>{item.date_label} · {feed.sources.find(s => s.id === item.source)?.name}</span>
                 <button aria-expanded={selected === item.id} aria-controls={`pi-details-${item.id.replaceAll(":", "-")}`} onClick={() => setSelected(selected === item.id ? null : item.id)}>
@@ -233,7 +232,7 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
   </div>;
 }
 
-function RecordThumbnail({ item, featured = false }: { item: PharmaItem; featured?: boolean }) {
+export function RecordThumbnail({ item, featured = false }: { item: PharmaItem; featured?: boolean }) {
   const [failed, setFailed] = useState("");
   const image = item.source === "news" ? pharmaThumbnail(item.thumbnail) : null;
   const identifier = item.details?.study_id ?? item.details?.application;

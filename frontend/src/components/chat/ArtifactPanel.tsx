@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -7,6 +7,7 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { X, Copy, Check, Download, Maximize2, Minimize2, ChevronLeft, ChevronRight, AlertTriangle, Wand2, Loader2 } from "lucide-react";
 import { ARTIFACT_LABELS, artifactFilename, sandboxDocument, sandboxPermissions, type Artifact } from "@/lib/artifacts";
 import { ARTIFACT_ICONS } from "./AnswerExtras";
+import { artifactAppearance } from "@/lib/artifactAppearance";
 
 const LANGUAGES: Record<string, string> = { react: "jsx", html: "markup", mermaid: "markdown", svg: "markup", markdown: "markdown" };
 
@@ -22,14 +23,60 @@ export default function ArtifactPanel({ versions, index, onIndex, onClose, onFix
     const tab = tabChoice?.key === artifact.key ? tabChoice.tab : previewable ? "preview" : "code";
     const setTab = (next: "preview" | "code") => setTabChoice({ key: artifact.key, tab: next });
     const [expanded, setExpanded] = useState(false);
+    const [smallScreen, setSmallScreen] = useState(false);
+    const modal = expanded || smallScreen;
+    const panel = useRef<HTMLElement>(null);
+    const closeButton = useRef<HTMLButtonElement>(null);
+    const tabId = useId();
     const [copied, setCopied] = useState(false);
     const frame = useRef<HTMLIFrameElement>(null);
     const Icon = ARTIFACT_ICONS[artifact.type];
-    const document = useMemo(() => artifact.complete ? sandboxDocument(artifact) : null, [artifact]);
+    const document = useMemo(() => {
+        const original = artifact.complete ? sandboxDocument(artifact) : null;
+        return original ? artifactAppearance(original) : null;
+    }, [artifact]);
     const [run, setRun] = useState<{ document: string | null; status: "ready" | "error"; detail: string } | null>(null);
     const state = run?.document === document && run ? run : { status: "loading" as const, detail: "" };
     const documentRef = useRef(document);
     useEffect(() => { documentRef.current = document; }, [document]);
+    useEffect(() => {
+        const media = window.matchMedia("(max-width: 1100px)");
+        const sync = () => setSmallScreen(media.matches);
+        const timer = setTimeout(sync, 0);
+        media.addEventListener("change", sync);
+        return () => { clearTimeout(timer); media.removeEventListener("change", sync); };
+    }, []);
+    useEffect(() => {
+        const prior = window.document.activeElement;
+        closeButton.current?.focus();
+        return () => { queueMicrotask(() => { if (prior instanceof HTMLElement && prior.isConnected && !prior.closest("[inert]")) prior.focus(); }); };
+    }, []);
+    useEffect(() => {
+        if (!modal) return;
+        const main = panel.current?.parentElement?.querySelector<HTMLElement>(".sp-layout");
+        const sidebar = window.document.getElementById("main-sidebar");
+        const previousInert = main?.inert;
+        const sidebarInert = sidebar?.inert;
+        if (main) main.inert = true;
+        if (sidebar) sidebar.inert = true;
+        const retainFocus = (event: FocusEvent) => {
+            if (event.target instanceof Node && !panel.current?.contains(event.target)) closeButton.current?.focus();
+        };
+        const trap = (event: KeyboardEvent) => {
+            if (event.key !== "Tab") return;
+            const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),[href],iframe,[tabindex="0"]') || [])].filter(e => e.getBoundingClientRect().width > 0);
+            const first = controls[0], last = controls.at(-1), current = window.document.activeElement;
+            if (event.shiftKey && current === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && current === last) { event.preventDefault(); first?.focus(); }
+        };
+        window.addEventListener("keydown", trap);
+        window.document.addEventListener("focusin", retainFocus);
+        return () => {
+            if (main) main.inert = previousInert || false;
+            if (sidebar) sidebar.inert = sidebarInert || false;
+            window.removeEventListener("keydown", trap); window.document.removeEventListener("focusin", retainFocus);
+        };
+    }, [modal]);
 
     useEffect(() => {
         const receive = (event: MessageEvent) => {
@@ -61,34 +108,36 @@ export default function ArtifactPanel({ versions, index, onIndex, onClose, onFix
     };
 
     return (
-        <aside className={`cx-panel ${expanded ? "cx-panel--expanded" : ""}`} aria-label={`Artifact: ${artifact.title}`}>
+        <aside ref={panel} className={`cx-panel ${expanded ? "cx-panel--expanded" : ""}`} role={modal ? "dialog" : "complementary"} aria-modal={modal || undefined} aria-label={`Artifact: ${artifact.title}`}>
             <header className="cx-panel-header">
                 <span className="cx-panel-icon" aria-hidden="true"><Icon size={16} /></span>
                 <div className="cx-panel-title">
-                    <h2>{artifact.title}</h2>
+                    <h2 title={artifact.title}>{artifact.title}</h2>
                     <span>{ARTIFACT_LABELS[artifact.type]}{!artifact.complete && " · Building…"}</span>
                 </div>
-                {versions.length > 1 && (
-                    <div className="cx-versions" aria-label="Versions">
-                        <button type="button" className="sx-icon-btn" aria-label="Previous version" disabled={index === 0} onClick={() => onIndex(index - 1)}><ChevronLeft size={14} /></button>
-                        <span>v{index + 1} of {versions.length}</span>
-                        <button type="button" className="sx-icon-btn" aria-label="Next version" disabled={index >= versions.length - 1} onClick={() => onIndex(index + 1)}><ChevronRight size={14} /></button>
-                    </div>
-                )}
                 <div className="cx-panel-actions">
                     <button type="button" className="sx-icon-btn" aria-label={copied ? "Copied" : "Copy code"} title="Copy" onClick={() => void copy()}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
                     <button type="button" className="sx-icon-btn" aria-label="Download" title="Download" onClick={download} disabled={!artifact.complete}><Download size={15} /></button>
                     <button type="button" className="sx-icon-btn cx-panel-expand" aria-label={expanded ? "Exit full screen" : "Full screen"} title={expanded ? "Exit full screen" : "Full screen"}
                         onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
-                    <button type="button" className="sx-icon-btn" aria-label="Close artifact" title="Close" onClick={onClose}><X size={16} /></button>
+                    <button ref={closeButton} type="button" className="sx-icon-btn" aria-label="Close artifact" title="Close" onClick={onClose}><X size={16} /></button>
                 </div>
             </header>
-            {previewable && (
-                <div className="cx-panel-tabs" role="tablist">
-                    <button role="tab" aria-selected={tab === "preview"} className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}>Preview</button>
-                    <button role="tab" aria-selected={tab === "code"} className={tab === "code" ? "active" : ""} onClick={() => setTab("code")}>Code</button>
-                </div>
-            )}
+            <div className="cx-panel-toolbar">
+                {previewable && <div className="cx-panel-tabs" role="tablist" aria-label="Artifact view" onKeyDown={event => {
+                    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                    event.preventDefault();
+                    const next = event.key === "Home" ? "preview" : event.key === "End" ? "code" : tab === "preview" ? "code" : "preview";
+                    setTab(next); window.document.getElementById(`${tabId}-${next}`)?.focus();
+                }}>
+                    {(["preview", "code"] as const).map(value => <button key={value} id={`${tabId}-${value}`} role="tab" aria-selected={tab === value} aria-controls={`${tabId}-body`} tabIndex={tab === value ? 0 : -1} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value === "preview" ? "Preview" : "Code"}</button>)}
+                </div>}
+                {versions.length > 1 && <div className="cx-versions" aria-label="Versions">
+                    <button type="button" className="sx-icon-btn" aria-label="Previous version" disabled={index === 0} onClick={() => onIndex(index - 1)}><ChevronLeft size={14} /></button>
+                    <span>v{index + 1} of {versions.length}</span>
+                    <button type="button" className="sx-icon-btn" aria-label="Next version" disabled={index >= versions.length - 1} onClick={() => onIndex(index + 1)}><ChevronRight size={14} /></button>
+                </div>}
+            </div>
             {state.status === "error" && tab === "preview" && (
                 <div className="cx-panel-error" role="alert">
                     <AlertTriangle size={15} aria-hidden="true" />
@@ -99,7 +148,7 @@ export default function ArtifactPanel({ versions, index, onIndex, onClose, onFix
                     </button>
                 </div>
             )}
-            <div className="cx-panel-body">
+            <div className="cx-panel-body" id={`${tabId}-body`} role={previewable ? "tabpanel" : undefined} aria-labelledby={previewable ? `${tabId}-${tab}` : undefined}>
                 {tab === "preview" && previewable ? (
                     !artifact.complete ? (
                         <div className="cx-panel-building" role="status"><Loader2 size={20} className="sx-spin" /> Building {ARTIFACT_LABELS[artifact.type].toLowerCase()}… {artifact.content.split("\n").length} lines so far</div>

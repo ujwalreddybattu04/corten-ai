@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChartNoAxesCombined, FlaskConical } from "lucide-react";
 import YearlyMonthlyWorkspace from "./YearlyMonthlyWorkspace";
 import PharmaWorkspace from "./PharmaWorkspace";
@@ -8,6 +8,11 @@ import PharmaWorkspace from "./PharmaWorkspace";
 export default function WorkspaceTools() {
   const [tab, setTab] = useState("interpolation");
   const [openedPharma, setOpenedPharma] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tool") !== "pharma") return;
+    const timer = setTimeout(() => { setOpenedPharma(true); setTab("pharma"); }, 0);
+    return () => clearTimeout(timer);
+  }, []);
   const select = (value: string) => {
     if (value === "pharma") setOpenedPharma(true);
     setTab(value);

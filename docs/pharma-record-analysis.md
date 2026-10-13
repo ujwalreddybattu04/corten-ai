@@ -1,0 +1,11 @@
+# Pharma record analysis and preview layout
+
+Pharma Intelligence record titles, thumbnails and highlights open a record page with the API's dated facts, original source, available identifiers and fields. Missing values are shown as not listed. FDA action dates, trial record updates and news publication dates retain their different meanings.
+
+Corten generates a medium-length analysis from the selected snapshot. The request separates reported facts, forecasting considerations and missing evidence; it must not treat a supplemental action as a new product approval or a study record update as new results. Follow-up requests include the same reference and completed conversation. They use the existing authenticated Search service and selected answer mode. This feature does not change Space agents or interpolation calculations.
+
+Completed public-mode analyses use personal chat history and its existing account sync. Private-mode answers remain unsaved. Record snapshots are scoped by account, therapy and date window, bounded by storage size and a 24-hour lifetime. Direct links fall back to the existing read-only feed API; records outside the current capped feed show an explicit recovery path. Reloading a matching saved conversation avoids duplicate generation. Interrupted or failed responses are not persisted, and retries require an explicit user action. Deletion and concurrent edits are respected.
+
+The shared Search/Spaces artifact preview now reserves its desktop column so the answer and composer remain visible. Smaller screens use a full-screen preview, accessible controls and keyboard navigation. A dark presentation stylesheet is applied only inside the existing isolated preview sandbox. Original code, chart data and downloads remain unchanged; explicitly authored graphics may keep their source colors.
+
+Validation covers record ownership, cache corruption and expiry, evidence bounds, native chat persistence, private mode, deletion and concurrent edits; browser checks cover navigation, follow-up context, citation indices, reload, errors, responsive layout, preview controls and unchanged downloads. Hosting verification and provider availability are recorded separately from controlled browser fixtures.

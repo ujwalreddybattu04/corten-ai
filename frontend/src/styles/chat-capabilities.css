@@ -144,26 +144,40 @@ a.cx-cite:hover, a.cx-cite:focus-visible { background: #fff; color: #000; outlin
 .cx-artifact-card-open { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-secondary); font-size: 12.5px; font-weight: 600; flex-shrink: 0; }
 
 /* ── Artifact panel ────────────────────────────────────────────────────────── */
+.cx-with-panel { --cx-panel-width: clamp(480px, calc((100vw - var(--sidebar-width)) * .52), 820px); }
 .cx-panel {
-    position: fixed; top: 0; right: 0; bottom: 0; z-index: 900; width: min(50vw, 860px); display: flex; flex-direction: column;
-    background: #0d0d10; border-left: 1px solid rgba(255, 255, 255, 0.08); box-shadow: -18px 0 50px rgba(0, 0, 0, 0.45);
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 900; width: var(--cx-panel-width); display: flex; flex-direction: column;
+    background: #101014; border-left: 1px solid #2b2b32; box-shadow: -10px 0 32px rgba(0, 0, 0, 0.2);
     animation: cxPanelIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes cxPanelIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .cx-panel--expanded { width: 100vw; z-index: 1200; }
-.cx-with-panel .sp-layout { margin-right: min(50vw, 860px); transition: margin-right 220ms ease; }
+.cx-with-panel .sp-layout { width: calc(100% - var(--cx-panel-width)); min-width: 0; margin-right: 0; transition: none; }
+.cx-with-panel .sp-content-inner { padding: 28px 28px 120px; }
+.cx-with-panel .sp-tabbar { padding-left: 28px; }
+.cx-with-panel .sp-tabs { padding-left: 0; }
+.cx-with-panel .sp-tab { padding-left: 12px; padding-right: 12px; font-size: 13px; white-space: nowrap; }
+.cx-with-panel .sp-tabbar-right { padding-right: 16px; padding-left: 8px; gap: 6px; flex-shrink: 0; }
+.cx-with-panel .sp-input-bar { padding: 12px 24px 24px; }
+.cx-with-panel .sp-input-form { min-width: 0; }
+.cx-with-panel .sp-layout--panel-open { grid-template-columns: minmax(0, 1fr) 0; }
+.cx-with-panel .sp-layout--panel-open > .sp-sources-panel { position: absolute; top: 0; right: 0; width: min(480px, 100%); max-width: 100%; z-index: 100; box-shadow: -8px 0 24px #0004; }
 .cx-panel-header {
-    display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     padding-top: calc(12px + env(safe-area-inset-top, 0px));
 }
 .cx-panel-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 9px;
     background: rgba(99, 102, 241, 0.18); color: #c7d2fe; flex-shrink: 0; }
 .cx-panel-title { min-width: 0; flex: 1; }
-.cx-panel-title h2 { margin: 0; font-size: 14px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-panel-title h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; line-height: 1.5; color: #fff; overflow-wrap: anywhere; }
 .cx-panel-title span { font-size: 11.5px; color: var(--color-text-tertiary); }
 .cx-versions { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
-.cx-panel-actions { display: flex; align-items: center; gap: 2px; }
-.cx-panel-tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.cx-panel-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.cx-panel :is(.cx-panel-actions,.cx-versions) .sx-icon-btn { width: 36px; height: 36px; border: 1px solid transparent; border-radius: 8px; color: #a1a1aa; display: inline-flex; align-items: center; justify-content: center; }
+.cx-panel :is(.cx-panel-actions,.cx-versions) .sx-icon-btn:hover:not(:disabled) { color: #fff; background: #222228; border-color: #36363e; }
+.cx-panel .sx-icon-btn:focus-visible { outline: 2px solid #b4cdbf; outline-offset: 2px; }
+.cx-panel-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid #27272e; min-height: 52px; }
+.cx-panel-tabs { display: flex; gap: 4px; padding: 8px 0 0; align-self: stretch; }
 .cx-panel-tabs button {
     padding: 8px 12px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
     color: var(--color-text-tertiary); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
@@ -176,7 +190,7 @@ a.cx-cite:hover, a.cx-cite:focus-visible { background: #fff; color: #000; outlin
 }
 .cx-panel-error span { flex: 1; overflow-wrap: anywhere; }
 .cx-panel-body { position: relative; flex: 1; min-height: 0; overflow: auto; background: #0b0d12; }
-.cx-panel-frame { display: block; width: 100%; height: 100%; border: none; background: #fff; }
+.cx-panel-frame { display: block; width: 100%; height: 100%; border: none; background: #101014; color-scheme: dark; }
 .cx-panel-loading { position: absolute; top: 14px; right: 14px; color: #64748b; z-index: 1; }
 .cx-panel-building { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%;
     color: var(--color-text-secondary); font-size: 13px; text-align: center; padding: 24px; }
@@ -186,8 +200,18 @@ a.cx-cite:hover, a.cx-cite:focus-visible { background: #fff; color: #000; outlin
 .cx-panel-markdown th, .cx-panel-markdown td { border: 1px solid rgba(255, 255, 255, 0.12); padding: 6px 10px; text-align: left; }
 @media (max-width: 1100px) {
     .cx-panel { width: 100vw; z-index: 1200; }
-    .cx-with-panel .sp-layout { margin-right: 0; }
+    .cx-with-panel .sp-layout { margin-right: 0; width: 100%; }
     .cx-panel-expand { display: none; }
+}
+@media (max-width: 520px) {
+    .cx-panel-header { flex-wrap: wrap; padding: 14px 16px; gap: 10px; }
+    .cx-panel-title { flex: 1 1 calc(100% - 48px); }
+    .cx-panel-actions { margin-left: auto; }
+    .cx-panel :is(.cx-panel-actions,.cx-versions) .sx-icon-btn { width: 40px; height: 40px; }
+    .cx-panel-toolbar { gap: 6px; padding: 0 12px; }
+    .cx-versions { font-size: 11px; }
+    .cx-panel-error { flex-wrap: wrap; }
+    .cx-panel-markdown { padding: 22px 20px; }
 }
 
 /* ── Personalization settings ──────────────────────────────────────────────── */
