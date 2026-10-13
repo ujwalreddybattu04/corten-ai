@@ -199,8 +199,7 @@ export default function SignupPage() {
                         <span className="auth-brand-name">{BRAND_NAME}</span>
                     </div>
 
-                    <h1 className="auth-heading">Create Account</h1>
-                    <p className="auth-subheading">Join {BRAND_NAME} and start searching smarter</p>
+                    <h1 className="auth-heading auth-heading--alone">Create Account</h1>
 
                     {globalError && (
                         <div className="auth-error-banner" role="alert">

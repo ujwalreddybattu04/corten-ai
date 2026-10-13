@@ -74,6 +74,9 @@
   margin: 0 0 0.5rem;
 }
 
+/* A heading without a subheading keeps the subheading's space before the form. */
+.auth-heading--alone { margin-bottom: 2.5rem; }
+
 .auth-subheading {
   text-align: center;
   font-size: 0.75rem;
@@ -656,6 +659,6 @@
 @media (max-height: 680px) {
   .auth-shell { align-items: flex-start; padding-top: 2rem; }
   .auth-brand { margin-bottom: 1.5rem; }
-  .auth-subheading { margin-bottom: 1.5rem; }
+  .auth-subheading, .auth-heading--alone { margin-bottom: 1.5rem; }
   .auth-form { gap: 1.25rem; }
 }
