@@ -21,7 +21,7 @@ from typing import AsyncGenerator
 from src.services.llm_service import groq_llm_service, ReasoningChunk
 from src.services.llm_runtime import LLMProviderError, llm_error_details
 from src.services import answer_modes, artifacts, file_builder, personalization
-from src.services.chat_context import TurnContext, attachment_sources
+from src.services.chat_context import TurnContext, attachment_sources, document_relevant
 from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
@@ -81,11 +81,15 @@ class SearchOrchestrator:
             query_type = route.get("query_type", "factual")
             sub_questions = route.get("sub_questions", [])
             selected_tool_names = route.get("tools", [])
+            turn = turn or TurnContext()
+            if personalization.has_memories(turn.personal) and personalization.SELF_QUESTION.search(query) \
+                    and not (turn.documents or turn.images):
+                # Questions about the user are answered from saved memory, never by searching the web.
+                strategy, query_type, selected_tool_names = STRATEGY_DIRECT, "question_recall", []
             if strategy == STRATEGY_DIRECT:
                 selected_tool_names = [name for name in selected_tool_names if name == "calculator" and query_type == "math"]
 
             # ── SPACE CONTEXT: files, instructions and source preferences ─
-            turn = turn or TurnContext()
             instructions = space.instructions if space else ""
             space_sources, files_only = [], False
             if space:
@@ -96,16 +100,17 @@ class SearchOrchestrator:
                     if space_sources:
                         yield _sse("thought", {"content": f"Found relevant passages in {len(space_sources)} Space "
                                                           f"file{'s' if len(space_sources) != 1 else ''}"})
-            # ── ATTACHMENTS: documents are always read; images use the vision model ─
-            if turn.documents:
-                yield _sse("status", {"content": f"Reading {len(turn.documents)} attached document"
-                                                 f"{'s' if len(turn.documents) != 1 else ''}"})
+            # ── ATTACHMENTS: this message's documents are always read; earlier ones only when relevant ─
+            documents = turn.documents + [doc for doc in turn.context_documents if document_relevant(doc, query)]
+            if documents:
+                yield _sse("status", {"content": f"Reading {len(documents)} attached document"
+                                                 f"{'s' if len(documents) != 1 else ''}"})
             if turn.images:
                 yield _sse("status", {"content": f"Looking at {len(turn.images)} attached image"
                                                  f"{'s' if len(turn.images) != 1 else ''}"})
                 # Image questions are answered from the image itself, not the web.
                 files_only = True
-            own_material = bool(space_sources or turn.documents or turn.images)
+            own_material = bool(space_sources or documents or turn.images)
             if strategy == STRATEGY_DIRECT and own_material and query_type not in _NO_FILE_SEARCH - {"greeting"}:
                 # No web research needed, but the user's own material is relevant.
                 strategy, files_only = STRATEGY_STANDARD, True
@@ -120,16 +125,17 @@ class SearchOrchestrator:
                 selected_tool_names = [name for name in selected_tool_names if name in ("calculator", "weather")]
 
             profile = answer_modes.resolve(turn.mode, complexity=complexity, strategy=strategy,
-                                           has_images=bool(turn.images), long_context=turn.document_chars > 30_000,
+                                           has_images=bool(turn.images),
+                                           long_context=sum(len(doc["text"]) for doc in documents) > 30_000,
                                            needs_long_output=bool(wants_file or wants_artifact))
-            context_sources = attachment_sources(turn.documents, query, int(profile.evidence_chars * 0.75)) + space_sources
+            context_sources = attachment_sources(documents, query, int(profile.evidence_chars * 0.75)) + space_sources
             if profile.mode != "fast":
                 yield _sse("mode", {"mode": profile.mode, "label": profile.label})
 
             logger.info(
                 f"[Orchestrator] Route: strategy={strategy} complexity={complexity} type={query_type} "
                 f"tools={selected_tool_names} subs={len(sub_questions)} space={bool(space)} mode={profile.mode} "
-                f"documents={len(turn.documents)} images={len(turn.images)}"
+                f"documents={len(documents)}/{len(turn.documents) + len(turn.context_documents)} images={len(turn.images)}"
             )
 
             # Notify frontend which tools were selected

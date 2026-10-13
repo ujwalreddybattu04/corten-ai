@@ -24,16 +24,42 @@ function attributes(raw: string): Record<string, string> {
     return result;
 }
 
+const MERMAID_FENCE = /(^|\n)[ \t]*```mermaid[ \t]*\n([\s\S]*?)\n[ \t]*```[ \t]*(?=\n|$)/g;
+const DIAGRAM_TITLES: Record<string, string> = {
+    flowchart: "Flowchart", graph: "Flowchart", sequencediagram: "Sequence diagram", classdiagram: "Class diagram",
+    statediagram: "State diagram", "statediagram-v2": "State diagram", erdiagram: "Entity relationship diagram",
+    gantt: "Gantt chart", mindmap: "Mind map", timeline: "Timeline", pie: "Pie chart", journey: "User journey",
+};
+
+/** Prose with any complete ```mermaid code blocks turned into diagram artifacts: models sometimes write a
+ *  diagram as a plain code block instead of an artifact, and a diagram is more useful drawn than as source. */
+function splitDiagrams(text: string, nextIndex: () => number): Segment[] {
+    const segments: Segment[] = [];
+    let cursor = 0;
+    for (const match of text.matchAll(MERMAID_FENCE)) {
+        const start = match.index + match[1].length;
+        if (start > cursor) segments.push({ kind: "text", text: text.slice(cursor, start) });
+        const keyword = match[2].trim().split(/\s/, 1)[0].toLowerCase();
+        const title = DIAGRAM_TITLES[keyword] ?? "Diagram";
+        segments.push({ kind: "artifact", key: `${title}#${nextIndex()}`, type: "mermaid", title, language: "",
+            content: match[2], complete: true });
+        cursor = match.index + match[0].length;
+    }
+    if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
+    return segments;
+}
+
 /** Split an answer into prose and artifacts. An unterminated final artifact is marked incomplete. */
 export function splitArtifacts(text: string): Segment[] {
     const segments: Segment[] = [];
     let cursor = 0;
     let index = 0;
+    const nextIndex = () => index++;
     OPEN.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = OPEN.exec(text))) {
         const start = match.index + match[1].length;
-        if (start > cursor) segments.push({ kind: "text", text: text.slice(cursor, start) });
+        if (start > cursor) segments.push(...splitDiagrams(text.slice(cursor, start), nextIndex));
         const bodyStart = match.index + match[0].length;
         const rest = text.slice(bodyStart);
         const close = CLOSE.exec("\n" + rest);
@@ -41,13 +67,13 @@ export function splitArtifacts(text: string): Segment[] {
         const type = (TYPES.includes(attrs.type as ArtifactType) ? attrs.type : "code") as ArtifactType;
         const title = (attrs.title || "Untitled artifact").slice(0, 120);
         const content = close ? rest.slice(0, Math.max(0, close.index - 1)) : rest;
-        segments.push({ kind: "artifact", key: `${title}#${index++}`, type, title, language: attrs.language || "",
+        segments.push({ kind: "artifact", key: `${title}#${nextIndex()}`, type, title, language: attrs.language || "",
             content: stripFence(content), complete: Boolean(close) });
         if (!close) return segments;
         cursor = bodyStart + close.index - 1 + close[0].length;
         OPEN.lastIndex = cursor;
     }
-    if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
+    if (cursor < text.length) segments.push(...splitDiagrams(text.slice(cursor), nextIndex));
     return segments;
 }
 

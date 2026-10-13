@@ -26,6 +26,20 @@ STYLES = {
 }
 DEFAULTS = {"style": "normal", "custom_style": "", "personal_instructions": "", "memory_enabled": True}
 MEMORY_HEADING = "WHAT YOU REMEMBER ABOUT THE USER"
+_ABOUT_ME = (r"(?:name|role|job|job title|title|company|employer|team|department|profession|occupation|industry|"
+             r"city|town|location|country|hometown)")
+# Whole questions about the user themselves ("Which city am I based in?", "What do you know about me?").
+# Anchored at both ends so questions that merely mention the user ("What is the weather where I live?") still
+# go to the web.
+SELF_QUESTION = re.compile(
+    r"^\s*(?:"
+    r"(?:what|which)\s+(?:city|town|country|place|company|firm|team|role|job|industry|department)\s+(?:am i|do i|i['’]?m)"
+    r"(?:\s+(?:based|located|from|in|at|work|working|live|living|for|with))*"
+    r"|where\s+(?:am i|do i)(?:\s+(?:based|located|from|live|living|work|working))?"
+    r"|(?:what(?:['’]s|\s+is)|tell me)\s+my\s+" + _ABOUT_ME +
+    r"|what do you (?:know|remember) about me"
+    r"|do you (?:know|remember) (?:my\s+" + _ABOUT_ME + r"|me|who i am|where (?:i live|i work|i am based|i['’]m based))"
+    r")(?:\s+(?:again|now|currently))?\s*[?.!]*\s*$", re.I)
 MEMORY_PROMPT_LIMIT = 40
 MEMORY_PROMPT_CHARS = 4000
 
@@ -148,7 +162,8 @@ async def personal_block(db, user_id: str, incognito: bool = False) -> str:
             used += len(content)
         if lines:
             parts.append(MEMORY_HEADING + " (saved memories; may be outdated; use them only when relevant "
-                         "and never as evidence for external facts):\n" + "\n".join(lines))
+                         "and never as evidence for external facts. Questions about the user themselves are answered "
+                         "from these memories; web sources do not describe the user):\n" + "\n".join(lines))
     return ("\n\n" + "\n\n".join(parts) + "\n") if parts else ""
 
 

@@ -33,6 +33,23 @@ test("artifacts are split from prose, including while still streaming", () => {
     assert.deepEqual(splitArtifacts("No artifacts [1]."), [{ kind: "text", text: "No artifacts [1]." }]);
 });
 
+test("a diagram written as a plain mermaid code block is still drawn as a diagram", () => {
+    const { splitArtifacts } = lib("artifacts");
+    const answer = "Here is the flow:\n```mermaid\nflowchart TD\n  A --> B\n```\nThen review.\n```python\nprint(1)\n```";
+    const parts = splitArtifacts(answer);
+    assert.deepEqual(parts.map(p => p.kind), ["text", "artifact", "text"]);
+    assert.deepEqual([parts[1].type, parts[1].title, parts[1].content, parts[1].complete], ["mermaid", "Flowchart", "flowchart TD\n  A --> B", true]);
+    assert.match(parts[2].text, /```python/, "other code blocks stay in the answer");
+    assert.equal(splitArtifacts("```mermaid\nsequenceDiagram\n  A->>B: Hi\n```")[0].title, "Sequence diagram");
+    // While streaming, an unfinished block stays text until it closes.
+    assert.deepEqual(splitArtifacts("Flow:\n```mermaid\nflowchart TD\n  A -->").map(p => p.kind), ["text"]);
+    // Blocks inside an artifact belong to the artifact.
+    const nested = splitArtifacts(':::artifact{type="markdown" title="Plan"}\n# Plan\n```mermaid\ngraph TD;A-->B\n```\n:::');
+    assert.deepEqual(nested.map(p => [p.kind, p.type]), [["artifact", "markdown"]]);
+    const keys = splitArtifacts("```mermaid\ngraph TD;A-->B\n```\n:::artifact{type=\"svg\" title=\"Logo\"}\n<svg/>\n:::\n```mermaid\npie\n```").map(p => p.key).filter(Boolean);
+    assert.equal(new Set(keys).size, keys.length, "every artifact has its own key");
+});
+
 test("sandbox documents cannot be broken out of and never get same-origin access", () => {
     const { sandboxDocument, sandboxPermissions, artifactFilename } = lib("artifacts");
     const hostile = 'export default () => "</script><script>parent.document.cookie</script>";';
@@ -68,19 +85,27 @@ test("citations become source links outside code only", () => {
     assert.equal(linkCitations("A real [1](https://example.com) link"), "A real [1](https://example.com) link");
 });
 
-test("earlier attachments stay in context for follow-ups, newest first and bounded", () => {
+test("earlier attachments are sent apart from this message's, newest first and bounded", () => {
     const values = new Map();
     global.localStorage = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k) };
     global.window = new EventTarget();
     const chat = lib("chatApi");
     const ref = (id, kind = "document") => ({ id, name: id, kind, url: `/api/v1/attachments/${id}/content`, size: 1 });
     const history = [{ attachments: [ref("a"), ref("b")] }, { attachments: [ref("c"), ref("gen", "generated"), ref("pic", "image")] }];
-    assert.deepEqual(chat.conversationAttachmentIds([ref("new")], history, "What is 17 x 23?"), ["new", "c", "a", "b"]);
+    assert.deepEqual(chat.conversationAttachments([ref("new")], history, "What is 17 x 23?"), { attachments: ["new"], context: ["c", "a", "b"] });
     // Earlier images only join when the question is about something visual.
-    assert.deepEqual(chat.conversationAttachmentIds([], history, "Describe the chart in more detail"), ["c", "pic", "a", "b"]);
-    assert.deepEqual(chat.conversationAttachmentIds([ref("now", "image")], history, "and this one?"), ["now", "c", "a", "b"]);
+    assert.deepEqual(chat.conversationAttachments([], history, "Describe the chart in more detail"), { attachments: [], context: ["c", "pic", "a", "b"] });
+    assert.deepEqual(chat.conversationAttachments([ref("now", "image")], history, "and this one?"), { attachments: ["now"], context: ["c", "a", "b"] });
+    for (const question of ["What colour is it?", "Recreate this screenshot as a web page", "What does the bar chart show?"]) {
+        assert.ok(chat.conversationAttachments([], history, question).context.includes("pic"), question);
+    }
+    // Asking to make a chart is not a reference to an earlier image.
+    assert.ok(!chat.conversationAttachments([], history, "Build a React dashboard with a bar chart and three KPI cards").context.includes("pic"));
+    // A file attached again is sent once, as part of this message.
+    assert.deepEqual(chat.conversationAttachments([ref("a")], history, "again"), { attachments: ["a"], context: ["c", "b"] });
     const many = Array.from({ length: 15 }, (_, i) => ref("x" + i));
-    assert.equal(chat.conversationAttachmentIds(many, []).length, 10);
+    assert.deepEqual(chat.conversationAttachments(many, history), { attachments: many.slice(0, 10).map(r => r.id), context: [] });
+    assert.deepEqual(chat.conversationAttachments(many.slice(0, 8), history).context, ["c", "a"]);
     assert.equal(chat.getAnswerMode(), "auto");
     chat.setAnswerMode("think");
     assert.equal(chat.getAnswerMode(), "think");
@@ -117,8 +142,9 @@ test("questions send mode, attachments and private status to the answer service"
         return new Response("data: {}\n\n");
     };
     const signal = new AbortController().signal;
-    await openSearchStream({ apiBase: "", query: "q", focus: "all", messages: [], mode: "think", attachments: ["a1"], incognito: true }, signal, () => {}, { fetcher });
-    await openSearchStream({ apiBase: "", query: "q", focus: "all", messages: [], mode: "auto", attachments: [] }, signal, () => {}, { fetcher });
-    assert.deepEqual([bodies[0].mode, bodies[0].attachments, bodies[0].incognito], ["think", ["a1"], true]);
-    assert.ok(!("mode" in bodies[1]) && !("attachments" in bodies[1]) && !("incognito" in bodies[1]));
+    await openSearchStream({ apiBase: "", query: "q", focus: "all", messages: [], mode: "think", attachments: ["a1"],
+        contextAttachments: ["e1"], incognito: true }, signal, () => {}, { fetcher });
+    await openSearchStream({ apiBase: "", query: "q", focus: "all", messages: [], mode: "auto", attachments: [], contextAttachments: [] }, signal, () => {}, { fetcher });
+    assert.deepEqual([bodies[0].mode, bodies[0].attachments, bodies[0].context_attachments, bodies[0].incognito], ["think", ["a1"], ["e1"], true]);
+    assert.ok(!("mode" in bodies[1]) && !("attachments" in bodies[1]) && !("context_attachments" in bodies[1]) && !("incognito" in bodies[1]));
 });

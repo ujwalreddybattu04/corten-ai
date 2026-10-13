@@ -135,8 +135,8 @@ class GroqLLMService:
                                   "earlier; say the answer comes from what they told you before.")
             system_prompt += personal
         if artifact:
-            from src.services.artifacts import PROMPT as ARTIFACT_PROMPT
-            system_prompt += ARTIFACT_PROMPT
+            from src.services import artifacts
+            system_prompt += artifacts.PROMPT
 
         # Build message history
         messages_payload = [{"role": "system", "content": system_prompt}]
@@ -155,6 +155,8 @@ class GroqLLMService:
                 "use clearly marked placeholders for missing figures. Do not claim to have reviewed "
                 "financial projections, historical data or market analysis that was not supplied."
             )
+        if artifact:
+            current_request += artifacts.REMINDER
         if images:
             messages_payload.append({"role": "user", "content": [{"type": "text", "text": current_request}] + [
                 {"type": "image_url", "image_url": {"url": url}} for url in images[:5]]})

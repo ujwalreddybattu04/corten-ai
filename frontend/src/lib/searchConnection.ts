@@ -14,7 +14,7 @@ function delay(ms: number, signal: AbortSignal) {
 }
 export async function openSearchStream(
     request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string;
-        mode?: string; attachments?: string[]; incognito?: boolean },
+        mode?: string; attachments?: string[]; contextAttachments?: string[]; incognito?: boolean },
     signal: AbortSignal, onWait: (message: string) => void,
     options: { budgetMs?: number; attemptMs?: number; delayMs?: number; fetcher?: typeof fetch } = {},
 ): Promise<Response> {
@@ -62,6 +62,7 @@ export async function openSearchStream(
                 ...(request.spaceId ? { space_id: request.spaceId } : {}),
                 ...(request.mode && request.mode !== "auto" ? { mode: request.mode } : {}),
                 ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+                ...(request.contextAttachments?.length ? { context_attachments: request.contextAttachments } : {}),
                 ...(request.incognito ? { incognito: true } : {}) }), signal,
         });
     } catch {

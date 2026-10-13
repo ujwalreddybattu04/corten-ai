@@ -330,6 +330,88 @@ async def test_recall_questions_use_saved_memory_when_the_chat_has_no_history():
         assert [e["content"] for e in events if e["type"] == "token"] == [MISSING_HISTORY] and not captured
 
 
+def test_self_questions_are_recognized_without_catching_questions_that_need_the_web():
+    for question in ["Which city am I based in?", "Where do I work?", "What's my name?", "What is my role?",
+                     "What do you know about me?", "Do you remember where I'm based?", "which company do i work for",
+                     "Where am I based again?"]:
+        assert personalization.SELF_QUESTION.search(question), question
+    for question in ["What is the weather where I live?", "Restaurants near where I'm based", "Who am I by Les Misérables?",
+                     "What is my company's share price?", "Which city is the capital of Bavaria?", "What is the name of the EMA chair?"]:
+        assert not personalization.SELF_QUESTION.search(question), question
+
+
+@pytest.mark.asyncio
+async def test_questions_about_the_user_are_answered_from_memory_not_the_web():
+    # The router can send "Which city am I based in?" to web search; with saved memories it must not.
+    route = {"strategy": "quick", "query_type": "factual", "tools": ["web_search"], "requires_search": True}
+    memory = "\n\n" + personalization.MEMORY_HEADING + " (saved memories):\n- User is based in Munich\n"
+    captured = {}
+
+    async def answer(query, results, history, focus="all", **options):
+        captured.update(options, results=results)
+        yield "You told me you're based in Munich."
+
+    with patch("src.services.search_orchestrator.smart_router.route", AsyncMock(return_value=route)), \
+         patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock(return_value=[])) as tools, \
+         patch("src.services.search_orchestrator.tool_executor.execute_single", AsyncMock()), \
+         patch.object(groq_llm_service, "stream_answer", answer), \
+         patch.object(groq_llm_service, "generate_follow_up_questions", AsyncMock(return_value=[])):
+        events = parse([e async for e in SearchOrchestrator().stream_search("Which city am I based in?", turn=TurnContext(personal=memory))])
+        assert captured["conversation_only"] is True and captured["personal"] == memory and not tools.await_count
+        assert "Munich" in "".join(e.get("content", "") for e in events if e["type"] == "token")
+        # Without saved memories, routing is unchanged.
+        captured.clear()
+        [e async for e in SearchOrchestrator().stream_search("Which city am I based in?", turn=TurnContext())]
+        assert tools.await_count == 1 and "conversation_only" not in captured
+
+
+def test_earlier_documents_count_only_when_the_question_is_about_them():
+    from src.services.chat_context import document_relevant
+    brief = {"id": "d1", "name": "launch-brief-0cd03db8.md",
+             "text": "# Launch brief\n\nThe launch budget for Project KESTREL is 3.4 million euros.\n"
+                     "The launch market is Spain, planned for 12 May 2027.\n"}
+    for question in ["In which country is the launch in the brief, and what is 17 × 23?", "Summarize it",
+                     "What is the budget for KESTREL?", "And the launch date?", "Compare this document with Italy"]:
+        assert document_relevant(brief, question), question
+    for question in ["Draw a flowchart of a new employee onboarding process", "Which city am I based in?",
+                     "Build an interactive React dashboard showing quarterly revenue for 2026 with a bar chart and three KPI cards",
+                     "What is 17 × 23?", "thanks!"]:
+        assert not document_relevant(brief, question), question
+    assert document_relevant({"id": "d2", "name": "報告.txt", "text": "予算は340万ユーロ"}, "予算はいくらですか")
+
+
+@pytest.mark.asyncio
+async def test_unrelated_follow_ups_are_not_answered_from_earlier_documents():
+    captured = {}
+
+    async def answer(query, results, history, focus="all", **options):
+        captured.update(options, results=results)
+        yield ':::artifact{type="mermaid" title="Onboarding"}\nflowchart TD\nA-->B\n:::'
+
+    route = {"strategy": "direct", "query_type": "text", "tools": [], "requires_search": False}
+    brief = {"id": "d1", "name": "launch-brief.md", "text": "The launch budget for Project KESTREL is 3.4 million euros."}
+    with patch("src.services.search_orchestrator.smart_router.route", AsyncMock(return_value=route)), \
+         patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock(return_value=[])), \
+         patch.object(groq_llm_service, "stream_answer", answer), \
+         patch.object(groq_llm_service, "generate_follow_up_questions", AsyncMock(return_value=[])):
+        events = parse([e async for e in SearchOrchestrator().stream_search(
+            "Draw a flowchart of a new employee onboarding process", turn=TurnContext(context_documents=[brief]))])
+        assert captured["artifact"] is True and captured["results"] == []
+        assert not any(e["type"] == "sources" for e in events)
+        assert not any("Reading" in (e.get("content") or "") for e in events if e["type"] == "status")
+        # A follow-up about the document still reads it, without searching the web.
+        captured.clear()
+        events = parse([e async for e in SearchOrchestrator().stream_search(
+            "What is the launch budget?", turn=TurnContext(context_documents=[brief]))])
+        assert captured["results"][0]["title"] == "launch-brief.md"
+        assert next(e for e in events if e["type"] == "sources")["sources"][0]["domain"] == "Attachment"
+
+
+def test_artifact_requests_restate_the_format_in_the_user_turn():
+    from src.services import artifacts
+    assert ":::artifact" in artifacts.REMINDER and "ARTIFACTS" in artifacts.PROMPT
+
+
 @pytest.mark.asyncio
 async def test_private_chats_skip_memory_capture(client):
     with patch("src.api.v1.search.search_orchestrator.stream_search") as stream, \
@@ -343,3 +425,24 @@ async def test_private_chats_skip_memory_capture(client):
         remember.assert_awaited_once_with(ALICE, "I'm a pharma analyst")
         assert stream.call_args.kwargs["turn"].mode == "pro"
     assert (await client.post("/api/v1/search/stream", headers=as_user(ALICE), json={"query": "x", "mode": "turbo"})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_this_messages_files_and_earlier_files_reach_the_answer_separately(client):
+    upload = lambda name, data: client.post("/api/v1/attachments", headers=as_user(ALICE), files={"file": (name, data)})
+    new = (await upload("new.md", b"# New\nThe Q3 target is 40 sites.")).json()
+    old = (await upload("old.md", b"# Old\nThe launch budget is 3.4 million euros.")).json()
+    picture = (await upload("chart.png", png())).json()
+    with patch("src.api.v1.search.search_orchestrator.stream_search") as stream, \
+         patch("src.api.v1.search.personalization.remember_from_message", AsyncMock()):
+        async def empty(*args, **kwargs):
+            yield "data: {}\n\n"
+        stream.side_effect = empty
+        await client.post("/api/v1/search/stream", headers=as_user(ALICE), json={
+            "query": "Compare them", "attachments": [new["id"]], "context_attachments": [old["id"], new["id"], picture["id"]]})
+        turn = stream.call_args.kwargs["turn"]
+    assert [d["name"] for d in turn.documents] == ["new.md"]
+    assert [d["name"] for d in turn.context_documents] == ["old.md"]
+    assert turn.image_names == ["chart.png"]
+    too_many = {"query": "x", "context_attachments": [str(uuid4()) for _ in range(11)]}
+    assert (await client.post("/api/v1/search/stream", headers=as_user(ALICE), json=too_many)).status_code == 422

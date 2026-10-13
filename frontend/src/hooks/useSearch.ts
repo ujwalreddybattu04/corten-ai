@@ -4,7 +4,7 @@ import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { openSearchStream } from "@/lib/searchConnection";
 import { spacesApi } from "@/lib/spacesApi";
-import { getAnswerMode, conversationAttachmentIds, type AttachmentRef, type GeneratedFile } from "@/lib/chatApi";
+import { getAnswerMode, conversationAttachments, type AttachmentRef, type GeneratedFile } from "@/lib/chatApi";
 
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -326,10 +326,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         }));
 
         try {
-            const history = keepHistory ?? [];
+            const files = conversationAttachments(attachments, keepHistory ?? [], q);
             const response = await openSearchStream({ apiBase: API_BASE, query: q, focus, messages: backendMessages || [],
                     spaceId: spaceId && spaceSaveRef.current ? spaceId : undefined, mode: getAnswerMode(),
-                    attachments: conversationAttachmentIds(attachments, history, q), incognito: isPrivateChat() },
+                    attachments: files.attachments, contextAttachments: files.context, incognito: isPrivateChat() },
                 controller.signal, message => {
                     if (!controller.signal.aborted && abortRef.current === controller) {
                         setState(prev => ({ ...prev, connectionMessage: message }));

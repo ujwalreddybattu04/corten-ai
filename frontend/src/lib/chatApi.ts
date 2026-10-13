@@ -33,19 +33,28 @@ export interface AttachmentRef {
     size: number;
 }
 
-const VISUAL_REFERENCE = /\b(?:image|picture|photo|screenshot|screen|chart|graph|figure|diagram|logo|colou?r|slide|scan|drawing|visual|look)s?\b/i;
+// The question points at an earlier image ("the chart", "this screenshot", "what colour…"). A request to make
+// something ("build a dashboard with a bar chart") does not.
+const VISUAL_REFERENCE = new RegExp(
+    "\\b(?:the|this|that|these|those|my|your|its|their|same)\\s+(?:\\w+\\s+)?" +
+    "(?:images?|pictures?|photos?|screenshots?|screens?|charts?|graphs?|figures?|diagrams?|logos?|slides?|scans?|drawings?|visuals?)\\b" +
+    "|\\b(?:colou?rs?|looks? like|pictured|visible|shown in|see in)\\b", "i");
 
-/** Attachments for a question, newest first and bounded like the server. Earlier documents always stay in
- *  context. Earlier images only when the question refers to something visual: images require the vision
- *  model, which would otherwise override the user's chosen mode for unrelated follow-ups. */
-export function conversationAttachmentIds(current: AttachmentRef[], history: { attachments?: AttachmentRef[] }[], query = ""): string[] {
+/** Attachments for a question, bounded like the server: this message's files, then earlier files newest first.
+ *  The server reads earlier documents only when they are relevant to the question. Earlier images are sent only
+ *  when the question refers to something visual: images require the vision model, which would otherwise
+ *  override the user's chosen mode for unrelated follow-ups. */
+export function conversationAttachments(current: AttachmentRef[], history: { attachments?: AttachmentRef[] }[], query = ""):
+    { attachments: string[]; context: string[] } {
     const visual = VISUAL_REFERENCE.test(query);
-    const ids: string[] = current.filter(item => item.kind !== "generated").map(item => item.id);
+    const attachments = [...new Set(current.filter(item => item.kind !== "generated").map(item => item.id))].slice(0, 10);
+    const context: string[] = [];
     for (const item of history.slice().reverse().flatMap(turn => turn.attachments ?? [])) {
-        if (item.kind === "generated" || ids.includes(item.id) || (item.kind === "image" && !visual)) continue;
-        ids.push(item.id);
+        if (item.kind === "generated" || attachments.includes(item.id) || context.includes(item.id)
+            || (item.kind === "image" && !visual)) continue;
+        context.push(item.id);
     }
-    return [...new Set(ids)].slice(0, 10);
+    return { attachments, context: context.slice(0, 10 - attachments.length) };
 }
 
 export interface GeneratedFile extends AttachmentRef {

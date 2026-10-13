@@ -40,8 +40,11 @@ embed data inline. Make it polished and production quality: clear layout, access
 realistic sample data unless the user supplied data (then use theirs exactly). Write one short sentence before the
 artifact and a brief summary of what it does after it. Do not wrap the artifact in code fences. To change an existing
 artifact, output the full updated artifact again with the same title. Answer simple questions normally, without an
-artifact.
+artifact. When sources are supplied, use their facts with citations in the text around the artifact; when they do not
+cover what was asked, still build the artifact from general knowledge and say so in one sentence.
 """
+# Repeated in the user turn: models follow the output format more reliably when the request itself asks for it.
+REMINDER = "\nDeliver this as one :::artifact block exactly as described under ARTIFACTS (no code fences)."
 
 
 def requested(query: str) -> bool:

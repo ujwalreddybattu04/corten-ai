@@ -28,6 +28,8 @@ class SearchRequest(BaseModel):
     space_id: Optional[str] = Field(default=None, max_length=64)
     mode: Literal["auto", "fast", "pro", "think"] = "auto"
     attachments: List[str] = Field(default_factory=list, max_length=10)
+    # Files from earlier messages in the conversation; documents are read only when relevant to this question.
+    context_attachments: List[str] = Field(default_factory=list, max_length=10)
     # Private chats: no memory is read or written.
     incognito: bool = False
 
@@ -37,7 +39,13 @@ async def search_stream(request: SearchRequest, user: str = Depends(get_current_
     # Resolved before streaming: membership errors are ordinary HTTP errors, not mid-stream events.
     space = await search_context(db, request.space_id, user) if request.space_id else None
     documents, images, image_names = await attachments.load_for_turn(db, user, request.attachments)
-    turn = TurnContext(mode=request.mode, documents=documents, images=images, image_names=image_names,
+    earlier = [item for item in request.context_attachments if item not in request.attachments]
+    context_documents, earlier_images, earlier_names = await attachments.load_for_turn(
+        db, user, earlier[:max(0, attachments.MAX_PER_QUESTION - len(request.attachments))])
+    room = max(0, attachments.MAX_IMAGES_PER_QUESTION - len(images))
+    images, image_names = images + earlier_images[:room], image_names + earlier_names[:room]
+    turn = TurnContext(mode=request.mode, documents=documents, context_documents=context_documents,
+                       images=images, image_names=image_names,
                        personal=await personalization.personal_block(db, user, request.incognito),
                        incognito=request.incognito, user_id=user)
     remember = None if request.incognito else BackgroundTask(personalization.remember_from_message, user, request.query)
