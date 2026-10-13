@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowUp, ArrowUpRight, FileSearch, LoaderCircle } from "lucide-react";
-import { requestPharmaFeed } from "@/lib/pharmaFeed";
+import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { pharmaThumbnail, requestPharmaFeed } from "@/lib/pharmaFeed";
 import { pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
 import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
 import AnswerStream from "@/components/thread/AnswerStream";
@@ -47,7 +47,7 @@ export default function PharmaRecordDetail() {
     }, [load]);
 
     return <section className="pi-detail-page" aria-label="Pharma record analysis">
-        <header className="pi-detail-nav"><Link className="pi-button" href={back}><ArrowLeft size={15} />Pharma intelligence</Link>
+        <header className="pi-detail-nav"><Link className="pi-button" href={back} aria-label="Back to Pharma intelligence"><ArrowLeft size={15} /><span className="pi-detail-back-full">Pharma intelligence</span><span className="pi-detail-back-short">Pharma</span></Link>
             {record && <a className="pi-button" href={record.item.url} target="_blank" rel="noopener noreferrer">Original source<ArrowUpRight size={15} /><span className="sr-only"> (opens in a new tab)</span></a>}
         </header>
         {busy ? <div className="pi-detail-state" role="status"><LoaderCircle className="pi-spinning" size={24} /><p>Loading record…</p></div>
@@ -58,27 +58,44 @@ export default function PharmaRecordDetail() {
 
 function RecordView({ record }: { record: PharmaRecord }) {
     const { item } = record, provider = recordProvider(record);
-    const fields = item.source === "fda" ? ["application", "action", "ingredients"] : item.source === "trials" ? ["study_id", "status", "phases", "conditions", "interventions"] : [];
+    const Icon = item.source === "fda" ? ShieldCheck : item.source === "trials" ? FlaskConical : FileSearch;
     return <div className="pi-detail-content">
-        <div className="pi-detail-overview">
-            <RecordThumbnail item={item} featured />
-            <div className="pi-detail-heading"><span className={`pi-record-kind pi-tone-${item.source}`}>{item.category}</span><h1>{item.title}</h1>
-                <p className="pi-detail-byline">{item.organization || provider.name}</p>
-                <p className="pi-detail-date">{item.date_label} · <time dateTime={item.date}>{date(item.date)}</time></p>
-                {item.tags.length > 0 && <div className="pi-detail-tags">{item.tags.map((tag, i) => <span key={i}>{tag.replace(/^PHASE/, "Phase ")}</span>)}</div>}
+        <header className="pi-detail-overview">
+            <div className="pi-detail-heading"><div className="pi-detail-kicker"><span className={`pi-record-kind pi-tone-${item.source}`}><Icon size={14} aria-hidden="true" />{item.category}</span><span>{provider.name}</span></div>
+                <h1>{item.title}</h1>
+                <div className="pi-detail-meta"><span>{item.organization || "Organization not listed"}</span><span className="pi-detail-date">{item.date_label} · <time dateTime={item.date}>{date(item.date)}</time></span></div>
             </div>
-        </div>
-        <section className="pi-detail-facts" aria-labelledby="pi-facts-title"><div className="pi-detail-facts-heading"><h2 id="pi-facts-title">Source record</h2><span>{provider.name}</span></div>
-            {item.summary && <p>{item.summary}</p>}
-            <details><summary>Record details</summary><dl>
+        </header>
+        <div className="pi-detail-layout"><RecordConversation record={record} /><RecordEvidence record={record} /></div>
+    </div>;
+}
+
+function RecordEvidence({ record }: { record: PharmaRecord }) {
+    const { item } = record, provider = recordProvider(record);
+    const [expanded, setExpanded] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1101px)").matches);
+    useEffect(() => {
+        const media = window.matchMedia("(min-width: 1101px)");
+        const change = () => setExpanded(media.matches);
+        media.addEventListener("change", change);
+        return () => media.removeEventListener("change", change);
+    }, []);
+    const fields = item.source === "fda" ? ["application", "action", "ingredients"] : item.source === "trials" ? ["study_id", "status", "phases", "conditions", "interventions"] : [];
+    return <aside className="pi-detail-facts" aria-label="Original record details">
+            <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+                <summary><span>Source record</span><ChevronDown size={14} aria-hidden="true" /></summary>
+                <div className="pi-detail-evidence-body">
+                {item.source === "news" && pharmaThumbnail(item.thumbnail) && <RecordThumbnail item={item} />}
+                <dl>
                 {fields.map(name => { const value = item.details?.[name as keyof NonNullable<typeof item.details>]; return <div key={name}><dt>{LABELS[name]}</dt><dd>{Array.isArray(value) ? value.map(v => v.replace(/^PHASE/, "Phase ")).join(" · ") || "Not listed" : value || "Not listed"}</dd></div>; })}
                 <div><dt>Organization</dt><dd>{item.organization || "Not listed"}</dd></div>
-                <div><dt>Checked</dt><dd>{provider.checked_at ? new Date(provider.checked_at).toLocaleString() : "Not available"}</dd></div>
-                <div><dt>Snapshot</dt><dd>{provider.status === "stale" ? "Previous results · refresh unavailable" : "Loaded source record"}</dd></div>
-            </dl></details>
-        </section>
-        <RecordConversation record={record} />
-    </div>;
+                </dl>
+                {item.summary && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}
+                <a className="pi-detail-source-link" href={item.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={14} /><span className="sr-only"> (opens in a new tab)</span></a>
+                <p className="pi-detail-checked">Checked {provider.checked_at ? new Date(provider.checked_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "time unavailable"}</p>
+                {provider.status === "stale" && <p className="pi-status-attention">Previous snapshot · refresh unavailable</p>}
+                </div>
+            </details>
+    </aside>;
 }
 
 function RecordConversation({ record }: { record: PharmaRecord }) {
@@ -95,10 +112,10 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         : record.item.source === "fda" ? ["What does this FDA action mean?", "What are the possible forecasting implications?"]
         : ["What could this mean for the competitive landscape?", "What should we verify next?"];
     return <section className="pi-detail-conversation" aria-labelledby="pi-analysis-title">
-        <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Analysis</h2><span>Corten</span></div>
+        <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Analyst brief</h2><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Create a new brief from this source snapshot"><RefreshCw size={13} aria-hidden="true" />Refresh brief</button></div></div>
         {chat.turns.map((turn, i) => <div className="pi-detail-turn" key={i}>
             {i > 0 && <div className="pi-detail-question">{turn.query}</div>}
-            <AnswerStream content={turn.answer} isStreaming={false} sources={turn.sources} />
+            <AnswerStream query={turn.query} content={turn.answer} isStreaming={false} sources={turn.sources} />
         </div>)}
         <div ref={start} className="pi-detail-current">
             {chat.busy && <>{chat.turns.length > 0 && <div className="pi-detail-question">{chat.question}</div>}
@@ -109,10 +126,10 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         {!chat.busy && chat.turns.length > 0 && <div className="pi-detail-suggestions" aria-label="Suggested follow-up questions">
             {(chat.related.length ? chat.related : suggestions).map(query => <button key={query} onClick={() => submit(query)}>{query}<ArrowUpRight size={14} /></button>)}
         </div>}
-        <div className="pi-detail-followup"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
+        <div className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
             <label className="sr-only" htmlFor="pi-followup">Ask about this record</label>
             <input id="pi-followup" value={input} maxLength={16000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record" disabled={chat.busy || !chat.turns.length} autoComplete="off" />
             <ModeMenu compact /><button type="submit" className="pi-detail-send" aria-label="Send follow-up" disabled={chat.busy || !chat.turns.length || !input.trim()}><ArrowUp size={17} /></button>
-        </form></div>
+        </form></div></div>
     </section>;
 }

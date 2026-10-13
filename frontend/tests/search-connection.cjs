@@ -74,3 +74,26 @@ test("a network interruption during POST gives a retry message without resubmitt
     }), /Your question is still here/);
     assert.equal(posts, 1);
 });
+
+test("pharma generation sends a canonical record reference once and never mixes Space fields", async () => {
+    const pharma = { record_id: "trial:NCT12345678", record_fingerprint: "[]", topic: "oncology", days: 30, kind: "brief" };
+    let posts = 0;
+    await openSearchStream({ ...request, pharma, mode: "pro" }, new AbortController().signal, () => {}, {
+        fetcher: async (url, options) => {
+            if (options.method !== "POST") return status();
+            posts++; assert.equal(url, "/api/v1/pharma/analysis/stream");
+            assert.deepEqual(JSON.parse(options.body), { query: request.query, messages: request.messages, ...pharma, mode: "pro" });
+            return stream();
+        },
+    });
+    assert.equal(posts, 1);
+});
+
+test("a changed pharma snapshot provides a recovery path without repeating generation", async () => {
+    let posts = 0;
+    await assert.rejects(openSearchStream({ ...request, pharma: {} }, new AbortController().signal, () => {}, {
+        fetcher: async (_url, options) => options.method === "POST"
+            ? (posts++, Response.json({ detail: "This source record has changed. Reopen it." }, { status: 409 })) : status(),
+    }), /source record has changed/);
+    assert.equal(posts, 1);
+});

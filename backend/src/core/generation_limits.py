@@ -7,7 +7,7 @@ from src.config.settings import settings
 from src.core.security import decode_token
 from src.db.redis import get_redis
 
-PATHS = {"/api/v1/search/stream", "/api/v1/search/title", "/api/v1/report/stream", "/api/v1/discover/article/summarize"}
+PATHS = {"/api/v1/search/stream", "/api/v1/search/title", "/api/v1/report/stream", "/api/v1/discover/article/summarize", "/api/v1/pharma/analysis/stream"}
 LUA = """
 local minute = tonumber(redis.call('GET', KEYS[1]) or '0')
 local day = tonumber(redis.call('GET', KEYS[2]) or '0')

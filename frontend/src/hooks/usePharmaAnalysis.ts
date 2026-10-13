@@ -6,7 +6,7 @@ import { isPrivateChat } from "@/lib/questionDrafts";
 import { conversationMessages } from "@/lib/conversation";
 import { openSearchStream } from "@/lib/searchConnection";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
-import { PHARMA_ANALYSIS_PROMPT, pharmaDisplayQuery, pharmaEvidence, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
+import { PHARMA_ANALYSIS_PROMPT, pharmaDisplayQuery, pharmaFingerprint, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
 import type { ResearchStep, SearchSource } from "@/hooks/useSearch";
 
 export function usePharmaAnalysis(record: PharmaRecord) {
@@ -23,19 +23,21 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const turnsRef = useRef<PharmaTurn[]>([]);
     const id = useRef("");
     const owner = useRef(getStorageAccount());
-    const pending = useRef("");
-    const run = useCallback(async (query: string) => {
+    const pending = useRef<{ query: string; label?: string } | null>(null);
+    const run = useCallback(async (query: string, label?: string) => {
         if (controller.current || !query.trim() || query.length > 16000) return;
-        const abort = new AbortController(); controller.current = abort; pending.current = query;
+        const abort = new AbortController(); controller.current = abort; pending.current = { query, label };
         const initial = !turnsRef.current.length;
-        const display = initial ? pharmaDisplayQuery(record) : query;
+        const display = label || (initial ? pharmaDisplayQuery(record) : query);
         const previous = [...turnsRef.current];
         let canonicalSources = [pharmaOriginalSource(record)], text = "";
         setBusy(true); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setRelated([]);
         const current = () => !abort.signal.aborted && controller.current === abort && getStorageAccount() === owner.current;
         try {
             const response = await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
-                messages: [{ role: "user", content: pharmaEvidence(record) }, ...conversationMessages(previous).slice(-118)] }, abort.signal,
+                pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
+                    days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question" },
+                messages: conversationMessages(previous).slice(-120) }, abort.signal,
                 message => { if (current()) setSteps([{ type: "status", content: message }]); });
             text = await readArticleSummary(response, event => {
                 if (!current()) return;
@@ -71,6 +73,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         }, 50);
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
-    return { turns, answer, question, sources, steps, busy, error, saved, related,
-        ask: run, retry: () => run(pending.current || PHARMA_ANALYSIS_PROMPT) };
+    return { turns, answer, question, sources, steps, busy, error, saved, related, threadId: saved ? id.current : "",
+        ask: run, refresh: () => run(PHARMA_ANALYSIS_PROMPT, "Refresh analyst brief"),
+        retry: () => run(pending.current?.query || PHARMA_ANALYSIS_PROMPT, pending.current?.label) };
 }

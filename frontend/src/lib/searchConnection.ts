@@ -14,7 +14,8 @@ function delay(ms: number, signal: AbortSignal) {
 }
 export async function openSearchStream(
     request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string;
-        mode?: string; attachments?: string[]; contextAttachments?: string[]; incognito?: boolean },
+        mode?: string; attachments?: string[]; contextAttachments?: string[]; incognito?: boolean;
+        pharma?: { record_id: string; record_fingerprint: string; topic: string; days: number; kind: "brief" | "question" } },
     signal: AbortSignal, onWait: (message: string) => void,
     options: { budgetMs?: number; attemptMs?: number; delayMs?: number; fetcher?: typeof fetch } = {},
 ): Promise<Response> {
@@ -56,9 +57,10 @@ export async function openSearchStream(
     signal.throwIfAborted();
     let response: Response;
     try {
-        response = await fetcher(`${request.apiBase}/api/v1/search/stream`, {
+        response = await fetcher(`${request.apiBase}/api/v1/${request.pharma ? "pharma/analysis" : "search"}/stream`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: request.query, focus_mode: request.focus, messages: request.messages,
+            body: JSON.stringify({ query: request.query, messages: request.messages,
+                ...(request.pharma ? request.pharma : { focus_mode: request.focus }),
                 ...(request.spaceId ? { space_id: request.spaceId } : {}),
                 ...(request.mode && request.mode !== "auto" ? { mode: request.mode } : {}),
                 ...(request.attachments?.length ? { attachments: request.attachments } : {}),
@@ -80,6 +82,11 @@ export async function openSearchStream(
             const detail = await response.json().then(body => body?.detail).catch(() => null);
             throw new Error(typeof detail === "string" && response.status === 403 ? detail
                 : "This Space is no longer available to you. It may have been deleted or your access was removed.");
+        }
+        if (request.pharma && [404, 409].includes(response.status)) {
+            const detail = await response.json().then(body => body?.detail).catch(() => null);
+            throw new Error(typeof detail === "string" ? detail
+                : "This source record has changed or is unavailable. Return to Pharma intelligence and reopen it.");
         }
         throw new Error(response.status === 401 ? "Your session expired. Please sign in again."
             : response.status === 422 ? "Please check your question and try again." : "The request could not be completed. Please retry.");

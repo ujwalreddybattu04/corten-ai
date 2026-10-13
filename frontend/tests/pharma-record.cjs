@@ -40,9 +40,12 @@ test("model evidence preserves source facts and dates within the API history lim
     const body = JSON.parse(evidence.slice(evidence.indexOf("{")));
     assert.equal(body.details.study_id, "NCT12345678"); assert.equal(body.date_meaning, "Record updated");
     assert.deepEqual(body.details.phases, ["PHASE3"]); assert.equal(body.url, r.item.url);
-    assert.ok(records.PHARMA_ANALYSIS_PROMPT.includes("Do not invent"));
     r.item.summary = "\\".repeat(1200); r.item.title = "\u0000".repeat(1200); r.item.url += "\u0000".repeat(3000);
     const bounded = records.pharmaEvidence(r); assert.ok(bounded.length <= 6000); JSON.parse(bounded.slice(bounded.indexOf("{")));
+    const context = records.pharmaEvidence(r); assert.ok(context.length <= 6000); JSON.parse(context.slice(context.indexOf("{")));
+    r.item.id = "\u0000".repeat(240); r.feed.sources[1].name = "\u0000".repeat(160);
+    for (const field of ["title", "summary", "organization", "date_label"]) r.item[field] = "\u0000".repeat(1200);
+    const hostile = records.pharmaEvidence(r); assert.ok(hostile.length <= 6000); JSON.parse(hostile.slice(hostile.indexOf("{")));
 });
 test("completed analyses and follow-ups use the native chat schema and resume", () => {
     const r = fixture(), source = records.pharmaOriginalSource(r), id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";

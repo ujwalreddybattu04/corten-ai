@@ -39,3 +39,13 @@ async def test_budget_uses_shared_atomic_counters_without_storing_identity(monke
     args = redis.eval.call_args.args
     assert "private-user" not in str(args)
     assert args[1] == 2 and args[-2:] == (59, 82739)
+
+
+@pytest.mark.asyncio
+async def test_pharma_answers_share_the_generation_budget(monkeypatch):
+    monkeypatch.setattr(generation_limits.settings, "APP_ENV", "production")
+    check = AsyncMock(return_value=[0, 42]); monkeypatch.setattr(generation_limits, "check_budget", check)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=generation_limits.GenerationLimits(response)), base_url="https://test") as client:
+        assert (await client.post("/api/v1/pharma/analysis/stream")).status_code == 429
+        assert (await client.get("/api/v1/pharma/updates")).status_code == 200
+    check.assert_awaited_once()
