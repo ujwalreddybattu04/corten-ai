@@ -23,6 +23,7 @@ export function ModeMenu({ compact = false }: { compact?: boolean }) {
     const ref = useRef<HTMLDivElement>(null);
     const trigger = useRef<HTMLButtonElement>(null);
     const menu = useRef<HTMLDivElement>(null);
+    const focusPlaced = useRef(false);
     const closeAndFocus = () => { setOpen(false); trigger.current?.focus({ preventScroll: true }); };
     useLayoutEffect(() => {
         if (!open) return;
@@ -46,7 +47,6 @@ export function ModeMenu({ compact = false }: { compact?: boolean }) {
         };
         const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); };
         place();
-        const focusFrame = requestAnimationFrame(() => menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true }));
         const observer = new ResizeObserver(schedule);
         if (trigger.current) observer.observe(trigger.current);
         if (menu.current) observer.observe(menu.current);
@@ -54,8 +54,15 @@ export function ModeMenu({ compact = false }: { compact?: boolean }) {
         document.addEventListener("scroll", schedule, true);
         window.visualViewport?.addEventListener("resize", schedule);
         window.visualViewport?.addEventListener("scroll", schedule);
-        return () => { cancelAnimationFrame(frame); cancelAnimationFrame(focusFrame); observer.disconnect(); window.removeEventListener("resize", schedule); document.removeEventListener("scroll", schedule, true); window.visualViewport?.removeEventListener("resize", schedule); window.visualViewport?.removeEventListener("scroll", schedule); };
+        return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener("resize", schedule); document.removeEventListener("scroll", schedule, true); window.visualViewport?.removeEventListener("resize", schedule); window.visualViewport?.removeEventListener("scroll", schedule); };
     }, [open]);
+    useLayoutEffect(() => {
+        if (!open) { focusPlaced.current = false; return; }
+        if (position && !focusPlaced.current) {
+            menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true });
+            focusPlaced.current = true;
+        }
+    }, [open, position]);
     useEffect(() => {
         if (!open) return;
         const close = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) setOpen(false); };
