@@ -83,6 +83,9 @@ def normalized_images(payload, provider, query, limit):
     return output
 
 
+SERPER_TIMEOUT_SECONDS = 7.0
+
+
 class SerperImageService:
     BASE_URL = "https://google.serper.dev/images"
     TAVILY_URL = "https://api.tavily.com/search"
@@ -124,7 +127,9 @@ class SerperImageService:
                 continue
             try:
                 if provider == "serper":
-                    payload = await self._request(self.BASE_URL,{"X-API-KEY":key},{"q":query,"num":limit},2.5)
+                    # Measured 1.6-5.6 s per request; 2.5 s failed about half of them and sent every search to the
+                    # weaker fallback. Images load beside the answer, so waiting longer never delays it.
+                    payload = await self._request(self.BASE_URL,{"X-API-KEY":key},{"q":query,"num":limit},SERPER_TIMEOUT_SECONDS)
                 else:
                     payload = await self._request(self.TAVILY_URL,{"Authorization":f"Bearer {key}"},
                         {"query":query,"search_depth":"basic","max_results":3,"include_images":True,

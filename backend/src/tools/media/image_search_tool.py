@@ -20,7 +20,7 @@ class ImageSearchTool(BaseTool):
     category = ToolCategory.MEDIA
     version = "1.1.0"
 
-    timeout_seconds = 10.0
+    timeout_seconds = 14.0      # room for Serper (7 s) and then its fallback (5.5 s); runs beside the answer
     max_retries = 0  # Provider fallback and cooldowns are bounded by the service.
     retry_delay_seconds = 0.3
     is_concurrent_safe = True
