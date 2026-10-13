@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import CloudSyncStatus from "@/components/layout/CloudSyncStatus";
 import PersonalizationSettings from "@/components/settings/PersonalizationSettings";
@@ -26,6 +26,19 @@ export default function SettingsPage() {
     const [message, setMessage] = useState("");
     const [failed, setFailed] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        const sync = () => {
+            const section = window.location.hash.slice(1) as Section;
+            if (!SECTIONS.some(item => item.id === section)) return;
+            setActive(section);
+            if (["responses", "memory", "files"].includes(section)) setOpened(true);
+        };
+        void Promise.resolve().then(() => { if (!cancelled) sync(); });
+        window.addEventListener("hashchange", sync);
+        window.addEventListener("popstate", sync);
+        return () => { cancelled = true; window.removeEventListener("hashchange", sync); window.removeEventListener("popstate", sync); };
+    }, []);
     const draftName = (name ?? user?.name ?? "").trim();
     const select = (section: Section) => {
         setActive(section);

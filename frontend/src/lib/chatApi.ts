@@ -6,10 +6,10 @@ import { uploadWithProgress } from "./upload";
 export type AnswerMode = "auto" | "fast" | "pro" | "think";
 
 export const ANSWER_MODES: { value: AnswerMode; label: string; description: string }[] = [
-    { value: "auto", label: "Auto", description: "Chooses the right model for each question" },
-    { value: "fast", label: "Fast", description: "Quickest answers for everyday questions" },
-    { value: "pro", label: "Pro", description: "Larger model for analysis, writing and long documents" },
-    { value: "think", label: "Extended thinking", description: "Reasons step by step before answering hard problems" },
+    { value: "auto", label: "Auto", description: "Automatic selection" },
+    { value: "fast", label: "Fast", description: "Quick responses" },
+    { value: "pro", label: "Pro", description: "Analysis and long documents" },
+    { value: "think", label: "Extended thinking", description: "Complex, multi-step questions" },
 ];
 
 const MODE_KEY = "corten_answer_mode";
