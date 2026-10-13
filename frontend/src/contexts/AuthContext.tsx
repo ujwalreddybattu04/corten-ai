@@ -1,16 +1,18 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiRequestError, invalidateSessionRequests, SESSION_EXPIRED } from "@/lib/api";
-import { setStorageAccount, getStorageAccount, protectLegacyAccountData } from "@/lib/accountStorage";
+import { setStorageAccount, getStorageAccount, protectLegacyAccountData, safeReturnPath } from "@/lib/accountStorage";
+import { useSignInTransition } from "@/components/auth/useSignInTransition";
+import SignOutDialog from "@/components/auth/SignOutDialog";
 import { startCloudSync, stopCloudSync, markCloudStorageUnavailable, hasCloudSync } from "@/lib/cloudSync";
 import { usePathname, useRouter } from "next/navigation";
 
 export interface User { id: string; name: string; email: string; subscription_tier: string; avatar_url: string | null; }
 interface AuthContextValue {
-    user: User | null; isLoading: boolean; isAuthenticated: boolean; sessionError: string;
+    user: User | null; isLoading: boolean; isAuthenticated: boolean; sessionError: string; isCompletingSignIn: boolean;
     login: (email: string, password: string, remember?: boolean) => Promise<void>;
     register: (name: string, email: string, password: string) => Promise<void>;
-    logout: () => Promise<void>; reloadSession: () => Promise<void>;
+    logout: () => Promise<void>; requestLogout: () => void; reloadSession: () => Promise<void>;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 const SYNC_KEY = "corten_auth_changed";
@@ -35,9 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [sessionError, setSessionError] = useState("");
+    const [logoutRequested, setLogoutRequested] = useState(false);
+    const requestLogout = useCallback(() => setLogoutRequested(true), []);
+    const { stage, active: isCompletingSignIn, begin: beginSignIn, cancel: cancelSignIn } =
+        useSignInTransition(pathname, !!user && !isLoading);
     const version = useRef(0);
     const apply = useCallback(async (next: User | null) => {
         const generation = version.current;
+        if (!next) { cancelSignIn(); setLogoutRequested(false); }
         const changed = getStorageAccount() !== (next?.id || null);
         if (changed || !next) stopCloudSync();
         setStorageAccount(next?.id || null);
@@ -45,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (generation !== version.current) return;
         setUser(next);
         setIsLoading(false);
-    }, []);
+    }, [cancelSignIn]);
     const broadcast = () => {
         try { localStorage.setItem(SYNC_KEY, `${Date.now()}:${Math.random()}`); } catch { /* Storage can be unavailable. */ }
     };
@@ -85,8 +92,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (pendingLogout()) await completeLogout();
         const current = ++version.current;
         const data = await api.post<{ user: User }>("/api/v1/auth/login", { email: email.trim(), password, remember_me: remember });
-        if (current === version.current) { invalidateSessionRequests(); setSessionError(""); await apply(data.user); broadcast(); }
-    }, [apply]);
+        if (current !== version.current) return;
+        const destination = safeReturnPath(new URLSearchParams(window.location.search).get("next"));
+        try {
+            await beginSignIn();
+            if (current !== version.current) { cancelSignIn(); return; }
+            invalidateSessionRequests(); setSessionError("");
+            await apply(data.user);
+            if (current !== version.current) { cancelSignIn(); return; }
+            broadcast();
+            router.replace(destination);
+        } catch (error) { cancelSignIn(); throw error; }
+    }, [apply, beginSignIn, cancelSignIn, router]);
     const register = useCallback(async (name: string, email: string, password: string) => {
         if (pendingLogout()) await completeLogout();
         const current = ++version.current;
@@ -94,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (current === version.current) { invalidateSessionRequests(); setSessionError(""); await apply(data.user); broadcast(); }
     }, [apply]);
     const logout = useCallback(async () => {
+        setLogoutRequested(false);
         version.current++;
         invalidateSessionRequests();
         logoutPending = true;
@@ -110,10 +128,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             router.replace(`/auth/login?next=${encodeURIComponent(next)}`);
         }
     }, [isLoading, user, publicPage, sessionError, router]);
-    return <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, sessionError, login, register, logout, reloadSession }}>
+    return <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, sessionError, isCompletingSignIn, login, register, logout, requestLogout, reloadSession }}>
+        <div className="signin-transition-content" data-stage={stage} inert={isCompletingSignIn} aria-busy={isCompletingSignIn}>
         {isLoading ? <div role="status" style={{ padding: "32px", color: "var(--text-secondary)" }}>Loading Corten…</div> :
             !user && (!publicPage || (sessionError && pendingLogout())) ? <div className="account-settings" role={sessionError ? "alert" : "status"}><p>{sessionError || "Taking you to sign in…"}</p>{sessionError && <button className="auth-submit" onClick={() => void reloadSession()}>Retry connection</button>}</div> :
             <div key={user?.id || "guest"} style={{ display: "contents" }}>{children}</div>}
+        </div>
+        {isCompletingSignIn && <>
+            <div className="signin-transition-cover" data-stage={stage} aria-hidden="true" />
+            <span className="sr-only" role="status">Signed in</span>
+        </>}
+        {user && logoutRequested && <SignOutDialog onCancel={() => setLogoutRequested(false)} onConfirm={() => void logout()} />}
     </AuthContext.Provider>;
 }
 export function useAuth() {

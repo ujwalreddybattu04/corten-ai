@@ -18,14 +18,13 @@ const SECTIONS = [
 type Section = typeof SECTIONS[number]["id"];
 
 export default function SettingsPage() {
-    const { user, logout, sessionError, reloadSession } = useAuth();
+    const { user, requestLogout, sessionError, reloadSession } = useAuth();
     const [active, setActive] = useState<Section>("profile");
     const [opened, setOpened] = useState(false);
     const [name, setName] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState("");
     const [failed, setFailed] = useState(false);
-    const [signingOut, setSigningOut] = useState(false);
     useEffect(() => {
         let cancelled = false;
         const sync = () => {
@@ -75,7 +74,7 @@ export default function SettingsPage() {
                         </form>
                         <dl className="settings-account-details"><div><dt>Email</dt><dd>{user.email}</dd></div></dl>
                         <div className="settings-action-row"><span>Password</span><Link className="settings-button" href="/auth/forgot-password">Reset password</Link></div>
-                        <div className="settings-action-row"><span>Session</span><button className="settings-button" disabled={signingOut} onClick={async () => { setSigningOut(true); try { await logout(); } finally { setSigningOut(false); } }}><LogOut size={14} aria-hidden="true" />{signingOut ? "Signing out…" : "Sign out"}</button></div>
+                        <div className="settings-action-row"><span>Session</span><button className="settings-button" onClick={requestLogout}><LogOut size={14} aria-hidden="true" />Sign out</button></div>
                     </> : <Link className="settings-button" href="/auth/login?next=%2Fsettings">Sign in</Link>}
                 </section>
                 {user && <>

@@ -92,8 +92,12 @@ function BrandLogo() {
 
 export default function LoginPage() {
     const router = useRouter();
-    const { login, isAuthenticated } = useAuth();
-    useEffect(() => { if (isAuthenticated) router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next"))); }, [isAuthenticated, router]);
+    const { login, isAuthenticated, isCompletingSignIn } = useAuth();
+    useEffect(() => {
+        const destination = safeReturnPath(new URLSearchParams(window.location.search).get("next"));
+        if (isAuthenticated && !isCompletingSignIn) router.replace(destination);
+        else if (!isAuthenticated) router.prefetch(destination);
+    }, [isAuthenticated, isCompletingSignIn, router]);
 
     const [email, setEmail]         = useState("");
     const [password, setPassword]   = useState("");
@@ -138,6 +142,7 @@ export default function LoginPage() {
 
     const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
         e.preventDefault();
+        if (loading || isCompletingSignIn) return;
         setGlobalError("");
 
         const emailErr    = validateEmail(email);
@@ -152,9 +157,6 @@ export default function LoginPage() {
         setLoading(true);
         try {
             await login(email.trim(), password, rememberMe);
-            setLoginSuccess(true);
-            setIsExiting(true);
-            router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
         } catch (err) {
             if (err instanceof ApiRequestError) {
                 if (err.status === 401) {
@@ -184,12 +186,10 @@ export default function LoginPage() {
     };
 
     const [rememberMe, setRememberMe] = useState(false);
-    const [isExiting, setIsExiting]   = useState(false);
-    const [loginSuccess, setLoginSuccess] = useState(false);
+    const loginSuccess = isCompletingSignIn;
 
     return (
-        <div className={`auth-shell${isExiting ? " is-exiting" : ""}`}>
-            <div className={`auth-exit-overlay${isExiting ? " active" : ""}`} aria-hidden="true" />
+        <div className="auth-shell">
             <div className="auth-card" role="main">
                 <div className="auth-card-content">
                     {/* Brand */}

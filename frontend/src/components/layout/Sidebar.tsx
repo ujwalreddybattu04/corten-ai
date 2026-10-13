@@ -58,7 +58,7 @@ export default function Sidebar() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const activeThreadId = searchParams.get("id");
-    const { user, logout, sessionError, reloadSession } = useAuth();
+    const { user, requestLogout, sessionError, reloadSession } = useAuth();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
@@ -245,7 +245,7 @@ export default function Sidebar() {
                             <span className="sidebar-link-icon"><UserRound size={20} /></span>
                             <span className="sidebar-link-label">{user.name}</span>
                         </Link>
-                        <button className="sidebar-link" id="sign-out-btn" title="Sign out" aria-label="Sign out" onClick={() => { setIsMobileOpen(false); void logout(); router.replace("/"); }}>
+                        <button className="sidebar-link" id="sign-out-btn" title="Sign out" aria-label="Sign out" onClick={requestLogout}>
                             <span className="sidebar-link-icon"><LogOut size={20} /></span><span className="sidebar-link-label">Sign out</span>
                         </button>
                     </> : <Link href={`/auth/login?next=${encodeURIComponent(pathname + (searchParams.toString() ? "?" + searchParams.toString() : ""))}`} className="sidebar-link" id="sign-in-btn" title="Sign in">
