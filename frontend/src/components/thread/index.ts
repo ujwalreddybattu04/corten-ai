@@ -8,6 +8,5 @@ export { default as ImagesGrid } from "./ImagesGrid";
 export { default as RelatedQuestions } from "./RelatedQuestions";
 export * from "./ResearchProgress";
 export { default as CitationBadge } from "./CitationBadge";
-export { default as ModelSelector } from "./ModelSelector";
 export { default as CopyButton } from "./CopyButton";
 export { default as ShareButton } from "./ShareButton";

@@ -5,6 +5,7 @@ API v1 — Router aggregator. All v1 endpoints are registered here.
 from fastapi import APIRouter, Depends
 from src.api.deps import get_current_user_id
 from src.api.v1 import search, threads, spaces, collections, discover, auth, users, report, pharma, interpolation, personal
+from src.api.v1 import attachments, personalization
 
 api_router = APIRouter()
 
@@ -19,3 +20,5 @@ api_router.include_router(interpolation.router, prefix="/interpolation", tags=["
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(personal.router, prefix="/personal", tags=["Personal cloud storage"])
+api_router.include_router(attachments.router, prefix="/attachments", tags=["Chat attachments"])
+api_router.include_router(personalization.router, prefix="/me", tags=["Personalization and memory"])

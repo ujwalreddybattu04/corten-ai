@@ -1,5 +1,6 @@
 /** Shared Spaces client. The server is the source of truth for Spaces, members, files and shared threads. */
-import { api, ApiRequestError } from "./api";
+import { api } from "./api";
+import { uploadWithProgress } from "./upload";
 
 export type SpaceRole = "owner" | "editor" | "viewer";
 
@@ -149,40 +150,9 @@ export const spacesApi = {
     importLegacy: (spaces: unknown[]) => api.post<{ imported: Record<string, string> }>("/api/v1/spaces/import", { spaces }),
 };
 
-/** Upload with progress. An expired access token is refreshed once through the shared session client. */
-export async function uploadSpaceFile(id: string, file: File, onProgress: (fraction: number) => void, signal?: AbortSignal): Promise<SpaceFile> {
-    try {
-        return await sendUpload(id, file, onProgress, signal);
-    } catch (error) {
-        if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
-        await api.get("/api/v1/auth/me");  // Refreshes the session or reports that sign-in is required.
-        onProgress(0);
-        return sendUpload(id, file, onProgress, signal);
-    }
-}
-
-/** XMLHttpRequest is the only browser API that reports upload progress. */
-function sendUpload(id: string, file: File, onProgress: (fraction: number) => void, signal?: AbortSignal): Promise<SpaceFile> {
-    return new Promise((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open("POST", `${base(id)}/files`);
-        request.withCredentials = true;
-        request.responseType = "json";
-        request.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
-        request.onload = () => {
-            if (request.status >= 200 && request.status < 300) return resolve(request.response as SpaceFile);
-            const detail = (request.response as { detail?: unknown } | null)?.detail;
-            reject(new ApiRequestError(typeof detail === "string" ? detail
-                : request.status === 401 ? "Your session expired. Sign in again and retry."
-                : request.status === 413 ? "This file is larger than 25 MB." : "The upload failed. Please retry.", request.status));
-        };
-        request.onerror = () => reject(new ApiRequestError("The connection was interrupted. Please retry the upload.", 0));
-        request.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
-        signal?.addEventListener("abort", () => request.abort(), { once: true });
-        const form = new FormData();
-        form.append("file", file);
-        request.send(form);
-    });
+/** Upload with progress; the session is refreshed once if it expired mid-way. */
+export function uploadSpaceFile(id: string, file: File, onProgress: (fraction: number) => void, signal?: AbortSignal): Promise<SpaceFile> {
+    return uploadWithProgress<SpaceFile>(`${base(id)}/files`, file, onProgress, signal);
 }
 
 export function inviteUrl(token: string): string {

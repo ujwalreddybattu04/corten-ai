@@ -24,7 +24,8 @@
 
 ## Features
 
-- **AI Search Engine** — Ask anything in natural language, get direct answers with inline citations `[1][2]`
+- **AI Search Engine** — Ask anything in natural language, get direct answers with clickable inline citations `[1][2]`
+- **Assistant capabilities** — Answer modes (Auto, Fast, Pro, Extended thinking), image and document attachments, interactive artifacts (apps, dashboards, diagrams), downloadable Word/PDF/Excel/PowerPoint files, and personalization with user-controlled memory. See [chat capabilities](docs/chat-capabilities.md).
 - **Smart Routing** — Queries are automatically classified (direct, quick, standard, deep research) and routed to the optimal pipeline
 - **Tool System** — Modular tools (web search, calculator, weather, image search, URL reader) selected dynamically per query
 - **Streaming Responses** — Token-by-token answer streaming via Server-Sent Events with real-time thinking indicators

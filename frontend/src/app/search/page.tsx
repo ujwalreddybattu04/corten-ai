@@ -1,7 +1,12 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState, useCallback, useEffect } from "react";
+import { Suspense, useState, useCallback, useEffect, useMemo } from "react";
+import { useAttachments } from "@/hooks/useAttachments";
+import { AttachButton, AttachmentTray, ModeMenu, filesFromTransfer } from "@/components/chat/ComposerControls";
+import { SentAttachments } from "@/components/chat/AnswerExtras";
+import ArtifactPanel from "@/components/chat/ArtifactPanel";
+import { splitArtifacts, type Artifact } from "@/lib/artifacts";
 import { motion } from "framer-motion";
 import { readQuestionDraft, questionPath } from "@/lib/questionDrafts";
 import Link from "next/link";
@@ -115,7 +120,36 @@ function SearchPageContent() {
         retrySearch,
         spaceAuthor,
         spaceSaveError,
-    } = useSearch(query, focusMode, threadId, spaceId);
+        attachments: currentAttachments,
+        files,
+        reasoning,
+    } = useSearch(query, focusMode, threadId, spaceId, draft?.attachments ?? []);
+
+    // Composer attachments for follow-up questions.
+    const followUpFiles = useAttachments();
+    const [dropping, setDropping] = useState(false);
+
+    // Artifacts across the conversation; versions share a title. The newest artifact in the current
+    // answer opens automatically until the user closes it; any card can be opened explicitly.
+    const [panel, setPanel] = useState<{ title: string | null; index: number | null; dismissed: string }>({ title: null, index: null, dismissed: "" });
+    const threadArtifacts = useMemo(() => [...history.map(turn => turn.answer), displayAnswer]
+        .flatMap(text => splitArtifacts(text).filter((segment): segment is Artifact => segment.kind === "artifact")),
+        [history, displayAnswer]);
+    const latestArtifact = useMemo(() => splitArtifacts(displayAnswer)
+        .filter((segment): segment is Artifact => segment.kind === "artifact").pop(), [displayAnswer]);
+    const latestMarker = latestArtifact ? `${currentQuery}::${latestArtifact.title}` : "";
+    const artifactTitle = panel.title ?? (latestArtifact && panel.dismissed !== latestMarker ? latestArtifact.title : null);
+    const artifactVersions = useMemo(() => artifactTitle ? threadArtifacts.filter(item => item.title === artifactTitle) : [],
+        [threadArtifacts, artifactTitle]);
+    // While a new version streams, show the newest; otherwise the version the user picked.
+    const artifactIndex = isStreaming || panel.index === null ? artifactVersions.length - 1 : panel.index;
+    const setArtifactIndex = useCallback((index: number) => setPanel(current => ({ ...current, index })), []);
+    const openArtifact = useCallback((artifact: Artifact) => {
+        const versions = threadArtifacts.filter(item => item.title === artifact.title);
+        const index = versions.findIndex(item => item.key === artifact.key && item.content === artifact.content);
+        setPanel(current => ({ ...current, title: artifact.title, index: index < 0 ? null : index }));
+    }, [threadArtifacts]);
+    const closeArtifact = useCallback(() => setPanel({ title: null, index: null, dismissed: latestMarker }), [latestMarker]);
 
     // --- EFFECT: When global sources update, update the active panel IF it was for the current query ---
     useEffect(() => {
@@ -147,10 +181,11 @@ function SearchPageContent() {
     const handleFollowUp = useCallback((e: React.FormEvent) => {
         e.preventDefault();
         const queryText = followUp.trim();
-        if (!queryText || isConnecting || isStreaming) return;
+        if (!queryText || isConnecting || isStreaming || followUpFiles.uploading) return;
         setFollowUp("");
-        appendQuery(queryText);
-    }, [followUp, appendQuery, isConnecting, isStreaming]);
+        appendQuery(queryText, followUpFiles.ready);
+        followUpFiles.clear();
+    }, [followUp, appendQuery, isConnecting, isStreaming, followUpFiles]);
 
     const handleRelatedSelect = useCallback((q: string) => {
         appendQuery(q);
@@ -213,7 +248,12 @@ function SearchPageContent() {
     if (!query && !threadId) return <div className="account-settings" role="status"><h1>{draftId ? "Question unavailable" : "Start a conversation"}</h1><p className="account-description">{draftId ? "This question belongs to another account or its temporary draft has expired." : "Enter a question on Search to begin."}</p><Link href="/">Return to Search</Link></div>;
     return (
         <>
-        <div className="sp-page">
+        <div className={`sp-page ${artifactVersions.length ? "cx-with-panel" : ""}`}>
+            {artifactVersions.length > 0 && (
+                <ArtifactPanel versions={artifactVersions} index={Math.min(artifactIndex, artifactVersions.length - 1)}
+                    onIndex={setArtifactIndex} onClose={closeArtifact}
+                    onFix={request => appendQuery(request)} fixDisabled={isConnecting || isStreaming} />
+            )}
             <div className={`sp-layout ${sourcesPanelOpen ? "sp-layout--panel-open" : ""}`}>
                 {/* ─── Main Column ─── */}
                 <div className="sp-main">
@@ -328,6 +368,7 @@ function SearchPageContent() {
                                                         </div>
                                                     ) : (
                                                         <>
+                                                            <SentAttachments items={turn.attachments ?? []} />
                                                             <div className="sp-query-bubble">{turn.query}</div>
                                                             <div className="sp-query-actions">
                                                                 <button
@@ -363,6 +404,10 @@ function SearchPageContent() {
                                                     }}
                                                     sourcesPanelOpen={sourcesPanelOpen && activePanelQuery === turn.query}
                                                     setSourcesPanelOpen={(o) => toggleSourcesPanel(o, turn.sources, turn.query)}
+                                                    reasoning={turn.reasoning}
+                                                    files={turn.files}
+                                                    activeArtifactTitle={artifactTitle}
+                                                    onOpenArtifact={openArtifact}
                                                 />
                                             </div>
                                         </motion.div>
@@ -401,6 +446,7 @@ function SearchPageContent() {
                                                     </div>
                                                 ) : (
                                                     <>
+                                                        <SentAttachments items={currentAttachments} />
                                                         <div className="sp-query-bubble">{currentQuery}</div>
                                                         <div className="sp-query-actions">
                                                             <button
@@ -444,6 +490,10 @@ function SearchPageContent() {
                                                     setSourcesPanelOpen={(o) => toggleSourcesPanel(o, sources, currentQuery)}
                                                     relatedQuestions={relatedQuestions}
                                                     onRelatedSelect={handleRelatedSelect}
+                                                    reasoning={reasoning}
+                                                    files={files}
+                                                    activeArtifactTitle={artifactTitle}
+                                                    onOpenArtifact={openArtifact}
                                                 />
                                                 {isDisplayComplete && images.length > 0 && (
                                                     <ImagesGrid images={images} mode="strip" />
@@ -525,11 +575,18 @@ function SearchPageContent() {
                     {/* Sticky Input Bar */}
                     {activeTab === "answer" && (
                         <div className="sp-input-bar">
-                            <form className="sp-input-form" onSubmit={handleFollowUp}>
-                                <input type="text" className="sp-input-field" placeholder="Ask a follow-up" value={followUp} onChange={e => setFollowUp(e.target.value)} />
+                            <AttachmentTray items={followUpFiles.items} onRemove={followUpFiles.remove} />
+                            <form className={`sp-input-form ${dropping ? "cx-dropping" : ""}`} onSubmit={handleFollowUp}
+                                onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDropping(true); } }}
+                                onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropping(false); }}
+                                onDrop={event => { const dropped = filesFromTransfer(event.dataTransfer); if (dropped.length) { event.preventDefault(); followUpFiles.add(dropped); } setDropping(false); }}>
+                                <AttachButton onFiles={followUpFiles.add} />
+                                <input type="text" className="sp-input-field" placeholder={followUpFiles.items.length ? "Ask about your files…" : "Ask a follow-up"}
+                                    value={followUp} onChange={e => setFollowUp(e.target.value)} aria-label="Ask a follow-up"
+                                    onPaste={event => { const pasted = filesFromTransfer(event.clipboardData); if (pasted.length) { event.preventDefault(); followUpFiles.add(pasted); } }} />
                                 <div className="sp-input-actions">
-                                    <span className="sp-model-btn" title="The configured AI provider is selected automatically">Auto</span>
-                                    <button type="submit" className="sp-submit-btn" disabled={!followUp.trim() || isConnecting || isStreaming}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" /></svg></button>
+                                    <ModeMenu compact />
+                                    <button type="submit" className="sp-submit-btn" aria-label="Send follow-up" disabled={!followUp.trim() || isConnecting || isStreaming || followUpFiles.uploading}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" /></svg></button>
                                 </div>
                             </form>
                         </div>
@@ -542,7 +599,7 @@ function SearchPageContent() {
                         <div className="sp-sources-panel-header-left">
                             <h3 className="sp-sources-panel-title">
                                 {activePanelSources.length > 0
-                                    ? `${activePanelSources.length} sources`
+                                    ? `${activePanelSources.length} ${activePanelSources.length === 1 ? "source" : "sources"}`
                                     : "Sources"}
                             </h3>
 

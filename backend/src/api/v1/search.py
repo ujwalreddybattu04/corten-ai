@@ -3,8 +3,11 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Response, Depends
 from src.api.deps import get_current_user_id, get_db
 from src.services.space_service import search_context
+from src.services import attachments, personalization
+from src.services.chat_context import TurnContext
 from fastapi.responses import StreamingResponse
-from typing import List, Dict, Optional
+from starlette.background import BackgroundTask
+from typing import List, Dict, Optional, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +26,31 @@ class SearchRequest(BaseModel):
     focus_mode: str = "all"
     messages: Optional[List[Dict[str, str]]] = Field(default=None, max_length=120)
     space_id: Optional[str] = Field(default=None, max_length=64)
+    mode: Literal["auto", "fast", "pro", "think"] = "auto"
+    attachments: List[str] = Field(default_factory=list, max_length=10)
+    # Private chats: no memory is read or written.
+    incognito: bool = False
 
 @router.post("/stream")
 async def search_stream(request: SearchRequest, user: str = Depends(get_current_user_id), db=Depends(get_db)):
     """Submit a search query and receive a streaming AI-generated answer with citations."""
     # Resolved before streaming: membership errors are ordinary HTTP errors, not mid-stream events.
     space = await search_context(db, request.space_id, user) if request.space_id else None
+    documents, images, image_names = await attachments.load_for_turn(db, user, request.attachments)
+    turn = TurnContext(mode=request.mode, documents=documents, images=images, image_names=image_names,
+                       personal=await personalization.personal_block(db, user, request.incognito),
+                       incognito=request.incognito, user_id=user)
+    remember = None if request.incognito else BackgroundTask(personalization.remember_from_message, user, request.query)
     try:
         return StreamingResponse(
-            search_orchestrator.stream_search(request.query, request.focus_mode, request.messages, space=space),
+            search_orchestrator.stream_search(request.query, request.focus_mode, request.messages, space=space, turn=turn),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no" # Essential for Nginx if present
-            }
+            },
+            background=remember,
         )
     except Exception as e:
         logger.error(f"Error in search stream: {e}", exc_info=True)

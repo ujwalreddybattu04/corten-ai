@@ -16,6 +16,7 @@ import "@/styles/discover.css";
 import "@/styles/history.css";
 import "@/styles/spaces.css";
 import "@/styles/spaces-workspace.css";
+import "@/styles/chat-capabilities.css";
 import "@/styles/report.css";
 import AppFrame from "@/components/layout/AppFrame";
 import { SITE_TITLE, SITE_DESCRIPTION, SITE_URL } from "@/config/constants";

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { questionPath } from "@/lib/questionDrafts";
 import { FOCUS_MODES } from "@/config/focusModes";
 import { Code, MessageSquare, Play, Users, FileText } from "lucide-react";
+import { useAttachments } from "@/hooks/useAttachments";
+import { AttachButton, AttachmentTray, ModeMenu, filesFromTransfer } from "@/components/chat/ComposerControls";
 
 const PRIMARY_MODES = ["all", "academic", "writing", "math"];
 const primaryFocusModes = FOCUS_MODES.filter(m => PRIMARY_MODES.includes(m.value));
@@ -29,6 +31,8 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
     const router = useRouter();
     const inputRef = useRef<HTMLInputElement>(null);
     const moreRef = useRef<HTMLDivElement>(null);
+    const attachments = useAttachments();
+    const [dragging, setDragging] = useState(false);
 
     useImperativeHandle(ref, () => ({
         setQueryAndSubmit(q: string) {
@@ -67,22 +71,28 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         if (!query.trim()) return;
-        try { setSubmitError(""); router.push(questionPath(query, focusMode)); } catch (error) { setSubmitError(error instanceof Error ? error.message : "Unable to submit this question."); }
+        if (attachments.uploading) { setSubmitError("Wait for your files to finish uploading."); return; }
+        try { setSubmitError(""); router.push(questionPath(query, focusMode, undefined, "search", attachments.ready)); } catch (error) { setSubmitError(error instanceof Error ? error.message : "Unable to submit this question."); }
     };
 
     return (
-        <form className="search-bar" onSubmit={handleSubmit} id="search-bar">
+        <form className={`search-bar ${dragging ? "cx-dropping" : ""}`} onSubmit={handleSubmit} id="search-bar"
+            onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
+            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
+            onDrop={event => { const files = filesFromTransfer(event.dataTransfer); if (files.length) { event.preventDefault(); attachments.add(files); } setDragging(false); }}>
             <div className="search-bar-container">
-                {submitError && <p role="alert">{submitError}</p>}
+                {submitError && <p role="alert" className="cx-composer-error">{submitError}</p>}
+                <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
                 {/* Input Row */}
                 <div className="search-input-row">
                     <input
                         ref={inputRef}
                         type="text"
                         className="search-bar-input"
-                        placeholder="What's on your mind?"
+                        placeholder={attachments.items.length ? "Ask about your files…" : "What's on your mind?"}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
+                        onPaste={event => { const files = filesFromTransfer(event.clipboardData); if (files.length) { event.preventDefault(); attachments.add(files); } }}
                         autoFocus
                         autoComplete="off"
                         autoCorrect="off"
@@ -152,7 +162,8 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
 
                     {/* Model selector + Report + Submit */}
                     <div className="search-model-selector">
-                        <span className="model-dropdown-btn" title="The configured AI provider is selected automatically">Auto</span>
+                        <AttachButton onFiles={attachments.add} />
+                        <ModeMenu />
                         <button
                             type="button"
                             className="search-report-btn"
@@ -165,7 +176,7 @@ const SearchBar = forwardRef<SearchBarHandle, object>(function SearchBar(_, ref)
                         >
                             <FileText size={15} />
                         </button>
-                        <button type="submit" className="search-submit-btn" id="search-submit-btn">
+                        <button type="submit" className="search-submit-btn" id="search-submit-btn" aria-label="Ask" disabled={attachments.uploading}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
                         </button>
                     </div>

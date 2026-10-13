@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import CloudSyncStatus from "@/components/layout/CloudSyncStatus";
+import PersonalizationSettings from "@/components/settings/PersonalizationSettings";
 
 export default function SettingsPage() {
     const { user, logout, sessionError, reloadSession } = useAuth();
@@ -34,6 +35,7 @@ export default function SettingsPage() {
                 <button className="auth-submit" onClick={() => void logout()}>Sign out</button></> :
                 <><p>Use your email and password to access your account.</p><Link className="auth-submit" href="/auth/login?next=%2Fsettings">Sign in</Link><p><Link href="/auth/signup?next=%2Fsettings">Create an account</Link></p></>}
         </section>
+        {user && <PersonalizationSettings />}
         <p className="account-description">Signed-in chat history, Spaces and Discover preferences sync to your personal account. Guest work stays in this browser. Uploaded analyst files are processed for the current session; keep your exported results.</p>
     </div>;
 }

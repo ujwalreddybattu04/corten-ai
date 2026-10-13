@@ -101,9 +101,12 @@ class ManagedStream:
 
 
 class LLMRuntime:
-    def __init__(self, endpoints: list[Endpoint], max_output_tokens: int = 2048):
+    def __init__(self, endpoints: list[Endpoint], max_output_tokens: int = 2048,
+                 large_models: dict[str, int] | None = None):
         self.endpoints = endpoints
         self.max_output_tokens = max_output_tokens
+        # Larger models may write longer answers, artifacts and documents.
+        self.large_models = large_models or {}
         self._blocked_until = {}
         self._disabled_credentials = set()
         self.chat = self
@@ -117,7 +120,8 @@ class LLMRuntime:
     def _options(self, endpoint, kwargs):
         options = dict(kwargs)
         options["model"] = endpoint.model or kwargs["model"]
-        options["max_tokens"] = min(kwargs.get("max_tokens", self.max_output_tokens), self.max_output_tokens)
+        cap = self.large_models.get(options["model"], self.max_output_tokens)
+        options["max_tokens"] = min(kwargs.get("max_tokens", cap), cap)
         if endpoint.name == "groq":
             if options["model"].startswith("openai/gpt-oss-"):
                 options.setdefault("reasoning_effort", "low")
@@ -189,4 +193,5 @@ def build_llm_client(settings):
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                 max_retries=0, timeout=30,
             ), settings.GEMINI_MODEL))
-    return LLMRuntime(endpoints, settings.LLM_MAX_OUTPUT_TOKENS) if endpoints else None
+    large = {model: settings.LLM_HEAVY_MAX_OUTPUT_TOKENS for model in (settings.HEAVY_MODEL, settings.VISION_MODEL)}
+    return LLMRuntime(endpoints, settings.LLM_MAX_OUTPUT_TOKENS, large) if endpoints else None

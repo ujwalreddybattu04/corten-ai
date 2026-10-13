@@ -121,6 +121,8 @@ class ResearchAgent:
         seed_sources: List[Dict[str, Any]] | None = None,
         instructions: str = "",
         priority_domains: List[str] | None = None,
+        profile=None,
+        personal: str = "",
     ) -> AsyncGenerator[str, None]:
         """
         Execute deep research pipeline. Yields SSE-formatted events.
@@ -309,7 +311,7 @@ class ResearchAgent:
             )
 
             async for chunk in self._stream_synthesis(
-                groq_llm_service, query, all_sources, messages, focus_mode, instructions
+                groq_llm_service, query, all_sources, messages, focus_mode, instructions, profile, personal
             ):
                 buffer += chunk
                 search_window = buffer[-150:] if len(buffer) > 150 else buffer
@@ -426,11 +428,15 @@ class ResearchAgent:
         messages: list = None,
         focus_mode: str = "all",
         instructions: str = "",
+        profile=None,
+        personal: str = "",
     ) -> AsyncGenerator[str, None]:
         """Stream the final comprehensive answer using all gathered sources."""
         from datetime import datetime
         from src.config.prompts import FOCUS_MODE_PROMPTS
         from src.services.llm_service import space_instruction_block
+        from src.services import answer_modes
+        profile = profile or answer_modes.pro()
 
         current_date = datetime.now().strftime("%B %d, %Y")
         system_prompt = DEEP_SYNTHESIS_PROMPT.format(
@@ -447,12 +453,14 @@ class ResearchAgent:
 
         # Add all sources to context
         for idx, src in enumerate(sources[:MAX_TOTAL_SOURCES], 1):
-            snippet = src.get("snippet", "")[:800]
+            # Attached documents carry a larger excerpt budget than web snippets.
+            snippet = src.get("snippet", "")[:src.get("snippet_limit", 800)]
             system_prompt += f"Source [{idx}]:\n"
             system_prompt += f"Title: {src.get('title', 'N/A')}\n"
             system_prompt += f"URL: {src.get('url', '')}\n"
             system_prompt += f"Content: {snippet}\n\n"
         system_prompt += space_instruction_block(instructions)
+        system_prompt += personal
 
         # Build messages
         messages_payload = [{"role": "system", "content": system_prompt}]
@@ -461,13 +469,15 @@ class ResearchAgent:
         messages_payload.append({"role": "user", "content": query})
 
         try:
+            options = {"reasoning_effort": profile.reasoning_effort or "medium"} if profile.model.startswith("openai/gpt-oss-") else {}
             stream = await llm_service.client.chat.completions.create(
                 messages=messages_payload,
-                model=settings.DEFAULT_MODEL,
+                model=profile.model,
                 temperature=0.3,
-                max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+                max_tokens=profile.max_tokens,
                 stream=True,
                 stop=["\n\n**Sources", "\n\nSources"],
+                **options,
             )
 
             async for chunk in stream:

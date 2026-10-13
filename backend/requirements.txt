@@ -31,3 +31,9 @@ osqp==1.1.3
 clarabel==0.11.1
 # Text extraction for Space knowledge files.
 pypdf==6.20.0
+# Safe re-encoding of chat image attachments (strips metadata, bounds size).
+Pillow==12.3.0
+# Files Corten creates on request: Word, Excel and PowerPoint.
+python-docx==1.2.0
+openpyxl==3.1.5
+python-pptx==1.0.2

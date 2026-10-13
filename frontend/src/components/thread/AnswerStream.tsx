@@ -9,6 +9,9 @@ import CodeRunnerModal, { isRunnable } from "./CodeRunnerModal";
 import HtmlPreviewModal from "./HtmlPreviewModal";
 import { preloadPyodide } from "@/hooks/usePyodideWorker";
 import { accountStorage } from "@/lib/accountStorage";
+import { splitArtifacts, type Artifact } from "@/lib/artifacts";
+import type { GeneratedFile } from "@/lib/chatApi";
+import { ArtifactCard, FileCards, ThinkingPanel, linkCitations } from "@/components/chat/AnswerExtras";
 
 // Premium Formatting Dependencies
 import remarkMath from "remark-math";
@@ -139,6 +142,11 @@ interface AnswerStreamProps {
     relatedQuestions?: string[];
     onRelatedSelect?: (question: string) => void;
     onRegenerate?: () => void;
+    /** Extended thinking reasoning, files Corten created, and artifact panel wiring. */
+    reasoning?: string;
+    files?: GeneratedFile[];
+    activeArtifactTitle?: string | null;
+    onOpenArtifact?: (artifact: Artifact) => void;
 }
 
 const AnswerStream = memo(({
@@ -153,7 +161,11 @@ const AnswerStream = memo(({
     setSourcesPanelOpen: externalSetSourcesPanelOpen,
     relatedQuestions = [],
     onRelatedSelect,
-    onRegenerate
+    onRegenerate,
+    reasoning = "",
+    files = [],
+    activeArtifactTitle = null,
+    onOpenArtifact,
 }: AnswerStreamProps) => {
     const contentRef = useRef<HTMLDivElement>(null);
     const [localCopied, setLocalCopied] = useState(false);
@@ -195,6 +207,8 @@ const AnswerStream = memo(({
     const setSourcesPanelOpen = externalSetSourcesPanelOpen !== undefined ? externalSetSourcesPanelOpen : setLocalSourcesPanelOpen;
     // Markdown is the answer. Never infer a cut point from headings, links or numbers.
     const processedContent = content;
+    // Artifacts render as cards (opened in the side panel); everything else is Markdown.
+    const segments = useMemo(() => splitArtifacts(processedContent), [processedContent]);
 
     // --- MANUAL SCROLL OVERRIDE ---
     const userScrolledUpRef = useRef(false);
@@ -306,6 +320,15 @@ const AnswerStream = memo(({
                 try { decodedHref = decodeURIComponent(decodedHref); } catch { /* A literal % is valid in a link label or source. */ }
                 // Hide only explicit internal citation links. Ordinary numeric links remain intact.
                 if (/^(?:citation|cite):\s*\d+(?:\s*,\s*\d+)*$/i.test(decodedHref.trim())) return <></>;
+                // [n] citations become chips that open their source.
+                const cite = /^#cite-(\d+)$/.exec(decodedHref.trim());
+                if (cite) {
+                    const number = Number(cite[1]);
+                    const source = sources.find(item => item.citationIndex === number) ?? sources[number - 1];
+                    if (!source?.url) return <sup className="cx-cite cx-cite--plain">{number}</sup>;
+                    return <a href={source.url} className="cx-cite" target="_blank" rel="noopener noreferrer"
+                        title={`${source.title || source.domain} — ${source.domain}`} aria-label={`Source ${number}: ${source.title || source.domain}`}>{number}</a>;
+                }
 
                 // Standard text hyperlink
                 return <a href={href} className="answer-link" target="_blank" rel="noopener noreferrer">{children}</a>;
@@ -397,15 +420,24 @@ const AnswerStream = memo(({
                         </div>
                     </div>
 
+                    <ThinkingPanel reasoning={reasoning} active={isStreaming && !content.trim()} />
+
                     {/* Answer content — pure CSS transitions, no Framer Motion layout thrashing */}
                     <div className="answer-stream-content">
-                        <ReactMarkdown
-                            remarkPlugins={[remarkGfm, remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
-                            components={markdownComponents}
-                        >
-                            {processedContent}
-                        </ReactMarkdown>
+                        {segments.map((segment, index) => segment.kind === "artifact" ? (
+                            <ArtifactCard key={segment.key} artifact={segment} active={activeArtifactTitle === segment.title}
+                                onOpen={() => onOpenArtifact?.(segment)} />
+                        ) : (
+                            <ReactMarkdown
+                                key={`text-${index}`}
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                                components={markdownComponents}
+                            >
+                                {linkCitations(segment.text)}
+                            </ReactMarkdown>
+                        ))}
+                        <FileCards files={files} />
 
                         {/* Streaming cursor */}
                         {isStreaming && (
@@ -442,7 +474,7 @@ const AnswerStream = memo(({
                                             ))}
                                         </div>
                                         <span className="sp-sources-pill-text">
-                                            {sources.length} sources
+                                            {sources.length} {sources.length === 1 ? "source" : "sources"}
                                         </span>
                                     </button>
                                 )}

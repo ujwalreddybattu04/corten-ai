@@ -4,6 +4,7 @@ import { accountStorage } from "@/lib/accountStorage";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { openSearchStream } from "@/lib/searchConnection";
 import { spacesApi } from "@/lib/spacesApi";
+import { getAnswerMode, conversationAttachmentIds, type AttachmentRef, type GeneratedFile } from "@/lib/chatApi";
 
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -39,6 +40,10 @@ export interface SearchMessage {
     images: SearchImage[];
     researchSteps?: ResearchStep[];
     thoughtTime?: number;
+    attachments?: AttachmentRef[];
+    files?: GeneratedFile[];
+    reasoning?: string;
+    mode?: string;
 }
 
 export interface ThreadData extends ThreadTitleMetadata {
@@ -53,7 +58,13 @@ export interface ThreadData extends ThreadTitleMetadata {
     images: SearchImage[];
     researchSteps?: ResearchStep[];
     thoughtTime?: number;
+    attachments?: AttachmentRef[];
+    files?: GeneratedFile[];
+    reasoning?: string;
+    mode?: string;
 }
+
+const MAX_SAVED_REASONING = 20000;
 
 // Simple UUID generator for browser
 function generateThreadId() {
@@ -92,9 +103,15 @@ export interface SearchState {
     /** Shared Space status: author of a thread opened from a Space, and save failures. */
     spaceAuthor: string | null;
     spaceSaveError: string | null;
+    /** The current question's attachments, files Corten created, reasoning and answer mode. */
+    attachments: AttachmentRef[];
+    files: GeneratedFile[];
+    reasoning: string;
+    modeLabel: string;
 }
 
-export function useSearch(initialQuery: string, focusMode: string = "all", existingThreadId?: string, spaceId?: string) {
+export function useSearch(initialQuery: string, focusMode: string = "all", existingThreadId?: string, spaceId?: string,
+                          initialAttachments: AttachmentRef[] = []) {
     const [state, setState] = useState<SearchState>({
         threadId: existingThreadId || null,
         history: [],
@@ -115,6 +132,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         toolsSelected: [],
         spaceAuthor: null,
         spaceSaveError: null,
+        attachments: initialAttachments,
+        files: [],
+        reasoning: "",
+        modeLabel: "",
     });
     // Only answers generated in this view are saved; opening a thread never rewrites it.
     const generatedRef = useRef(false);
@@ -225,6 +246,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                     images: state.images,
                     researchSteps: state.researchSteps,
                     thoughtTime: state.thoughtTime,
+                    attachments: state.attachments,
+                    files: state.files,
+                    reasoning: state.reasoning.slice(0, MAX_SAVED_REASONING),
+                    mode: state.modeLabel,
                 });
 
                 if (existingIdx >= 0) {
@@ -264,9 +289,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 console.error("[useSearch] Failed to persist thread:", e);
             }
         }
-    }, [state.isStreaming, state.isConnecting, state.error, state.answer, state.query, state.history, state.sources, state.images, state.researchSteps, state.thoughtTime, spaceId]);
+    }, [state.isStreaming, state.isConnecting, state.error, state.answer, state.query, state.history, state.sources, state.images, state.researchSteps, state.thoughtTime, state.attachments, state.files, state.reasoning, state.modeLabel, spaceId]);
 
-    const runSearch = useCallback(async (q: string, focus: string, backendMessages?: ConversationMessage[], keepHistory?: SearchMessage[]) => {
+    const runSearch = useCallback(async (q: string, focus: string, backendMessages?: ConversationMessage[], keepHistory?: SearchMessage[],
+                                         attachments: AttachmentRef[] = []) => {
         if (!q.trim()) return;
 
         // Abort any in-flight request
@@ -293,11 +319,17 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             error: null,
             toolsUsed: [],
             toolsSelected: [],
+            attachments,
+            files: [],
+            reasoning: "",
+            modeLabel: "",
         }));
 
         try {
+            const history = keepHistory ?? [];
             const response = await openSearchStream({ apiBase: API_BASE, query: q, focus, messages: backendMessages || [],
-                    spaceId: spaceId && spaceSaveRef.current ? spaceId : undefined },
+                    spaceId: spaceId && spaceSaveRef.current ? spaceId : undefined, mode: getAnswerMode(),
+                    attachments: conversationAttachmentIds(attachments, history, q), incognito: isPrivateChat() },
                 controller.signal, message => {
                     if (!controller.signal.aborted && abortRef.current === controller) {
                         setState(prev => ({ ...prev, connectionMessage: message }));
@@ -324,6 +356,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                             setState(prev => ({
                                 ...prev,
                                 model: json.model || "Auto",
+                                modeLabel: typeof json.mode === "string" ? json.mode : prev.modeLabel,
                                 tokensUsed: json.tokens_used || 0,
                                 toolsUsed: json.tools_used || prev.toolsUsed,
                             }));
@@ -393,6 +426,15 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                             }));
                         } else if (json.type === "thought_time") {
                             setState(prev => ({ ...prev, thoughtTime: json.time || 0 }));
+                        } else if (json.type === "reasoning") {
+                            const text = typeof json.content === "string" ? json.content : "";
+                            setState(prev => ({ ...prev, reasoning: prev.reasoning + text }));
+                        } else if (json.type === "file" && typeof json.id === "string" && typeof json.url === "string") {
+                            const file: GeneratedFile = { id: json.id, name: String(json.name || "File"), kind: "generated", url: json.url,
+                                size: Number(json.size) || 0, format: json.format, label: String(json.label || "File") };
+                            setState(prev => ({ ...prev, files: [...prev.files.filter(item => item.id !== file.id), file] }));
+                        } else if (json.type === "mode") {
+                            setState(prev => ({ ...prev, modeLabel: String(json.label || "") }));
                         } else if (json.type === "error") {
                             setState(prev => ({ ...prev, error: json.message || "Search failed" }));
                         }
@@ -413,7 +455,7 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         }
     }, [spaceId]);
 
-    const appendQuery = useCallback((newQuery: string) => {
+    const appendQuery = useCallback((newQuery: string, attachments: AttachmentRef[] = []) => {
         if (!newQuery.trim() || state.isConnecting || state.isStreaming) return;
 
         let newHistory = state.history;
@@ -424,7 +466,11 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                 sources: state.sources,
                 images: state.images,
                 researchSteps: state.researchSteps,
-                thoughtTime: state.thoughtTime
+                thoughtTime: state.thoughtTime,
+                attachments: state.attachments,
+                files: state.files,
+                reasoning: state.reasoning.slice(0, MAX_SAVED_REASONING),
+                mode: state.modeLabel,
             }];
         }
 
@@ -436,12 +482,12 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
             setState(prev => ({ ...prev, threadId: null, spaceAuthor: null }));
         }
 
-        runSearch(newQuery, focusMode, backendMessages, newHistory);
+        runSearch(newQuery, focusMode, backendMessages, newHistory, attachments);
     }, [state, focusMode, runSearch]);
 
     const retrySearch = useCallback(() => {
         if (state.isConnecting || state.isStreaming || !state.query.trim()) return;
-        void runSearch(state.query, focusMode, conversationMessages(state.history), state.history);
+        void runSearch(state.query, focusMode, conversationMessages(state.history), state.history, state.attachments);
     }, [state, focusMode, runSearch]);
 
     useEffect(() => {
@@ -466,6 +512,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                                     images: thread.images || [],
                                     researchSteps: thread.researchSteps || [],
                                     thoughtTime: thread.thoughtTime || 0,
+                                    attachments: thread.attachments || [],
+                                    files: thread.files || [],
+                                    reasoning: thread.reasoning || "",
+                                    modeLabel: thread.mode || "",
                                     isConnecting: false,
                                     isStreaming: false
                                 }));
@@ -501,6 +551,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
                         images: thread.images || [],
                         researchSteps: thread.researchSteps || [],
                         thoughtTime: thread.thoughtTime || 0,
+                        attachments: thread.attachments || [],
+                        files: thread.files || [],
+                        reasoning: thread.reasoning || "",
+                        modeLabel: thread.mode || "",
                         spaceAuthor: shared.isAuthor ? null : shared.authorName,
                         isConnecting: false,
                         isStreaming: false,
@@ -523,8 +577,10 @@ export function useSearch(initialQuery: string, focusMode: string = "all", exist
         if (initialQuery && !hasStarted.current && !existingThreadId) {
             hasStarted.current = true;
             lastProcessedQuery.current = initialQuery;
-            runSearch(initialQuery, focusMode);
+            runSearch(initialQuery, focusMode, undefined, undefined, initialAttachments);
         }
+        // initialAttachments belong to the first question only; later renders must not restart it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialQuery, existingThreadId, focusMode, runSearch, spaceId]);
 
     return {

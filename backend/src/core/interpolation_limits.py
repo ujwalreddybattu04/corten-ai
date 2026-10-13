@@ -14,6 +14,8 @@ def upload_limit(path: str):
         return MAX_UPLOAD_BYTES, "CSV files must be no larger than 10 MB."
     if SPACE_UPLOAD.match(path):
         return settings.SPACE_MAX_FILE_BYTES, f"Files must be no larger than {settings.SPACE_MAX_FILE_BYTES // (1024 * 1024)} MB."
+    if path == "/api/v1/attachments":
+        return settings.ATTACHMENT_MAX_BYTES, f"Files must be no larger than {settings.ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB."
     return None
 
 

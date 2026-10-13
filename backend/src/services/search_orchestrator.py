@@ -18,8 +18,10 @@ import logging
 import time
 from typing import AsyncGenerator
 
-from src.services.llm_service import groq_llm_service
+from src.services.llm_service import groq_llm_service, ReasoningChunk
 from src.services.llm_runtime import LLMProviderError, llm_error_details
+from src.services import answer_modes, artifacts, file_builder, personalization
+from src.services.chat_context import TurnContext, attachment_sources
 from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
@@ -49,7 +51,7 @@ _CUTOFF_PATTERN = re.compile(
 class SearchOrchestrator:
 
     async def stream_search(
-        self, query: str, focus_mode: str = "all", messages: list = None, space=None
+        self, query: str, focus_mode: str = "all", messages: list = None, space=None, turn=None
     ) -> AsyncGenerator[str, None]:
         """
         Main entry point for all search queries.
@@ -83,6 +85,7 @@ class SearchOrchestrator:
                 selected_tool_names = [name for name in selected_tool_names if name == "calculator" and query_type == "math"]
 
             # ── SPACE CONTEXT: files, instructions and source preferences ─
+            turn = turn or TurnContext()
             instructions = space.instructions if space else ""
             space_sources, files_only = [], False
             if space:
@@ -93,17 +96,40 @@ class SearchOrchestrator:
                     if space_sources:
                         yield _sse("thought", {"content": f"Found relevant passages in {len(space_sources)} Space "
                                                           f"file{'s' if len(space_sources) != 1 else ''}"})
-                if strategy == STRATEGY_DIRECT and space_sources:
-                    # The question needs no web research, but the Space's files are relevant.
-                    strategy, files_only = STRATEGY_STANDARD, True
-                elif files_only and strategy == STRATEGY_DEEP_RESEARCH:
-                    strategy = STRATEGY_STANDARD
-                if files_only:
-                    selected_tool_names = [name for name in selected_tool_names if name in ("calculator", "weather")]
+            # ── ATTACHMENTS: documents are always read; images use the vision model ─
+            if turn.documents:
+                yield _sse("status", {"content": f"Reading {len(turn.documents)} attached document"
+                                                 f"{'s' if len(turn.documents) != 1 else ''}"})
+            if turn.images:
+                yield _sse("status", {"content": f"Looking at {len(turn.images)} attached image"
+                                                 f"{'s' if len(turn.images) != 1 else ''}"})
+                # Image questions are answered from the image itself, not the web.
+                files_only = True
+            own_material = bool(space_sources or turn.documents or turn.images)
+            if strategy == STRATEGY_DIRECT and own_material and query_type not in _NO_FILE_SEARCH - {"greeting"}:
+                # No web research needed, but the user's own material is relevant.
+                strategy, files_only = STRATEGY_STANDARD, True
+            # ── OUTPUT TYPE: a downloadable file, an artifact, or a normal answer ─
+            wants_file = file_builder.detect(query)
+            wants_artifact = not wants_file and artifacts.requested(query)
+            if wants_file and strategy == STRATEGY_DEEP_RESEARCH:
+                strategy = STRATEGY_STANDARD  # one research pass, then the file
+            if files_only and strategy == STRATEGY_DEEP_RESEARCH:
+                strategy = STRATEGY_STANDARD
+            if files_only:
+                selected_tool_names = [name for name in selected_tool_names if name in ("calculator", "weather")]
+
+            profile = answer_modes.resolve(turn.mode, complexity=complexity, strategy=strategy,
+                                           has_images=bool(turn.images), long_context=turn.document_chars > 30_000,
+                                           needs_long_output=bool(wants_file or wants_artifact))
+            context_sources = attachment_sources(turn.documents, query, int(profile.evidence_chars * 0.75)) + space_sources
+            if profile.mode != "fast":
+                yield _sse("mode", {"mode": profile.mode, "label": profile.label})
 
             logger.info(
-                f"[Orchestrator] Route: strategy={strategy} complexity={complexity} "
-                f"type={query_type} tools={selected_tool_names} subs={len(sub_questions)} space={bool(space)}"
+                f"[Orchestrator] Route: strategy={strategy} complexity={complexity} type={query_type} "
+                f"tools={selected_tool_names} subs={len(sub_questions)} space={bool(space)} mode={profile.mode} "
+                f"documents={len(turn.documents)} images={len(turn.images)}"
             )
 
             # Notify frontend which tools were selected
@@ -129,14 +155,16 @@ class SearchOrchestrator:
             if strategy == STRATEGY_DIRECT:
                 if query_type in {"question_recall", "conversation", "conversation_note"}:
                     remembered = acknowledge_note(query) if query_type == "conversation_note" else recall_answer(query, messages)
-                    if remembered is not None or (not messages and query_type != "conversation_note"):
+                    # With no history, saved memories can still answer "what did I tell you" questions.
+                    if remembered is not None or (not messages and query_type != "conversation_note"
+                                                  and not personalization.has_memories(turn.personal)):
                         yield _sse("token", {"content": remembered or MISSING_HISTORY})
                     else:
-                        async for chunk in groq_llm_service.stream_answer(
+                        async for event in _relay(groq_llm_service.stream_answer(
                             query, [], messages, focus_mode="all", conversation_only=True,
-                            space_instructions=instructions,
-                        ):
-                            yield _sse("token", {"content": chunk})
+                            space_instructions=instructions, personal=turn.personal,
+                        )):
+                            yield event
                     yield _sse("done", {})
                     return
                 # ── DIRECT: Check if calculator/weather can handle it ─────
@@ -186,10 +214,11 @@ class SearchOrchestrator:
 
                                 # Let LLM enhance the tool result with explanation
                                 tool_context_str = f"TOOL RESULT ({result.tool_name}):\n{formatted}\n\nProvide a clear, helpful response incorporating this data. Be conversational. Start directly with the answer."
-                                async for chunk in groq_llm_service.stream_answer(
-                                    tool_context_str, [], messages, focus_mode, space_instructions=instructions
-                                ):
-                                    yield _sse("token", {"content": chunk})
+                                async for event in _relay(groq_llm_service.stream_answer(
+                                    tool_context_str, [], messages, focus_mode, space_instructions=instructions,
+                                    profile=profile, personal=turn.personal,
+                                )):
+                                    yield event
 
                                 yield _sse("done", {})
                                 return
@@ -198,10 +227,18 @@ class SearchOrchestrator:
                 thought_time = time.time() - start_time
                 yield _sse("thought_time", {"time": round(thought_time, 1)})
 
-                async for chunk in groq_llm_service.stream_answer(query, [], messages, focus_mode,
-                                                                  space_instructions=instructions):
-                    yield _sse("token", {"content": chunk})
+                if wants_file:
+                    async for event in self._create_file(wants_file, query, [], messages, turn, instructions):
+                        yield event
+                    yield _sse("done", {})
+                    return
 
+                async for event in _relay(groq_llm_service.stream_answer(
+                        query, [], messages, focus_mode, space_instructions=instructions,
+                        profile=profile, personal=turn.personal, artifact=wants_artifact)):
+                    yield event
+
+                yield _sse("meta", {"model": profile.model, "mode": profile.label})
                 yield _sse("done", {})
                 return
 
@@ -218,9 +255,11 @@ class SearchOrchestrator:
                     sub_questions=sub_questions,
                     messages=messages,
                     focus_mode=focus_mode,
-                    seed_sources=space_sources,
+                    seed_sources=context_sources,
                     instructions=instructions,
                     priority_domains=space.domains if space else None,
+                    profile=profile,
+                    personal=turn.personal,
                 ):
                     yield event
 
@@ -241,7 +280,7 @@ class SearchOrchestrator:
                           **({"priority_domains": space.domains} if space and space.domains else {})},
             )
 
-            if files_only and not space_sources:
+            if files_only and not context_sources and not turn.images:
                 yield _sse("token", {"content": NO_SPACE_EVIDENCE})
                 yield _sse("done", {})
                 return
@@ -295,8 +334,8 @@ class SearchOrchestrator:
             # Await primary results
             tool_results = await primary_task
 
-            # Collect all sources and tool data. Space files are cited first.
-            all_sources = [dict(source) for source in space_sources]
+            # Collect all sources and tool data. Attachments and Space files are cited first.
+            all_sources = [dict(source) for source in context_sources]
             all_tool_data = {}
             search_results_for_llm = []
 
@@ -336,9 +375,11 @@ class SearchOrchestrator:
                     src["citationIndex"] = len(unique_sources) + 1
                     unique_sources.append(src)
 
-            # Send sources to frontend
+            # Send sources to frontend. Full document text stays server-side; the UI gets a preview.
             if unique_sources:
-                yield _sse("sources", {"sources": unique_sources, "items": unique_sources})
+                previews = [{key: value for key, value in {**source, "snippet": source.get("snippet", "")[:600]}.items()
+                             if key != "snippet_limit"} for source in unique_sources]
+                yield _sse("sources", {"sources": previews, "items": previews})
                 yield _sse("status", {"content": f"Reviewing {len(unique_sources)} sources"})
 
             # ── PHASE 4: LAYER IN PLAN ────────────────────────────────────
@@ -372,7 +413,13 @@ class SearchOrchestrator:
                         "citationIndex": None,
                     })
 
-            if not any(result.get("snippet", "").strip() for result in enriched_results):
+            if wants_file:
+                async for event in self._create_file(wants_file, query, enriched_results, messages, turn, instructions):
+                    yield event
+                yield _sse("done", {})
+                return
+
+            if not turn.images and not any(result.get("snippet", "").strip() for result in enriched_results):
                 yield _sse("token", {"content": UNVERIFIED_ANSWER})
                 yield _sse("done", {})
                 return
@@ -395,10 +442,17 @@ class SearchOrchestrator:
             answer_history = [] if query_type == "company" else messages
             async for chunk in groq_llm_service.stream_answer(query, enriched_results, answer_history, focus_mode,
                                                               company_lookup=query_type == "company",
-                                                              space_instructions=instructions):
+                                                              space_instructions=instructions,
+                                                              profile=None if query_type == "company" else profile,
+                                                              images=turn.images, personal=turn.personal,
+                                                              artifact=wants_artifact):
+                if isinstance(chunk, ReasoningChunk):
+                    yield _sse("reasoning", {"content": str(chunk)})
+                    continue
                 buffer += chunk
                 search_window = buffer[-150:] if len(buffer) > 150 else buffer
-                if _CUTOFF_PATTERN.search(search_window):
+                # Never cut an artifact: its code may contain link lists or a "References" heading.
+                if not artifacts.inside_open_artifact(buffer) and _CUTOFF_PATTERN.search(search_window):
                     logger.info("[Orchestrator] Cutoff: source list detected, truncating")
                     break
                 if query_type != "company":
@@ -445,7 +499,8 @@ class SearchOrchestrator:
             # Emit final metrics
             total_cost = sum(r.cost for r in tool_results if r.success)
             yield _sse("meta", {
-                "model": settings.DEFAULT_MODEL,
+                "model": profile.model,
+                "mode": profile.label,
                 "tools_used": [r.tool_name for r in tool_results if r.success],
                 "total_tool_cost": round(total_cost, 6),
             })
@@ -467,6 +522,31 @@ class SearchOrchestrator:
                     task.cancel()
             if background_tasks:
                 await asyncio.gather(*background_tasks, return_exceptions=True)
+
+    async def _create_file(self, kind, query, evidence, messages, turn, instructions):
+        """Draft a validated spec with the Pro model, render the real file and offer it for download."""
+        from src.services.llm_service import space_instruction_block
+        label = file_builder.FORMATS[kind][0]
+        if not turn.user_id:
+            yield _sse("token", {"content": f"Sign in to create a {label.lower()}."})
+            return
+        yield _sse("status", {"content": f"Drafting your {label.lower()}"})
+        spec = await file_builder.generate_spec(kind, query, evidence, messages,
+                                                space_instruction_block(instructions) + turn.personal)
+        if spec is None:
+            yield _sse("token", {"content": f"I couldn't produce a reliable {label.lower()} for this request. Please try "
+                                            "again, or describe the structure you need in more detail."})
+            return
+        yield _sse("status", {"content": f"Building {file_builder.filename(spec.title, kind)}"})
+        name, content_type, data = await asyncio.to_thread(file_builder.render, kind, spec, evidence)
+        from src.db.session import async_session_factory
+        from src.services import attachments
+        async with async_session_factory() as db:
+            info = await attachments.store_generated(db, turn.user_id, name, content_type, data)
+            await db.commit()
+        yield _sse("file", {**info, "format": kind, "label": label})
+        yield _sse("token", {"content": file_builder.describe(kind, spec)})
+        yield _sse("meta", {"model": settings.HEAVY_MODEL, "mode": "Pro"})
 
     async def stream_article_summary(
         self,
@@ -603,6 +683,15 @@ class SearchOrchestrator:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+async def _relay(chunks):
+    """Answer text becomes token events; Extended thinking reasoning becomes reasoning events."""
+    async for chunk in chunks:
+        if isinstance(chunk, ReasoningChunk):
+            yield _sse("reasoning", {"content": str(chunk)})
+        else:
+            yield _sse("token", {"content": chunk})
+
 
 def _sse(event_type: str, data: dict) -> str:
     """Format a Server-Sent Event string."""

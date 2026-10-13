@@ -13,7 +13,8 @@ function delay(ms: number, signal: AbortSignal) {
     });
 }
 export async function openSearchStream(
-    request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string },
+    request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string;
+        mode?: string; attachments?: string[]; incognito?: boolean },
     signal: AbortSignal, onWait: (message: string) => void,
     options: { budgetMs?: number; attemptMs?: number; delayMs?: number; fetcher?: typeof fetch } = {},
 ): Promise<Response> {
@@ -58,7 +59,10 @@ export async function openSearchStream(
         response = await fetcher(`${request.apiBase}/api/v1/search/stream`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query: request.query, focus_mode: request.focus, messages: request.messages,
-                ...(request.spaceId ? { space_id: request.spaceId } : {}) }), signal,
+                ...(request.spaceId ? { space_id: request.spaceId } : {}),
+                ...(request.mode && request.mode !== "auto" ? { mode: request.mode } : {}),
+                ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+                ...(request.incognito ? { incognito: true } : {}) }), signal,
         });
     } catch {
         signal.throwIfAborted();

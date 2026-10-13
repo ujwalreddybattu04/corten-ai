@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Models
     DEFAULT_MODEL: str = "openai/gpt-oss-20b"
     ROUTER_MODEL: str = "openai/gpt-oss-20b"
+    # Pro and Extended thinking answers, long documents, artifacts and file creation.
+    HEAVY_MODEL: str = "openai/gpt-oss-120b"
+    # The only configured Groq model that accepts images.
+    VISION_MODEL: str = "qwen/qwen3.8-27b"
+    # Room for complete artifacts and documents; gpt-oss-120b supports far more.
+    LLM_HEAVY_MAX_OUTPUT_TOKENS: int = Field(default=16384, ge=1024, le=65536)
 
     # --- Discover / News ---
     NEWSAPI_KEY: str = ""
@@ -106,6 +112,13 @@ class Settings(BaseSettings):
     SPACE_MAX_TOTAL_BYTES: int = Field(default=500 * 1024 * 1024, ge=1024 * 1024)
     SPACE_MAX_MEMBERS: int = Field(default=50, ge=2, le=10000)
     SPACE_MAX_OWNED: int = Field(default=100, ge=1, le=10000)
+
+    # --- Chat attachments and generated files ---
+    ATTACHMENT_MAX_BYTES: int = Field(default=25 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    ATTACHMENT_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
+    ATTACHMENT_MAX_PER_USER: int = Field(default=1000, ge=10)
+    ATTACHMENT_MAX_TOTAL_BYTES: int = Field(default=2 * 1024 * 1024 * 1024, ge=1024 * 1024)
+    MEMORY_MAX_PER_USER: int = Field(default=200, ge=10, le=5000)
 
     # --- Rate Limiting ---
     RATE_LIMIT_PER_MINUTE: int = 30

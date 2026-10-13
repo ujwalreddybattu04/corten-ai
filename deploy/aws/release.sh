@@ -41,7 +41,7 @@ import sys
 result = json.loads(sys.argv[1])
 required = ('migration_preserved_existing_user', 'parallel_revisions_unique',
     'concurrent_edit_conflict', 'deletion_protected', 'account_isolation', 'production_data_unchanged',
-    'recovery_single_use', 'recovery_sessions_revoked', 'recovery_delivery_leased', 'shared_spaces_search')
+    'recovery_single_use', 'recovery_sessions_revoked', 'recovery_delivery_leased', 'shared_spaces_search', 'personal_memory')
 if any(result.get(key) is not True for key in required):
     raise RuntimeError('Isolated storage verification did not prove every required check')
 print(json.dumps(result))

@@ -5,6 +5,7 @@ from src.models.thread import Thread
 from src.models.message import Message
 from src.models.source import Source
 from src.models.collection import Collection, collection_threads
+from src.models.attachment import ChatAttachment, UserMemory
 __all__ = [
     "User",
     "Space", "SpaceMember", "SpaceInvite", "SpaceFile", "SpaceFileChunk", "SpaceThread",

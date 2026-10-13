@@ -240,3 +240,5 @@ out/
 reports/
 # Space knowledge files uploaded during local development
 space-files/
+# Built from src/artifact-runtime during npm run build
+frontend/public/artifact-runtime/

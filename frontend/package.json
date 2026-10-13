@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-artifact-runtime.mjs",
     "build": "next build --webpack",
+    "predev": "node scripts/build-artifact-runtime.mjs",
     "start": "next start",
     "lint": "eslint src",
     "test": "node --test tests/*.cjs",
@@ -33,10 +35,16 @@
     "@types/node": "^20.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "0.28.2",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.4.0",
+    "mermaid": "11.17.2",
     "prettier": "^3.2.0",
+    "recharts": "3.10.1",
+    "sucrase": "3.35.1",
     "typescript": "^5.4.0"
   },
-  "overrides": { "katex": "$katex" }
+  "overrides": {
+    "katex": "$katex"
+  }
 }

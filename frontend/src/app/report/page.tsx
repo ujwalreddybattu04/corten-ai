@@ -199,7 +199,7 @@ function ReportContent() {
                     <div className="rpt-sources-section">
                         <div className="rpt-sources-header">
                             <BookOpen size={14} />
-                            <span>{sources.length} sources</span>
+                            <span>{sources.length} {sources.length === 1 ? "source" : "sources"}</span>
                         </div>
                         <div className="rpt-sources-list">
                             {sources.slice(0, 8).map((src, i) => (
@@ -261,7 +261,7 @@ function ReportContent() {
                                     <Clock size={12} />
                                     <span>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
                                     <span className="rpt-dot" />
-                                    <span>{sources.length} sources</span>
+                                    <span>{sources.length} {sources.length === 1 ? "source" : "sources"}</span>
                                 </div>
                             </div>
                         )}
