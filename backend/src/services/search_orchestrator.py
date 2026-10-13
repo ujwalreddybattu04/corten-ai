@@ -21,7 +21,7 @@ from typing import AsyncGenerator
 from src.services.llm_service import groq_llm_service, ReasoningChunk
 from src.services.llm_runtime import LLMProviderError, llm_error_details
 from src.services import answer_modes, artifacts, file_builder, personalization
-from src.services.chat_context import TurnContext, attachment_sources, document_relevant
+from src.services.chat_context import TurnContext, about_attachments, attachment_sources, document_relevant
 from src.services.agents.smart_router import smart_router, STRATEGY_DIRECT, STRATEGY_QUICK, STRATEGY_STANDARD, STRATEGY_DEEP_RESEARCH
 from src.services.agents.research_agent import research_agent
 from src.tools import tool_registry, tool_executor, ToolContext, ToolResult
@@ -105,6 +105,9 @@ class SearchOrchestrator:
             if documents:
                 yield _sse("status", {"content": f"Reading {len(documents)} attached document"
                                                  f"{'s' if len(documents) != 1 else ''}"})
+            if turn.documents and about_attachments(query):
+                # A question sent with files is about those files unless it asks for outside information.
+                files_only = True
             if turn.images:
                 yield _sse("status", {"content": f"Looking at {len(turn.images)} attached image"
                                                  f"{'s' if len(turn.images) != 1 else ''}"})

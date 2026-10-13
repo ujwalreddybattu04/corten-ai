@@ -407,6 +407,44 @@ async def test_unrelated_follow_ups_are_not_answered_from_earlier_documents():
         assert next(e for e in events if e["type"] == "sources")["sources"][0]["domain"] == "Attachment"
 
 
+def test_questions_sent_with_files_are_about_those_files():
+    from src.services.chat_context import about_attachments
+    for question in ["whats this ??", "What's this?", "Summarize", "Explain this document", "Translate it to Hindi",
+                     "Is this ID card valid?", "What are the key dates and amounts in this contract?", "これは何ですか"]:
+        assert about_attachments(question), question
+    for question in ["Compare this report with the latest EU oncology approvals", "Search the web for similar cases",
+                     "What is today's EUR to INR rate and how does it change the budget in this file?",
+                     "Write a market entry strategy for Germany covering pricing, reimbursement, distribution and hiring"]:
+        assert not about_attachments(question), question
+
+
+@pytest.mark.asyncio
+async def test_vague_questions_with_a_file_are_answered_from_the_file_not_the_web():
+    # Live: "whats this ??" with an ID document attached was web-searched and answered about a song.
+    captured = {}
+
+    async def answer(query, results, history, focus="all", **options):
+        captured["results"] = results
+        yield "This is an identity card issued to the holder named in the document [1]."
+
+    route = {"strategy": "quick", "query_type": "factual", "tools": ["web_search"], "requires_search": True}
+    card = {"id": "d1", "name": "id-card.pdf", "text": "Government of Example\nIdentity card\nName: Test Holder"}
+    with patch("src.services.search_orchestrator.smart_router.route", AsyncMock(return_value=route)), \
+         patch("src.services.search_orchestrator.tool_executor.execute_tools", AsyncMock(return_value=[])) as tools, \
+         patch("src.services.search_orchestrator.tool_executor.execute_single",
+               AsyncMock(return_value=ToolResult(success=False))) as image_search, \
+         patch.object(groq_llm_service, "stream_answer", answer), \
+         patch.object(groq_llm_service, "generate_follow_up_questions", AsyncMock(return_value=[])):
+        events = parse([e async for e in SearchOrchestrator().stream_search("whats this ??", turn=TurnContext(documents=[card]))])
+        assert tools.await_args.args[0] == [] and not image_search.await_count
+        assert [r["title"] for r in captured["results"]] == ["id-card.pdf"]
+        assert [s["domain"] for s in next(e for e in events if e["type"] == "sources")["sources"]] == ["Attachment"]
+        # Asking for outside information still searches the web.
+        [e async for e in SearchOrchestrator().stream_search(
+            "Compare this with the latest guidance online", turn=TurnContext(documents=[card]))]
+        assert [tool.name for tool in tools.await_args.args[0]] == ["web_search"]
+
+
 def test_artifact_requests_restate_the_format_in_the_user_turn():
     from src.services import artifacts
     assert ":::artifact" in artifacts.REMINDER and "ARTIFACTS" in artifacts.PROMPT

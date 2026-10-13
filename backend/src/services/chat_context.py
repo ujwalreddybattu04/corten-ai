@@ -13,6 +13,29 @@ CONTEXT_REFERENCE = re.compile(
     r"reports?|memos?|decks?|slides|spreadsheets?|sheets?|notes|text|contract|proposal|transcript)\b", re.I)
 
 
+# Asking for information beyond the attached files.
+OUTSIDE_INFORMATION = re.compile(
+    r"\b(?:latest|current(?:ly)?|today|recent(?:ly)?|news|web|online|internet|google|search|compare|comparison|versus|vs)\b",
+    re.I)
+# Words that only say what to do with a file, not what to look up.
+_INSTRUCTION_WORDS = set("""whats what's explain describe summarize summarise summary tell check read analyse analyze review
+translate mean means meaning please document documents file files pdf doc image picture photo screenshot details detail
+info information content contents say says kind type thing something anything understand help""".split())
+
+
+def about_attachments(query: str) -> bool:
+    """Whether a question sent together with files is about those files ("what's this?", "summarize it",
+    "is this valid?") rather than the wider world. Such questions are answered from the files only:
+    a web search for "what's this" finds unrelated pages (a song of that name) instead."""
+    if OUTSIDE_INFORMATION.search(query):
+        return False
+    terms = [term for term in query_terms(query) if term not in _INSTRUCTION_WORDS]
+    if len(terms) <= 3:
+        return True
+    return bool(CONTEXT_REFERENCE.search(query) or re.search(r"\b(?:this|these|it|attached)\b", query, re.I)) \
+        and len(terms) <= 6
+
+
 def document_relevant(doc: dict, query: str) -> bool:
     """Whether a document from an earlier message bears on this question: the question refers to it,
     names it, or shares a good part of its key words with it. Unrelated follow-ups (a diagram, a

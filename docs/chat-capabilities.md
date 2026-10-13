@@ -22,6 +22,7 @@ You can attach up to 10 files per message by using the paperclip, pasting, or dr
 
 - **Images** (PNG, JPEG, WebP, GIF, BMP) are decoded and re-encoded as JPEG. This removes metadata such as GPS location and limits the image to 2,048 px. Decompression bombs are rejected.
 - **Documents** (PDF, Word, PowerPoint, Excel, HTML, text, code) are converted to text and cited as `Attachment` sources. Long documents contribute their most relevant passages.
+- A question sent with files, such as "What's this?" or "Summarize it", is answered from those files only. The web is searched only when the question asks for outside information, for example "latest", "compare with…" or "online".
 - Earlier documents stay available for follow-up questions. They are read when the question refers to them (for example "the brief" or "summarize it") or shares key terms with them. Unrelated follow-ups, such as a diagram request, are answered normally, not from the document. Earlier images are included only when a follow-up refers to something visual, because images require the vision model.
 - Files are private to their owner and deleted after `ATTACHMENT_RETENTION_DAYS` (90). Quotas: 1,000 files and 2 GB per account, 25 MB per file.
 - Files are stored on the retained volume under `space-files/attachments/` and are covered by the daily S3 mirror.
@@ -66,6 +67,6 @@ Settings → Personalization offers:
 
 ## Verification
 
-- Unit tests: 250 backend tests and 115 frontend tests.
+- Unit tests: 252 backend tests and 115 frontend tests.
 - Migration `0005_attachments_memory` is additive and was verified on PostgreSQL, including downgrade and re-upgrade. The release gate checks preferences, memory and private-chat isolation on the real schema.
 - A real-browser end-to-end suite with real models passed **29/29**: modes, image and document answers, follow-up context, Extended thinking, an Excel file download, React and diagram artifacts rendering in the sandbox, citation links, memory learned and reused in a new chat, and no browser errors. The Spaces suite passed 30/30 on the same build.
