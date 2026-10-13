@@ -240,12 +240,13 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
 export function RecordThumbnail({ item, featured = false }: { item: PharmaItem; featured?: boolean }) {
   const [failed, setFailed] = useState("");
   const image = item.source === "news" ? pharmaThumbnail(item.thumbnail) : null;
-  const identifier = item.details?.study_id ?? item.details?.application;
+  const identifier = item.details?.study_id ?? item.details?.application ?? item.details?.ema_product_number ?? item.details?.recall_number;
+  const previewType = item.source === "trials" ? "Clinical study" : item.source === "fda_safety" ? "Safety publication" : ["fda", "ema", "fda_updates"].includes(item.source) ? "Regulatory record" : item.source === "company" ? "Company release" : "Industry reporting";
   return <div className={`pi-thumbnail pi-thumbnail-${item.source}${featured ? " pi-thumbnail-featured" : ""}`}>
     {image && failed !== image ? <><Image src={image} alt="" width={560} height={280} unoptimized loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(image)} /><span className="pi-thumb-caption">Publisher image</span></> : <>
       <svg viewBox="0 0 300 140" aria-hidden="true" className="pi-thumb-art"><g fill="none" stroke="currentColor" strokeWidth="1.3">
         {item.source === "trials" ? <>{[0, 1, 2, 3, 4, 5].map(n => <g key={n}><path d={`M${158 + Math.sin(n * 1.1) * 25},${12 + n * 21} L${158 - Math.sin(n * 1.1) * 25},${12 + n * 21}`} opacity=".55" /><circle cx={158 + Math.sin(n * 1.1) * 25} cy={12 + n * 21} r="3" fill="currentColor" /></g>)}<path d="M158 12 C208 42 108 86 158 128 M158 12 C108 42 208 86 158 128" /></> : <><path d="M156 20l27 16v32l-27 16-27-16V36z M183 68l27-16 27 16v32l-27 16-27-16z M129 68l-27 16v32l27 16 27-16V84" /><path d="M156 20V4 M237 68l27-16 M102 116l-25 14" /><circle cx="156" cy="4" r="3" fill="currentColor" /><circle cx="264" cy="52" r="3" fill="currentColor" /></>}
-      </g></svg><span className="pi-thumb-overline">{item.source === "fda" ? "Regulatory record" : item.source === "trials" ? "Clinical study" : "Industry reporting"}</span><span className="pi-thumb-id">{identifier ?? (item.source === "news" ? "Pharma & biotech" : "Source record")}</span><span className="pi-thumb-caption">Illustrated record preview</span>
+      </g></svg><span className="pi-thumb-overline">{previewType}</span><span className="pi-thumb-id">{identifier ?? (item.source === "news" ? "Pharma & biotech" : "Source record")}</span><span className="pi-thumb-caption">Illustrated record preview</span>
     </>}
   </div>;
 }
@@ -254,7 +255,7 @@ function RecordDetails({ item, source }: { item: PharmaItem; source: PharmaSourc
   const facts = item.details ? Object.entries(item.details).filter(([, v]) => typeof v === "string" ? !!v : Array.isArray(v) && v.length > 0) : [];
   const labels: Record<string, string> = { application: "Application", action: "Action", ingredients: "Active ingredients", study_id: "Study ID", status: "Study status", phases: "Trial phases", conditions: "Conditions", interventions: "Drug / biologic interventions" };
   return <div className="pi-details" id={`pi-details-${item.id.replaceAll(":", "-")}`}>
-    <dl>{facts.map(([label, value]) => <div key={label}><dt>{labels[label] ?? label}</dt><dd>{Array.isArray(value) ? value.map(v => v.replace(/^PHASE/, "Phase ")).join(" · ") : value}</dd></div>)}
+    <dl>{facts.map(([label, value]) => <div key={label}><dt>{labels[label] ?? label.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.map(v => v.replace(/^PHASE/, "Phase ")).join(" · ") : value}</dd></div>)}
       <div><dt>Organization</dt><dd>{item.organization || "Not listed"}</dd></div>
       <div><dt>Source freshness</dt><dd>{SOURCE_STATUS[source.status]} · {checkedDate(source.checked_at)}</dd></div>
     </dl><a href={item.url} target="_blank" rel="noopener noreferrer">Open original record<ArrowUpRight size={14} aria-hidden="true" /></a>

@@ -11,7 +11,10 @@ import AnswerStream from "@/components/thread/AnswerStream";
 import { ModeMenu } from "@/components/chat/ComposerControls";
 import { RecordThumbnail } from "./PharmaWorkspace";
 
-const LABELS: Record<string, string> = { application: "Application", action: "Action", ingredients: "Active ingredients", study_id: "Study ID", status: "Study status", phases: "Trial phases", conditions: "Conditions", interventions: "Interventions" };
+const LABELS: Record<string, string> = { application: "Application", action: "Action", ingredients: "Active ingredients", study_id: "Study ID", status: "Study status", phases: "Trial phases", conditions: "Conditions", interventions: "Interventions",
+    ema_product_number: "EMA product number", medicine_status: "Medicine status", initial_authorisation_date: "Initial authorisation", latest_procedure: "Latest procedure", indication: "Current indication",
+    recall_number: "Recall number", classification: "FDA classification", recall_status: "Recall status", recall_initiation_date: "Recall initiated", publisher: "Publisher",
+    primary_completion: "Primary completion", study_completion: "Study completion", registered: "First registered", results_posted: "Results first posted", sponsor_class: "Sponsor classification" };
 function date(value: string) { return new Date(value + "T00:00:00Z").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }); }
 
 export default function PharmaRecordDetail() {
@@ -84,7 +87,9 @@ function RecordEvidence({ record }: { record: PharmaRecord }) {
         media.addEventListener("change", change);
         return () => media.removeEventListener("change", change);
     }, []);
-    const fields = item.source === "fda" ? ["application", "action", "ingredients"] : item.source === "trials" ? ["study_id", "status", "phases", "conditions", "interventions"] : [];
+    const fields = item.source === "fda" ? ["application", "action", "ingredients"] : item.source === "trials" ? ["study_id", "status", "phases", "conditions", "interventions", "primary_completion", "study_completion", "registered", "results_posted", "sponsor_class"]
+        : item.source === "ema" ? ["ema_product_number", "medicine_status", "initial_authorisation_date", "latest_procedure", "ingredients", "indication"]
+        : item.source === "fda_safety" && item.details?.recall_number ? ["recall_number", "classification", "recall_status", "recall_initiation_date"] : item.details?.publisher ? ["publisher"] : [];
     return <aside className="pi-detail-facts" aria-label="Original record details">
             <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
                 <summary><span>Source record</span><ChevronDown size={14} aria-hidden="true" /></summary>

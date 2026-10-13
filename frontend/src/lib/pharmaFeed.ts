@@ -19,7 +19,10 @@ export interface PharmaItem {
   impact?: PharmaImpact;
   event?: { kind: string; label: string; date: string; date_label: string; baseline: boolean; reason: string | null; changes: unknown[] };
   drugs?: { id: string; name: string; evidence_url: string }[];
-  details?: { application?: string; action?: string; ingredients?: string[]; study_id?: string; status?: string; phases?: string[]; conditions?: string[]; interventions?: string[] };
+  details?: { application?: string; action?: string; ingredients?: string[]; study_id?: string; status?: string; phases?: string[]; conditions?: string[]; interventions?: string[];
+    ema_product_number?: string; medicine_status?: string; initial_authorisation_date?: string; latest_procedure?: string; indication?: string;
+    recall_number?: string; classification?: string; recall_status?: string; recall_initiation_date?: string; publisher?: string;
+    primary_completion?: string; study_completion?: string; registered?: string; results_posted?: string; sponsor_class?: string };
 }
 export interface PharmaSource {
   id: PharmaSourceId; name: string; url: string; cadence: string; scope: string;
