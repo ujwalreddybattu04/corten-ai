@@ -66,6 +66,27 @@ test("completed analyses and follow-ups use the native chat schema and resume", 
     assert.equal(restored.history[0].query, first[0].query); assert.equal(restored.query, "What is the phase?");
     assert.equal(restored.sources[0].citationIndex, 1);
 });
+
+test("legacy answer pipelines remain in personal history but are not reused as the current brief", () => {
+    const r = fixture(), turns = [{ query: records.pharmaDisplayQuery(r), answer: "Legacy brief", sources: [records.pharmaOriginalSource(r)] }];
+    records.savePharmaThread(r, turns, [], "legacy", owner);
+    const rows = JSON.parse(accountStorage.getItem("corten_threads")); delete rows[0].pharmaRecord.analysisVersion;
+    accountStorage.setItem("corten_threads", JSON.stringify(rows));
+    assert.equal(records.restorePharmaThread(r), null);
+    assert.equal(JSON.parse(accountStorage.getItem("corten_threads"))[0].answer, "Legacy brief");
+});
+
+test("refresh shows the latest brief and its follow-ups without deleting the earlier conversation", () => {
+    const history = [
+        { query: "Initial analysis", answer: "Old", sources: [] },
+        { query: "Earlier question", answer: "Earlier", sources: [] },
+        { query: records.PHARMA_REFRESH_LABEL, answer: "Current", sources: [] },
+        { query: "Current question", answer: "Current reply", sources: [] },
+    ];
+    assert.deepEqual(records.currentPharmaTurns(history).map(t => t.answer), ["Current", "Current reply"]);
+    assert.equal(history.length, 4);
+    assert.deepEqual(records.currentPharmaTurns(history.slice(0, 2)), history.slice(0, 2));
+});
 test("private mode, changed owner, deletion and concurrent edits never overwrite chats", () => {
     const r = fixture(), turns = [{ query: records.pharmaDisplayQuery(r), answer: "Summary", sources: [records.pharmaOriginalSource(r)] }], id = "safe";
     sessionStorage.setItem("corten_private_mode", "true"); assert.equal(records.savePharmaThread(r, turns, [], id, owner), false);

@@ -6,7 +6,7 @@ import { isPrivateChat } from "@/lib/questionDrafts";
 import { conversationMessages } from "@/lib/conversation";
 import { openSearchStream } from "@/lib/searchConnection";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
-import { PHARMA_ANALYSIS_PROMPT, pharmaDisplayQuery, pharmaFingerprint, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
+import { PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL, currentPharmaTurns, pharmaDisplayQuery, pharmaFingerprint, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
 import type { ResearchStep, SearchSource } from "@/hooks/useSearch";
 
 export function usePharmaAnalysis(record: PharmaRecord) {
@@ -37,7 +37,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
             const response = await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
                 pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
                     days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question" },
-                messages: conversationMessages(previous).slice(-120) }, abort.signal,
+                messages: query === PHARMA_ANALYSIS_PROMPT ? [] : conversationMessages(currentPharmaTurns(previous)).slice(-120) }, abort.signal,
                 message => { if (current()) setSteps([{ type: "status", content: message }]); });
             text = await readArticleSummary(response, event => {
                 if (!current()) return;
@@ -73,7 +73,8 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         }, 50);
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
-    return { turns, answer, question, sources, steps, busy, error, saved, related, threadId: saved ? id.current : "",
-        ask: run, refresh: () => run(PHARMA_ANALYSIS_PROMPT, "Refresh analyst brief"),
+    return { turns: busy && pending.current?.query === PHARMA_ANALYSIS_PROMPT ? [] : currentPharmaTurns(turns),
+        answer, question, sources, steps, busy, error, saved, related, threadId: saved ? id.current : "",
+        ask: run, refresh: () => run(PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL),
         retry: () => run(pending.current?.query || PHARMA_ANALYSIS_PROMPT, pending.current?.label) };
 }

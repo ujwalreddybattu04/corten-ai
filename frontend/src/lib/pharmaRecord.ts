@@ -5,6 +5,12 @@ import type { SearchSource, ThreadData } from "@/hooks/useSearch";
 
 export interface PharmaRecord { item: PharmaItem; feed: PharmaFeed; }
 export interface PharmaTurn { query: string; answer: string; sources: SearchSource[]; }
+const ANALYSIS_VERSION = 2;
+export const PHARMA_REFRESH_LABEL = "Refresh analyst brief";
+export function currentPharmaTurns(turns: PharmaTurn[]) {
+    const start = turns.findLastIndex(turn => turn.query === PHARMA_REFRESH_LABEL);
+    return turns.slice(Math.max(0, start));
+}
 const CACHE = "corten_pharma_records_v1";
 const TTL = 24 * 3600_000;
 const memory = new Map<string, { owner: string | null; created: number; record: PharmaRecord }>();
@@ -108,11 +114,12 @@ export function restorePharmaThread(record: PharmaRecord): ThreadData | null {
     try {
         const rows = JSON.parse(accountStorage.getItem("corten_threads") || "[]");
         if (!Array.isArray(rows)) return null;
-        return rows.find((thread: ThreadData & { pharmaRecord?: { id?: string; fingerprint?: string } }) => {
+        return rows.find((thread: ThreadData & { pharmaRecord?: { id?: string; fingerprint?: string; analysisVersion?: number } }) => {
             if (!thread || typeof thread.id !== "string" || !Array.isArray(thread.history)
                 || ![...thread.history, thread].every(t => t && typeof t.query === "string" && typeof t.answer === "string"
                     && !!t.answer.trim() && Array.isArray(t.sources) && t.sources.every(s => s && typeof s.url === "string" && typeof s.title === "string"))) return false;
-            return thread.pharmaRecord?.id === record.item.id && thread.pharmaRecord.fingerprint === pharmaFingerprint(record);
+            return thread.pharmaRecord?.id === record.item.id && thread.pharmaRecord.fingerprint === pharmaFingerprint(record)
+                && thread.pharmaRecord.analysisVersion === ANALYSIS_VERSION;
         }) || null;
     } catch { return null; }
 }
@@ -130,7 +137,7 @@ export function savePharmaThread(record: PharmaRecord, turns: PharmaTurn[], prev
         const last = turns.at(-1)!, now = Date.now();
         const thread = { ...prior, id, title: prior?.title || `Pharma · ${record.item.title}`.slice(0, 100),
             createdAt: prior?.createdAt || now, updatedAt: now, query: last.query, answer: last.answer,
-            pharmaRecord: { id: record.item.id, fingerprint: pharmaFingerprint(record) },
+            pharmaRecord: { id: record.item.id, fingerprint: pharmaFingerprint(record), analysisVersion: ANALYSIS_VERSION },
             history: turns.slice(0, -1).map(t => ({ ...t, images: [] })), sources: last.sources, images: [], researchSteps: [], thoughtTime: 0 };
         accountStorage.setItem("corten_threads", JSON.stringify([thread, ...rows.filter(t => t.id !== id)]));
         window.dispatchEvent(new Event("corten_threads_updated"));
