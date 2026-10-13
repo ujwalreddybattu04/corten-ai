@@ -137,7 +137,10 @@ async def fda_records(client,since,until):
             item["details"]["brands"]=list(dict.fromkeys(brands))[:8]
             application_id,kind,number=item["id"].split(":")[1:]
             submission=next(s for s in application["submissions"] if str(s.get("submission_type",""))==kind and str(s.get("submission_number",""))==number)
-            event_kind="fda_generic_approval" if application_id.startswith("ANDA") else "fda_original_approval" if kind=="ORIG" else "fda_supplemental_approval"
+            event_kind="fda_generic_approval" if application_id.startswith("ANDA") and kind=="ORIG" else "fda_original_approval" if kind=="ORIG" else "fda_supplemental_approval"
+            if event_kind=="fda_generic_approval":
+                item["title"]=item["title"].replace("FDA original approval","FDA generic approval")
+                item["details"]["action"]="FDA generic approval"
             event={"kind":event_kind,"label":item["details"]["action"],"date":item["date"],"date_label":"FDA action date", "changes":[],"baseline":True,"reason":None}
             raw={"application_number":application_id,"sponsor_name":application.get("sponsor_name"),"products":application.get("products",[]),"submission":submission}
             rows.append((item,raw,[event]))

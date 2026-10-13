@@ -35,16 +35,20 @@ async def store_record(db,item,raw,events=None,now=None):
         item=item,event_date=date.fromisoformat(item["date"]),observed_at=now).on_conflict_do_nothing())
     document=await db.scalar(select(PharmaDocument).where(PharmaDocument.id==document_id).with_for_update())
     existing=await db.get(PharmaSnapshot,(document_id,version))
-    if existing:
+    if existing and document.latest_version==version:
         document.observed_at=now
         return 0
     previous=await db.get(PharmaSnapshot,(document_id,document.latest_version))
+    if previous and item["source"]=="trials" and item["date"]<previous.item["date"]:
+        # An older provider page must not rewind an already newer registry snapshot.
+        return 0
     detected=trial_events(raw,previous.raw if previous else None) if item["source"]=="trials" else events
     if not detected:
         detected=[{"kind":"record_observed","label":"Source record","date":item["date"],
             "date_label":item["date_label"],"changes":[],"reason":None,"baseline":previous is None}]
-    snapshot=PharmaSnapshot(document_id=document_id,version=version,raw=raw,item=item,recorded_at=now)
-    db.add(snapshot);await db.flush()
+    if not existing:
+        snapshot=PharmaSnapshot(document_id=document_id,version=version,raw=raw,item=item,recorded_at=now)
+        db.add(snapshot);await db.flush()
     added=0
     for event in detected:
         rating=impact(event,item)
