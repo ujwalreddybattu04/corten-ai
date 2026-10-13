@@ -21,3 +21,17 @@ Regression coverage includes all four response modes, five search focuses,
 conflicting history and attached material, the authenticated streaming API, the
 sign-in requirement and selection changes between turns. Provider and tool calls
 are guarded with failing mocks for the local-answer path.
+
+Verified on 13 October 2026: the isolated release passed all 321 backend tests
+and both [GitHub verification jobs](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38359774145).
+Runtime source is `a3aa4e630a2bbaf23b73a98f61e354d898855310`; only the
+chat-selection changes were included, with concurrent Space-agent edits excluded.
+The existing AWS release completed successfully with all eleven storage and
+recovery checks passing.
+
+Six live checks passed against CloudFront using real authenticated API requests
+and a real browser, without mocked search responses: sign-in enforcement, all
+four response selections, separate focus selection, local heading generation,
+the original Pro question, and switching to Fast in the same conversation.
+The browser displayed no source badges, unrelated follow-ups, web-search activity
+or client exceptions for those selection answers.
