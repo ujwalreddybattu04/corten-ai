@@ -107,11 +107,12 @@ def test_gateway_restricts_models_tools_and_partial_answers(tmp_path,monkeypatch
     with pytest.raises(ValueError):gateway.complete(request,gateway.Ledger(tmp_path/"ledger.sqlite3"))
 
 def test_shared_brief_prompt_excludes_caller_question_history_and_mode():
-    item={"id":"event:one","title":"Baseline","summary":"Existing study","url":"https://clinicaltrials.gov/study/NCT12345678","event":{"kind":"record_observed"},"impact":{"rating":"None"}}
+    item={"id":"event:one","title":"Baseline","summary":"Existing study","url":"https://clinicaltrials.gov/study/NCT12345678","event":{"kind":"record_observed"},"impact":{"rating":"None"},"tags":["ACTIVE_NOT_RECRUITING"]}
     source={"name":"ClinicalTrials.gov","status":"available"}
     one=evidence_messages(item,source,{"protocolSection":{}},"private question",[{"role":"user","content":"private history"}],"brief","pro")
     two=evidence_messages(item,source,{"protocolSection":{}},"another",[],"brief","think")
     assert one==two and "private question" not in json.dumps(one) and "private history" not in json.dumps(one)
+    assert "ACTIVE_NOT_RECRUITING" not in one[1]["content"]
     invalid="Existing trial. [1]\n### Why it matters\nRecruitment has ended.\n### Forecast impact\n**None** [1]\n### What to watch\n- Check results."
     with pytest.raises(LLMProviderError):validate_answer(invalid,item,"brief")
     with pytest.raises(LLMProviderError):validate_answer("Wrong NCT87654321 [99]",item,"question")

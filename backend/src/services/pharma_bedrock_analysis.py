@@ -51,7 +51,7 @@ def evidence_messages(item,source,raw,query,history,kind,mode):
         selected={"study_id":item.get("details",{}).get("study_id"),"event":item["event"],
             "established_fact":"This is a record observation/update. No clinical transition is established by this event."}
         omitted=["Full registry snapshot: available in the source panel and follow-up context"]
-        record={k:v for k,v in record.items() if k not in ("details","evidence","summary")}
+        record={k:v for k,v in record.items() if k not in ("details","evidence","summary","tags")}
     data={"record":record,
           "snapshot":selected,"omitted_source_sections":omitted,
           "source":{"name":source["name"]},
