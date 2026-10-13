@@ -6,13 +6,15 @@ This follows the workflow of Perplexity's Spaces, which Perplexity now calls Pro
 
 ## Workflow
 
-1. **Create** a Space from the Spaces page or from a template. Set a name, description, icon and color, plus optional instructions.
+1. **Create** a Space with **New Space**, or start from a template on the Spaces page or the Templates page. Templates include market access, competitive intelligence, regulatory watch and research. Set a name, an emoji icon, a description and optional instructions.
 2. **Add context**:
    - **Instructions** (up to 8,000 characters): role, tone, format and focus applied to every answer. They cannot override grounding, citation or safety rules.
    - **Files**: PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), HTML, Markdown, CSV, JSON and code or text files, up to 25 MB each. Text is extracted, indexed and cited as `Space file` sources ahead of web results.
    - **Links**: trusted sites. Each question runs one extra bounded search restricted to these domains, and those results are cited first.
-   - **Answer sources**: "Search the web" can be switched off. Answers then use only the Space's files. When no file matches, the answer says so rather than guessing.
-3. **Ask** from the Space page. The thread is saved to the Space for all members and to the author's own history.
+   - **Sources**: "Search the web" can be switched off. Answers then use only the Space's files. When no file matches, the answer says so rather than guessing.
+
+   On the Space page, instructions, files, links and sources sit in the right-hand column. The composer shows which sources answers will use.
+3. **Ask** from the Space page. The composer offers the same answer modes and attachments as the main search. The thread is saved to the Space for all members and to the author's own history. The thread list shows the opening of each answer.
 4. **Share** using either:
    - an invitation to a specific email address, which appears in the invitee's Spaces page after sign-in (valid 14 days, single use, bound to that email), or
    - an invitation link (valid 7 days, reusable, revocable).

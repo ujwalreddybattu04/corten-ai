@@ -1,221 +1,32 @@
 "use client";
-import { spacesApi } from "@/lib/spacesApi";
-
-import { useState, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-    ChevronRight, BookOpen, Code, Lightbulb, GraduationCap,
-    Beaker, PenTool, TrendingUp, Briefcase, Bookmark,
-    FolderOpen, ArrowRight, Loader2
-} from "lucide-react";
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface SpaceTemplate {
-    id: string;
-    name: string;
-    description: string;
-    icon: string;
-    color: string;
-    instructions: string;
-    category: string;
-}
-
-const CATEGORIES = ["All", "Research", "Education", "Development", "Life"];
-
-// ── Templates ───────────────────────────────────────────────────────────────
-
-const TEMPLATES: SpaceTemplate[] = [
-    // Research
-    {
-        id: "tpl_research",
-        name: "Research Assistant",
-        description: "Get deep, cited, in-depth answers with academic rigor on any research topic.",
-        icon: "book",
-        color: "#3b82f6",
-        category: "Research",
-        instructions: "Always provide detailed, well-sourced answers. Cite academic papers and reputable sources when possible. Structure responses with clear sections and headings. Prioritize peer-reviewed sources over blogs. Include a brief summary at the top of long answers.",
-    },
-    {
-        id: "tpl_patent",
-        name: "Patent Researcher",
-        description: "Search, summarize, and analyze patents and prior art by topic, company, or inventor.",
-        icon: "beaker",
-        color: "#14b8a6",
-        category: "Research",
-        instructions: "When analyzing patents, provide the patent number, title, filing date, and assignee. Summarize the key claims and innovations. Compare with related prior art. Highlight potential applications and limitations. Use structured format with clear sections.",
-    },
-    {
-        id: "tpl_data",
-        name: "Data Analyst",
-        description: "Analyze data trends, interpret statistics, and generate insights from any dataset.",
-        icon: "trending",
-        color: "#f97316",
-        category: "Research",
-        instructions: "When analyzing data, always explain methodology and assumptions. Use clear statistical language but explain terms for non-experts. Provide confidence levels where applicable. Suggest visualizations that would best represent the data. Highlight actionable insights, not just observations.",
-    },
-    // Education
-    {
-        id: "tpl_study",
-        name: "Study Guide Generator",
-        description: "Convert notes, slides, or textbooks into comprehensive and organized study guides.",
-        icon: "graduation",
-        color: "#22c55e",
-        category: "Education",
-        instructions: "Create well-organized study guides with clear headings, bullet points, and key definitions. Include mnemonics and memory aids where helpful. Add practice questions at the end of each section. Highlight the most exam-relevant material. Use simple language to explain complex concepts.",
-    },
-    {
-        id: "tpl_tutor",
-        name: "Tutor Me",
-        description: "Step-by-step help learning a concept, solving a problem, or mastering a difficult topic.",
-        icon: "lightbulb",
-        color: "#eab308",
-        category: "Education",
-        instructions: "Act as a patient, encouraging tutor. Break down complex topics into small, digestible steps. Ask guiding questions rather than giving answers directly. Use analogies and real-world examples to explain abstract concepts. Check understanding at each step before moving on. Adapt explanations to the student's level.",
-    },
-    {
-        id: "tpl_essay",
-        name: "Essay Grader",
-        description: "Upload your essay and receive detailed feedback based on rubric and writing quality.",
-        icon: "pen",
-        color: "#f43f5e",
-        category: "Education",
-        instructions: "Grade essays on these criteria: thesis clarity, argument structure, evidence quality, writing mechanics, and originality. Provide a score for each criterion. Give specific, line-level feedback with suggestions for improvement. Highlight both strengths and weaknesses. End with 3 concrete action items for the next draft.",
-    },
-    // Development
-    {
-        id: "tpl_code",
-        name: "Code Helper",
-        description: "Programming help with clear explanations, working code examples, and debugging assistance.",
-        icon: "code",
-        color: "#6366f1",
-        category: "Development",
-        instructions: "Always include working code examples with proper syntax. Explain code step-by-step. When debugging, identify the root cause first before suggesting fixes. Use modern best practices and idiomatic syntax. Mention time and space complexity for algorithms. Include error handling in examples.",
-    },
-    // Life
-    {
-        id: "tpl_writing",
-        name: "Writing Coach",
-        description: "Improve your writing with constructive feedback, editing, and creative brainstorming.",
-        icon: "pen",
-        color: "#ec4899",
-        category: "Life",
-        instructions: "Provide constructive, specific feedback on writing — not just praise. Suggest concrete improvements for clarity, tone, and structure. When brainstorming, offer at least 3 creative angles. Explain why each suggestion improves the text. Adapt tone advice to the intended audience.",
-    },
-    {
-        id: "tpl_trip",
-        name: "Trip Planner Pro",
-        description: "Plan your trip with personalized itineraries, budgets, and local recommendations.",
-        icon: "briefcase",
-        color: "#8b5cf6",
-        category: "Life",
-        instructions: "When planning trips, ask about budget, travel dates, interests, and group size. Create day-by-day itineraries with morning/afternoon/evening blocks. Include estimated costs, travel times between locations, and booking tips. Recommend local restaurants and hidden gems over tourist traps. Mention seasonal considerations and local customs.",
-    },
-];
-
-function getIconComponent(key: string, size = 22) {
-    const map: Record<string, React.ReactNode> = {
-        bookmark: <Bookmark size={size} />,
-        folder: <FolderOpen size={size} />,
-        book: <BookOpen size={size} />,
-        briefcase: <Briefcase size={size} />,
-        code: <Code size={size} />,
-        lightbulb: <Lightbulb size={size} />,
-        graduation: <GraduationCap size={size} />,
-        beaker: <Beaker size={size} />,
-        pen: <PenTool size={size} />,
-        trending: <TrendingUp size={size} />,
-    };
-    return map[key] || <Bookmark size={size} />;
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────────
+import { ArrowLeft } from "lucide-react";
+import { SPACE_TEMPLATES, TEMPLATE_CATEGORIES, type TemplateCategory } from "@/lib/spaceTemplates";
+import TemplateGrid from "@/components/spaces/TemplateGrid";
 
 export default function TemplatesPage() {
-    const router = useRouter();
-    const [activeCategory, setActiveCategory] = useState("All");
-
-    const filtered = useMemo(() => {
-        if (activeCategory === "All") return TEMPLATES;
-        return TEMPLATES.filter(t => t.category === activeCategory);
-    }, [activeCategory]);
-
-    const [creatingId, setCreatingId] = useState("");
-    const [error, setError] = useState("");
-    const handleUseTemplate = useCallback(async (tpl: SpaceTemplate) => {
-        if (creatingId) return;
-        setCreatingId(tpl.id);
-        setError("");
-        try {
-            const space = await spacesApi.create({ name: tpl.name, description: tpl.description, icon: tpl.icon,
-                color: tpl.color, instructions: tpl.instructions });
-            router.push(`/spaces/${space.id}`);
-        } catch (failure) {
-            setError(failure instanceof Error ? failure.message : "The Space could not be created. Please retry.");
-            setCreatingId("");
-        }
-    }, [router, creatingId]);
-
+    const [category, setCategory] = useState<TemplateCategory | "All">("All");
+    const templates = useMemo(() => category === "All" ? SPACE_TEMPLATES : SPACE_TEMPLATES.filter(item => item.category === category), [category]);
     return (
-        <div className="tpl-page">
-            {/* Breadcrumb */}
-            <div className="tpl-topbar">
-                <div className="tpl-breadcrumb">
-                    <Link href="/spaces" className="tpl-breadcrumb-link">Spaces</Link>
-                    <ChevronRight size={13} className="tpl-breadcrumb-sep" />
-                    <span className="tpl-breadcrumb-current">Templates</span>
-                </div>
-            </div>
-
-            {/* Header + Tabs */}
-            <div className="tpl-hero">
-                <div className="tpl-hero-inner">
-                    <h1 className="tpl-title">Templates</h1>
-                    <p className="tpl-subtitle">Start from a template with ready-made answer instructions. You can add files, links and teammates next.</p>
-                    {error && <p className="sx-error" role="alert">{error}</p>}
-
-                    <div className="tpl-tabs">
-                        {CATEGORIES.map(cat => (
-                            <button
-                                key={cat}
-                                className={`tpl-tab ${activeCategory === cat ? "active" : ""}`}
-                                onClick={() => setActiveCategory(cat)}
-                            >
-                                {cat}
-                            </button>
+        <div className="sv-page">
+            <div className="sv-page-inner">
+                <Link href="/spaces" className="sv-back"><ArrowLeft size={15} /> Spaces</Link>
+                <header className="sv-home-head">
+                    <div>
+                        <h1>Templates</h1>
+                        <p>Start a Space with answer instructions written for the job. You can change them, and add files, links and people, at any time.</p>
+                    </div>
+                </header>
+                <div className="sv-toolbar">
+                    <div className="sv-segmented" role="tablist" aria-label="Template categories">
+                        {(["All", ...TEMPLATE_CATEGORIES] as const).map(item => (
+                            <button key={item} role="tab" aria-selected={category === item} className={category === item ? "active" : ""}
+                                onClick={() => setCategory(item)}>{item}</button>
                         ))}
                     </div>
                 </div>
-            </div>
-
-            {/* Grid */}
-            <div className="tpl-body">
-                <div className="tpl-grid">
-                    {filtered.map(tpl => (
-                        <button
-                            key={tpl.id}
-                            className="tpl-card"
-                            disabled={!!creatingId}
-                            aria-busy={creatingId === tpl.id}
-                            onClick={() => void handleUseTemplate(tpl)}
-                        >
-                            <div className="tpl-card-icon" style={{ background: tpl.color + "15", color: tpl.color }}>
-                                {getIconComponent(tpl.icon, 22)}
-                            </div>
-                            <div className="tpl-card-body">
-                                <h3 className="tpl-card-name">{tpl.name}</h3>
-                                <p className="tpl-card-desc">{tpl.description}</p>
-                            </div>
-                            <div className="tpl-card-footer">
-                                <span className="tpl-card-cat">{tpl.category}</span>
-                                <span className="tpl-card-cta">
-                                    {creatingId === tpl.id ? <>Creating <Loader2 size={11} className="sx-spin" /></> : <>Use <ArrowRight size={11} /></>}
-                                </span>
-                            </div>
-                        </button>
-                    ))}
-                </div>
+                <TemplateGrid templates={templates} />
             </div>
         </div>
     );

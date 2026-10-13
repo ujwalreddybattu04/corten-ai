@@ -67,7 +67,7 @@ function SpaceContextBar({ spaceId, author, saveError }: { spaceId: string; auth
     return (
         <div className="sx-thread-context">
             <Link href={`/spaces/${encodeURIComponent(spaceId)}`} className="sx-thread-context-link">
-                {space ? <SpaceIcon icon={space.icon} color={space.color} size={12} box={22} /> : null}
+                {space ? <SpaceIcon icon={space.icon} size={22} /> : null}
                 <span>{space ? space.name : "Space"}</span>
             </Link>
             {author && <span className="sx-muted">Shared by {author}. Follow-up questions start your own thread.</span>}

@@ -51,7 +51,7 @@ export default function SaveArticleModal({ article, onClose }: { article: { titl
                     {spaces === null ? <p className="sx-muted" role="status"><Loader2 size={14} className="sx-spin" /> Loading Spaces…</p>
                         : spaces.length ? spaces.map(space => (
                             <button className="tdm-item sx-pick" key={space.id} disabled={!!saving} onClick={() => void save(space)}>
-                                <SpaceIcon icon={space.icon} color={space.color} size={14} box={26} />
+                                <SpaceIcon icon={space.icon} size={26} />
                                 <span className="sx-ellipsis">{space.name}</span>
                                 {saving === space.id ? <Loader2 size={14} className="sx-spin" /> : saved === space.id ? <Check size={14} /> : null}
                             </button>

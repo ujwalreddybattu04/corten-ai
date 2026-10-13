@@ -46,7 +46,7 @@ export default function JoinSpacePage() {
                 )}
                 {preview && (
                     <>
-                        <SpaceIcon icon={preview.icon} color={preview.color} size={30} box={64} />
+                        <SpaceIcon icon={preview.icon} size={64} />
                         <p className="sx-muted">{preview.inviterName} invited you to join</p>
                         <h1>{preview.name}</h1>
                         {preview.description && <p className="sx-join-description">{preview.description}</p>}

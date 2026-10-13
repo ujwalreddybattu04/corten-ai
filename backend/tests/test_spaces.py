@@ -226,6 +226,33 @@ async def test_threads_are_shared_but_only_their_author_can_change_them(api):
     assert (await api(VIEWER).get(f"/api/v1/spaces/{sid}/threads")).json()["items"] == []
 
 
+@pytest.mark.asyncio
+async def test_thread_lists_preview_the_first_answer_as_plain_text(api):
+    space = await shared_space(api)
+    sid = space["id"]
+    first = "## Summary\n**Germany** requires an AMNOG dossier [1][2]. See [IQWiG](https://www.iqwig.de) for details."
+    later = {"id": "t-multi", "title": "HTA timelines", "query": "And France?", "answer": "France takes longer.",
+             "history": [{"query": "HTA timelines", "answer": first}]}
+    single = {"id": "t-single", "title": "Artifact", "query": "Draw it", "history": [],
+              "answer": ':::artifact{type="mermaid" title="Flow"}\nflowchart TD\nA-->B\n:::\nThe flow has two steps.'}
+    for thread in (later, single):
+        assert (await api(EDITOR).put(f"/api/v1/spaces/{sid}/threads/{thread['id']}", json={"data": thread})).status_code == 200
+    listed = {t["threadId"]: (t["question"], t["preview"]) for t in (await api(VIEWER).get(f"/api/v1/spaces/{sid}/threads")).json()["items"]}
+    assert listed == {"t-multi": ("HTA timelines", "Summary Germany requires an AMNOG dossier. See IQWiG for details."),
+                      "t-single": ("Draw it", "The flow has two steps.")}
+    long = space_service.answer_preview("word " * 100)
+    assert long.endswith("…") and len(long) <= space_service.PREVIEW_CHARS + 1
+
+
+@pytest.mark.asyncio
+async def test_spaces_accept_listed_emoji_icons_only(api):
+    owner = api(OWNER)
+    created = await owner.post("/api/v1/spaces", json={"name": "Launch", "icon": "💊"})
+    assert created.status_code in (200, 201) and created.json()["icon"] == "💊"
+    assert (await owner.post("/api/v1/spaces", json={"name": "X", "icon": "🦄"})).status_code == 422
+    assert (await owner.post("/api/v1/spaces", json={"name": "X", "icon": "<svg>"})).status_code == 422
+
+
 def docx(*paragraphs):
     body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
     buffer = io.BytesIO()

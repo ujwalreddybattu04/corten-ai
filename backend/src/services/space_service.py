@@ -17,7 +17,10 @@ from src.models.space import Space, SpaceMember, SpaceInvite, SpaceFile, SpaceFi
 from src.models.user import User
 
 ROLE_RANK = {"viewer": 1, "editor": 2, "owner": 3}
-ICONS = {"bookmark", "folder", "book", "briefcase", "code", "lightbulb", "graduation", "beaker", "pen", "trending"}
+# Icon names from the first design, kept for existing Spaces, plus the emoji offered by the icon picker.
+EMOJI = ("💊", "🧬", "🔬", "🧪", "🏥", "📊", "📈", "💼", "🏛️", "⚖️", "🌍", "🚀", "🎯", "💡", "🧠", "📚",
+         "📝", "🗂️", "📌", "🔍", "🤝", "🛠️", "💻", "🎓", "✈️", "🏠", "🎨", "📣", "💰", "🗓️", "⭐", "🌱")
+ICONS = {"bookmark", "folder", "book", "briefcase", "code", "lightbulb", "graduation", "beaker", "pen", "trending", *EMOJI}
 LINK_INVITE_DAYS = 7
 EMAIL_INVITE_DAYS = 14
 MAX_THREAD_BYTES = 256 * 1024
@@ -360,15 +363,40 @@ async def save_thread(db, space_id, user_id, thread_id, data) -> dict:
     return {"threadId": thread_id, "title": title, "updatedAt": ms(row.updated_at)}
 
 
+PREVIEW_CHARS = 180
+
+
+def answer_preview(answer: str | None) -> str:
+    """The opening of an answer as plain text for thread lists: no artifacts, Markdown, citations or links."""
+    text = re.sub(r":::artifact\{[^}\n]*\}[\s\S]*?(?:\n:::|$)", " ", answer or "")
+    text = re.sub(r"```[\s\S]*?(?:```|$)", " ", text)
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)          # links and images keep their text
+    text = re.sub(r"\s*(?:\[\d+(?:,\s*\d+)*\]|【\d+】)", "", text)      # citation markers
+    text = re.sub(r"^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+|\|)", "", text, flags=re.M)
+    text = re.sub(r"[*_`~|]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= PREVIEW_CHARS:
+        return text
+    cut = text[:PREVIEW_CHARS].rsplit(" ", 1)[0].rstrip(",;:—-")
+    return cut + "…"
+
+
 async def list_threads(db, space_id, user_id, before: int | None = None) -> dict:
     space, role = await access(db, space_id, user_id)
+    # Only the first question and the opening of its answer are read, never whole conversations.
+    first = SpaceThread.data["history"][0]
+    first_question = func.coalesce(first["query"].as_string(), SpaceThread.data["query"].as_string())
+    first_answer = func.coalesce(first["answer"].as_string(), SpaceThread.data["answer"].as_string())
     statement = (select(SpaceThread.thread_id, SpaceThread.title, SpaceThread.author_id, SpaceThread.created_at,
-                        SpaceThread.updated_at, User.name).join(User, User.id == SpaceThread.author_id)
+                        SpaceThread.updated_at, User.name, func.substr(first_question, 1, 300).label("question"),
+                        func.substr(first_answer, 1, 1200).label("answer"))
+                 .join(User, User.id == SpaceThread.author_id)
                  .where(SpaceThread.space_id == space.id))
     if before:
         statement = statement.where(SpaceThread.updated_at < datetime.fromtimestamp(before / 1000, timezone.utc))
     rows = (await db.execute(statement.order_by(SpaceThread.updated_at.desc()).limit(THREAD_PAGE + 1))).all()
-    items = [{"threadId": row.thread_id, "title": row.title, "authorName": row.name,
+    items = [{"threadId": row.thread_id, "title": row.title, "question": re.sub(r"\s+", " ", row.question or "").strip() or None,
+              "preview": answer_preview(row.answer), "authorName": row.name,
               "isAuthor": str(row.author_id) == user_id, "createdAt": ms(row.created_at),
               "updatedAt": ms(row.updated_at)} for row in rows[:THREAD_PAGE]]
     return {"items": items, "next": items[-1]["updatedAt"] if len(rows) > THREAD_PAGE else None}

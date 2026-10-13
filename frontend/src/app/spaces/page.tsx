@@ -2,18 +2,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-    Search, Plus, MoreHorizontal, Pencil, Trash2, LayoutGrid, MessageSquare, FileText, Users,
-    ScrollText, Upload, UserPlus, LogOut, RefreshCw, Loader2, Inbox,
-} from "lucide-react";
+import { Search, Plus, MoreHorizontal, Pencil, Trash2, LogOut, RefreshCw, Loader2, ArrowRight, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { spacesApi, relativeTime, canEdit, type PendingInvitation, type Space, type SpaceFields } from "@/lib/spacesApi";
+import { spacesApi, relativeTime, canEdit, ROLE_LABELS, type PendingInvitation, type Space, type SpaceFields } from "@/lib/spacesApi";
 import { clearLegacyBrowserSpaces, legacyBrowserSpaces } from "@/lib/spaces";
+import { FEATURED_TEMPLATES } from "@/lib/spaceTemplates";
 import SpaceFormModal from "@/components/spaces/SpaceFormModal";
-import { RoleBadge, SpaceIcon } from "@/components/spaces/SpaceVisuals";
+import { SpaceIcon } from "@/components/spaces/SpaceVisuals";
 import RemoveSpaceDialog from "@/components/spaces/RemoveSpaceDialog";
+import TemplateGrid from "@/components/spaces/TemplateGrid";
 
 type Filter = "all" | "owned" | "shared";
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** One quiet line of what is in a Space and when it last changed. */
+function spaceSummary(space: Space): string {
+    const parts = [space.threadCount ? plural(space.threadCount, "thread") : "No threads yet"];
+    if (space.fileCount) parts.push(plural(space.fileCount, "file"));
+    parts.push(relativeTime(space.updatedAt));
+    return parts.join(" · ");
+}
 
 export default function SpacesPage() {
     const { user } = useAuth();
@@ -104,135 +113,113 @@ export default function SpacesPage() {
         } finally { setRespondId(""); }
     };
 
+    const empty = spaces !== null && spaces.length === 0;
+
     return (
-        <div className="sp-spaces-page sx-home">
-            <header className="sp-spaces-header sx-home-header">
-                <div className="sx-home-title">
-                    <h1 className="sp-spaces-title">Spaces</h1>
-                    <p className="sx-muted">Shared workspaces with their own instructions, files and team</p>
-                </div>
-                <div className="sp-spaces-search-wrap">
-                    <Search size={15} className="sp-spaces-search-icon" aria-hidden="true" />
-                    <input type="search" className="sp-spaces-search" placeholder="Search Spaces" value={query}
-                        aria-label="Search Spaces" onChange={event => setQuery(event.target.value)} />
-                </div>
-                <div className="sp-spaces-header-actions">
-                    <Link href="/spaces/templates" className="sp-spaces-tpl-btn"><LayoutGrid size={14} /><span>Templates</span></Link>
-                    <button className="sp-spaces-create-btn" onClick={() => setCreating(true)}><Plus size={16} /><span>New Space</span></button>
-                </div>
-            </header>
+        <div className="sv-page">
+            <div className="sv-page-inner">
+                <header className="sv-home-head">
+                    <div>
+                        <h1>Spaces</h1>
+                        <p>Organize research by project. Each Space keeps its own instructions, files, threads and people.</p>
+                    </div>
+                    <button className="sx-btn sx-btn--primary sv-new" onClick={() => setCreating(true)}><Plus size={16} /> New Space</button>
+                </header>
 
-            <main className="sp-spaces-body sx-home-body">
                 {notice && <div className="sx-banner sx-banner--info" role="status">{notice}<button className="sx-banner-close" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
-
-                {invitations.length > 0 && (
-                    <section className="sx-invitations" aria-labelledby="invitations-heading">
-                        <h2 id="invitations-heading" className="sx-section-title"><Inbox size={14} aria-hidden="true" /> Invitations <span className="sx-count">{invitations.length}</span></h2>
-                        <ul>
-                            {invitations.map(invitation => (
-                                <li key={invitation.id} className="sx-invitation">
-                                    <SpaceIcon icon={invitation.icon} color={invitation.color} size={18} box={38} />
-                                    <div className="sx-invitation-text">
-                                        <strong>{invitation.spaceName}</strong>
-                                        <span className="sx-muted">{invitation.inviterName} invited you · <RoleBadge role={invitation.role} /></span>
-                                    </div>
-                                    <div className="sx-invitation-actions">
-                                        <button className="sx-btn sx-btn--ghost" disabled={respondId === invitation.id} onClick={() => void respond(invitation, false)}>Decline</button>
-                                        <button className="sx-btn sx-btn--primary" disabled={respondId === invitation.id} onClick={() => void respond(invitation, true)}>
-                                            {respondId === invitation.id && <Loader2 size={14} className="sx-spin" />} Join Space
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-                    </section>
-                )}
-
                 {error && (
                     <div className="sx-banner sx-banner--error" role="alert">
                         <span>{error}</span>
-                        <button className="sx-btn sx-btn--secondary" onClick={() => { setError(""); void load(); }}><RefreshCw size={14} /> Retry</button>
+                        <button className="sx-btn sx-btn--secondary sx-btn--sm" onClick={() => { setError(""); void load(); }}><RefreshCw size={13} /> Retry</button>
                     </div>
                 )}
 
-                {spaces === null && !error ? (
-                    <div className="sp-spaces-grid" aria-busy="true" aria-label="Loading Spaces">
-                        {[0, 1, 2, 3].map(i => <div key={i} className="sx-skeleton sx-skeleton--card" />)}
-                    </div>
-                ) : spaces && spaces.length === 0 ? (
-                    <section className="sx-empty-hero">
-                        <h2>Create a home for your team&apos;s research</h2>
-                        <p className="sx-muted">A Space keeps related questions together and answers them with the context you give it.</p>
-                        <ul className="sx-value-props">
-                            <li><ScrollText size={18} aria-hidden="true" /><div><strong>Custom instructions</strong><span>Set the tone, format and focus for every answer.</span></div></li>
-                            <li><Upload size={18} aria-hidden="true" /><div><strong>Your files as sources</strong><span>Answers cite uploaded PDFs, Office files and notes.</span></div></li>
-                            <li><UserPlus size={18} aria-hidden="true" /><div><strong>Built for teams</strong><span>Invite colleagues as editors or viewers.</span></div></li>
-                        </ul>
-                        <div className="sx-empty-actions">
-                            <button className="sp-spaces-create-btn" onClick={() => setCreating(true)}><Plus size={16} /> Create a Space</button>
-                            <Link href="/spaces/templates" className="sp-spaces-tpl-btn"><LayoutGrid size={14} /> Start from a template</Link>
-                        </div>
+                {invitations.length > 0 && (
+                    <section className="sv-invites" aria-labelledby="invitations-heading">
+                        <h2 id="invitations-heading" className="sv-section-title">Invitations</h2>
+                        {invitations.map(invitation => (
+                            <div key={invitation.id} className="sv-invite">
+                                <SpaceIcon icon={invitation.icon} size={36} />
+                                <div className="sv-invite-text">
+                                    <strong>{invitation.spaceName}</strong>
+                                    <span>{invitation.inviterName} invited you · {ROLE_LABELS[invitation.role]}</span>
+                                </div>
+                                <button className="sx-btn sx-btn--ghost sx-btn--sm" disabled={respondId === invitation.id} onClick={() => void respond(invitation, false)}>Decline</button>
+                                <button className="sx-btn sx-btn--primary sx-btn--sm" disabled={respondId === invitation.id} onClick={() => void respond(invitation, true)}>
+                                    {respondId === invitation.id && <Loader2 size={13} className="sx-spin" />} Join
+                                </button>
+                            </div>
+                        ))}
                     </section>
-                ) : spaces && (
-                    <>
-                        <div className="sx-tabs" role="tablist" aria-label="Filter Spaces">
-                            {([["all", "All"], ["owned", "Owned by me"], ["shared", "Shared with me"]] as [Filter, string][]).map(([key, label]) => (
-                                <button key={key} role="tab" aria-selected={filter === key} className={`sx-tab ${filter === key ? "active" : ""}`}
-                                    onClick={() => setFilter(key)}>{label} <span className="sx-count">{counts[key]}</span></button>
-                            ))}
+                )}
+
+                {spaces === null && !error ? (
+                    <div className="sv-grid" aria-busy="true" aria-label="Loading Spaces">
+                        {[0, 1, 2].map(i => <div key={i} className="sx-skeleton sv-skeleton-card" />)}
+                    </div>
+                ) : spaces && spaces.length > 0 && (
+                    <section aria-label="Your Spaces">
+                        <div className="sv-toolbar">
+                            {counts.shared > 0 ? (
+                                <div className="sv-segmented" role="tablist" aria-label="Filter Spaces">
+                                    {([["all", "All"], ["owned", "Created by me"], ["shared", "Shared with me"]] as [Filter, string][]).map(([key, label]) => (
+                                        <button key={key} role="tab" aria-selected={filter === key} className={filter === key ? "active" : ""}
+                                            onClick={() => setFilter(key)}>{label}</button>
+                                    ))}
+                                </div>
+                            ) : <h2 className="sv-section-title">Your Spaces</h2>}
+                            {spaces.length > 3 && (
+                                <label className="sv-search">
+                                    <Search size={14} aria-hidden="true" />
+                                    <input type="search" placeholder="Search Spaces" value={query} aria-label="Search Spaces"
+                                        onChange={event => setQuery(event.target.value)} />
+                                </label>
+                            )}
                         </div>
-                        <div className="sp-spaces-grid">
+                        <div className="sv-grid">
                             {visible.map(space => (
-                                <div key={space.id} className="sp-space-card-wrap">
-                                    <Link href={`/spaces/${space.id}`} className="sp-space-card sx-card">
-                                        <div className="sx-card-top">
-                                            <SpaceIcon icon={space.icon} color={space.color} size={22} box={44} />
-                                            <RoleBadge role={space.role} />
-                                        </div>
-                                        <div className="sp-space-card-body">
-                                            <h3 className="sp-space-card-name">{space.name}</h3>
-                                            <p className="sp-space-card-desc">{space.description || (space.role === "owner" ? "No description" : `Shared by ${space.ownerName ?? "a teammate"}`)}</p>
-                                        </div>
-                                        <div className="sp-space-card-footer">
-                                            <div className="sp-space-card-stats">
-                                                <span title="Threads"><MessageSquare size={11} aria-hidden="true" /> {space.threadCount}</span>
-                                                <span title="Files"><FileText size={11} aria-hidden="true" /> {space.fileCount}</span>
-                                                <span title="Members"><Users size={11} aria-hidden="true" /> {space.memberCount}</span>
-                                            </div>
-                                            <span className="sp-space-card-date">{relativeTime(space.updatedAt)}</span>
-                                        </div>
+                                <div key={space.id} className="sv-card-wrap">
+                                    <Link href={`/spaces/${space.id}`} className="sv-card">
+                                        <SpaceIcon icon={space.icon} size={40} />
+                                        <span className="sv-card-name">{space.name}</span>
+                                        {(space.description || space.role !== "owner") && (
+                                            <span className="sv-card-desc">{space.description || `Shared by ${space.ownerName ?? "a teammate"}`}</span>
+                                        )}
+                                        <span className="sv-card-meta">
+                                            {space.memberCount > 1 && <span className="sv-card-people" title={plural(space.memberCount, "member")}><Users size={12} aria-hidden="true" /> {space.memberCount}</span>}
+                                            {spaceSummary(space)}
+                                        </span>
                                     </Link>
-                                    <button className="sp-space-card-menu sx-card-menu" aria-label={`Actions for ${space.name}`} aria-haspopup="menu"
+                                    <button className="sv-card-menu" aria-label={`Actions for ${space.name}`} aria-haspopup="menu"
                                         aria-expanded={menu === space.id}
                                         onClick={event => { event.preventDefault(); event.stopPropagation(); setMenu(menu === space.id ? null : space.id); }}>
                                         <MoreHorizontal size={16} />
                                     </button>
                                     {menu === space.id && (
-                                        <div className="sp-space-ctx" role="menu" onClick={event => event.stopPropagation()}>
-                                            {canEdit(space.role) && (
-                                                <button role="menuitem" className="sp-space-ctx-item" onClick={() => { setEditing(space); setMenu(null); }}><Pencil size={13} /> Edit details</button>
-                                            )}
-                                            {space.role !== "owner" && (
-                                                <button role="menuitem" className="sp-space-ctx-item sp-space-ctx-danger" onClick={() => { setPendingRemoval({ space, leave: true }); setMenu(null); }}><LogOut size={13} /> Leave Space</button>
-                                            )}
-                                            {space.role === "owner" && (<>
-                                                <div className="sp-space-ctx-divider" />
-                                                <button role="menuitem" className="sp-space-ctx-item sp-space-ctx-danger" onClick={() => { setPendingRemoval({ space, leave: false }); setMenu(null); }}><Trash2 size={13} /> Delete Space</button>
-                                            </>)}
+                                        <div className="sv-menu" role="menu" onClick={event => event.stopPropagation()}>
+                                            {canEdit(space.role) && <button role="menuitem" onClick={() => { setEditing(space); setMenu(null); }}><Pencil size={14} /> Edit details</button>}
+                                            {space.role !== "owner"
+                                                ? <button role="menuitem" className="danger" onClick={() => { setPendingRemoval({ space, leave: true }); setMenu(null); }}><LogOut size={14} /> Leave Space</button>
+                                                : <button role="menuitem" className="danger" onClick={() => { setPendingRemoval({ space, leave: false }); setMenu(null); }}><Trash2 size={14} /> Delete Space</button>}
                                         </div>
                                     )}
                                 </div>
                             ))}
-                            {filter !== "shared" && !query && (
-                                <button className="sp-space-card sp-space-card--add" onClick={() => setCreating(true)}><Plus size={24} strokeWidth={1.5} /><span>New Space</span></button>
-                            )}
                         </div>
                         {visible.length === 0 && (
-                            <p className="sp-spaces-no-results">{query ? <>No Spaces match &ldquo;{query}&rdquo;</> : filter === "shared" ? "No one has shared a Space with you yet." : "You don't own any Spaces yet."}</p>
+                            <p className="sv-no-results">{query ? <>No Spaces match &ldquo;{query}&rdquo;.</> : filter === "shared" ? "No one has shared a Space with you yet." : "You haven't created a Space yet."}</p>
                         )}
-                    </>
+                    </section>
                 )}
-            </main>
+
+                <section className={`sv-templates ${empty ? "sv-templates--lead" : ""}`} aria-labelledby="templates-heading">
+                    <div className="sv-toolbar">
+                        <h2 id="templates-heading" className="sv-section-title">{empty ? "Start with a template" : "Templates"}</h2>
+                        <Link href="/spaces/templates" className="sv-text-link">All templates <ArrowRight size={13} /></Link>
+                    </div>
+                    <TemplateGrid templates={FEATURED_TEMPLATES} />
+                </section>
+            </div>
 
             {(creating || editing) && (
                 <SpaceFormModal initial={editing ?? undefined} onSubmit={editing ? saveDetails : create}

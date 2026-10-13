@@ -76,6 +76,10 @@ export interface InvitePreview {
 export interface SpaceThreadSummary {
     threadId: string;
     title: string;
+    /** The thread's first question, shown instead of the generated title. */
+    question?: string | null;
+    /** Opening of the first answer as plain text. */
+    preview?: string;
     authorName: string;
     isAuthor: boolean;
     createdAt: number;
