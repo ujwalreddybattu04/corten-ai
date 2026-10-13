@@ -59,6 +59,11 @@ export function readPharmaRecord(id: string, topic: PharmaTopic, days: 7 | 30 | 
 }
 
 export function recordProvider(record: PharmaRecord): PharmaSource { return record.feed.sources.find(s => s.id === record.item.source)!; }
+export function pharmaFieldText(name: string, value: string | string[] | undefined): string {
+    if (!Array.isArray(value)) return value || "Not listed";
+    return value.map(text => name === "phases"
+        ? text.replace(/^EARLY_PHASE1$/, "Early Phase 1").replace(/^PHASE([1-4])$/, "Phase $1") : text).join(" · ") || "Not listed";
+}
 export function pharmaDisplayQuery(record: PharmaRecord) {
     const item = record.item;
     return `Analyze ${item.title} · ${item.details?.study_id || item.details?.application || item.source} · ${item.date}`;

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { pharmaThumbnail, requestPharmaFeed } from "@/lib/pharmaFeed";
-import { pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
+import { pharmaFieldText, pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
 import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
 import AnswerStream from "@/components/thread/AnswerStream";
 import { ModeMenu } from "@/components/chat/ComposerControls";
@@ -86,7 +86,7 @@ function RecordEvidence({ record }: { record: PharmaRecord }) {
                 <div className="pi-detail-evidence-body">
                 {item.source === "news" && pharmaThumbnail(item.thumbnail) && <RecordThumbnail item={item} />}
                 <dl>
-                {fields.map(name => { const value = item.details?.[name as keyof NonNullable<typeof item.details>]; return <div key={name}><dt>{LABELS[name]}</dt><dd>{Array.isArray(value) ? value.map(v => v.replace(/^PHASE/, "Phase ")).join(" · ") || "Not listed" : value || "Not listed"}</dd></div>; })}
+                {fields.map(name => { const value = item.details?.[name as keyof NonNullable<typeof item.details>]; return <div key={name}><dt>{LABELS[name]}</dt><dd>{pharmaFieldText(name, value)}</dd></div>; })}
                 <div><dt>Organization</dt><dd>{item.organization || "Not listed"}</dd></div>
                 </dl>
                 {item.summary && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}

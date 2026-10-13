@@ -19,6 +19,14 @@ test("canonical record links encode identifiers and contain only public filters"
     assert.deepEqual(records.pharmaFilters("?topic=evil&days=365&source=private"), { topic: "all", days: 7, source: "all" });
     assert.equal(sessionStorage.getItem("corten_pharma_records_v1"), null, "rendering a link has no storage side effects");
 });
+
+test("phase labels are readable while scientific names and identifiers stay verbatim", () => {
+    assert.equal(records.pharmaFieldText("phases", ["EARLY_PHASE1", "PHASE2"]), "Early Phase 1 · Phase 2");
+    assert.equal(records.pharmaFieldText("ingredients", ["PHASEOLUS VULGARIS", "中文药名"]), "PHASEOLUS VULGARIS · 中文药名");
+    assert.equal(records.pharmaFieldText("study_id", "NCT12345678"), "NCT12345678");
+    assert.equal(records.pharmaFieldText("phases", ["UNKNOWN"]), "UNKNOWN");
+    assert.equal(records.pharmaFieldText("ingredients", []), "Not listed");
+});
 test("record snapshots enforce account ownership, exact filters and age", () => {
     const r = fixture("cache:owner"); records.rememberPharmaRecord(r.item, r.feed);
     assert.equal(records.readPharmaRecord(r.item.id, "all", 7).item.id, r.item.id);
