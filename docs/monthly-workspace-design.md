@@ -31,5 +31,15 @@ passed with no errors.
 
 The sidebar repair was independently verified on the AWS bundle in 18 layout
 cases, followed by 15 real authentication cases, including interrupted logout and
-recovery. See [sidebar layout](sidebar-layout.md). Hosted monthly verification is
-recorded after the published release is deployed.
+recovery. See [sidebar layout](sidebar-layout.md).
+
+Published source: `24be2e284a343b1785f739538de723d3d0ee975d`.
+Both jobs passed in [GitHub CI](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38345094500).
+The exact committed archive was scanned (432 files, zero credential findings),
+uploaded privately and deployed to the existing AWS host. On
+[the hosted workspace](https://d3a7ful0miola1.cloudfront.net/analyst-workspace),
+all 20 real calculation/export checks and all six interaction/layout checks
+passed using temporary authenticated accounts. These also verified the single-year
+timeline label. Seven real-source pharma compatibility checks passed, with no
+browser exceptions. The reviewed adoption CSV was unchanged. No LLM or web search
+requests were used for the monthly calculation review.
