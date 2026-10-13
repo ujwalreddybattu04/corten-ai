@@ -55,7 +55,11 @@ async def main():
         await migrate("head")
         async with factory() as session:
             assert await session.scalar(text("SELECT count(*) FROM users")) == 1
-            assert await session.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+            # The isolated database reaches the newest migration in this release, whatever its number.
+            from alembic.config import Config
+            from alembic.script import ScriptDirectory
+            head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+            assert head and await session.scalar(text("SELECT version_num FROM alembic_version")) == head
             assert await session.scalar(text("SELECT auth_version FROM users")) == 0
             # Shared Spaces: owner membership and generated full-text search exist on the real database.
             from src.services import space_service
@@ -65,6 +69,9 @@ async def main():
             found = await space_service.retrieve(session, space.id, "revenue figures")
             assert found and found[0]["title"] == "check.txt"
             assert (await space_service.access(session, str(space.id), owner, "owner", lock=True))[1] == "owner"
+            # Spaces remember the template that equips their agent (migration 0006).
+            equipped = await space_service.create_space(session, owner, {"template": "tpl_data"})
+            assert (equipped.template, equipped.name) == ("tpl_data", "Data Analyst")
             # Personal memory and preferences round-trip on the real schema.
             from src.services import personalization
             await personalization.update_preferences(session, owner, {"style": "concise"})
