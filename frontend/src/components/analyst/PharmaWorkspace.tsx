@@ -111,12 +111,10 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
     setNotice(`${filtered.length} displayed records exported with source dates and freshness.`);
   };
   return <div className="aw-tool pi-tool">
-    <div className="pi-workspace-context"><span><span className="pi-context-mark" />Chryselys / Research desk</span><span><Clock3 size={13} aria-hidden="true" />{feed ? `Snapshot ${checkedDate(feed.checked_at)}` : "Public source monitoring"}</span></div>
     <div className="aw-tool-heading pi-heading">
       <div>
         <h2>Pharma intelligence</h2>
-        <p>Regulatory decisions and clinical study updates, organized for your next forecast.</p>
-        {feed && <div className="pi-header-status"><span className={feed.status === "stale" ? "pi-status-attention" : ""}>{feed.status === "stale" ? "Previous snapshot" : "Source snapshot"}</span><span>{feed.sources.filter(s => ["available", "empty"].includes(s.status)).length} of 3 sources available</span><span>{overview?.organizations} organizations in loaded records</span></div>}
+        {feed && <div className="pi-header-status"><span className={feed.status === "stale" ? "pi-status-attention" : ""}>{feed.status === "stale" ? "Previous snapshot" : "Updated"} · {checkedDate(feed.checked_at)}</span><span>{feed.sources.filter(s => ["available", "empty"].includes(s.status)).length} / 3 sources available</span></div>}
       </div>
       <div className="pi-actions">
         <button className="pi-button" onClick={() => void load()} disabled={busy}>
@@ -136,9 +134,9 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
         {query && <button aria-label="Clear record search" onClick={() => { setQuery(""); setPage(0); }}><X size={14} /></button>}
       </span></label>
     </div>
-    <p className="pi-coverage">Therapy filters apply to trials and industry news. FDA approvals cover all therapy areas. Dates use UTC.</p>
+    <p className="pi-coverage">FDA: all therapy areas · Dates in UTC</p>
     <div className="pi-feedback" role="status" aria-live="polite">
-      {busy && <span><Clock3 size={14} aria-hidden="true" />{waiting ? "Connecting to data services. This may take a moment…" : "Checking source records…"}</span>}
+      {busy && <span><Clock3 size={14} aria-hidden="true" />{waiting ? "Connecting…" : "Checking updates…"}</span>}
       {error && <div className="pi-error" role="alert"><span>{feed?.items.length ? "Keeping the last loaded records. " : ""}{error}</span><button className="pi-button" disabled={busy} onClick={() => void load()}>Retry</button></div>}
       {notice && <span>{notice}</span>}
     </div>
@@ -150,16 +148,16 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
           return <button key={id} className={source === id ? "selected" : ""} aria-pressed={source === id} onClick={() => filterSource(source === id ? "all" : id)}>
             <span className="pi-summary-label"><span className={`pi-widget-icon pi-tone-${id}`}><Icon size={16} aria-hidden="true" /></span>{SOURCE_LABELS[id]}<ArrowUpRight className="pi-widget-arrow" size={15} aria-hidden="true" /></span>
             <strong>{["unavailable", "unconfigured", "authentication_required"].includes(provider.status) ? "—" : provider.items.length}</strong>
-            <span><span className={`pi-status-dot pi-dot-${provider.status}`} />{provider.status === "available" ? "Recent records loaded" : SOURCE_STATUS[provider.status]}</span>
+            <span><span className={`pi-status-dot pi-dot-${provider.status}`} />{provider.status === "available" ? "Loaded" : SOURCE_STATUS[provider.status]}</span>
           </button>;
         })}
       </div>
-      {highlights.length > 0 && !query && source === "all" && <section className="pi-highlights" aria-labelledby="pi-highlights-title"><div className="pi-section-heading"><div><span className="pi-section-eyebrow">Evidence to explore</span><h3 id="pi-highlights-title">Latest by source</h3></div><span>Selected by record date</span></div>
+      {highlights.length > 0 && !query && source === "all" && <section className="pi-highlights" aria-labelledby="pi-highlights-title"><div className="pi-section-heading"><h3 id="pi-highlights-title">Latest by source</h3></div>
         <div className="pi-highlight-grid">{highlights.map(item => <article className="pi-highlight-card" key={item.id}><RecordThumbnail item={item} featured /><div className="pi-highlight-body"><span className={`pi-record-kind pi-tone-${item.source}`}>{item.source === "fda" ? "Latest FDA action" : "Latest study update"}</span><h4 title={item.title}>{item.title}</h4><p>{item.organization || "Organization not listed"}</p><div><time dateTime={item.date}>{eventDate(item.date)}</time><button onClick={() => reviewRecord(item)}>Review record<ArrowRight size={14} aria-hidden="true" /></button></div></div></article>)}</div>
       </section>}
       {overview && feed.items.length > 0 && <div className="pi-insight-grid">
         <section className="pi-activity-widget" aria-labelledby="pi-activity-title">
-          <div className="pi-widget-heading"><div><span className="pi-section-eyebrow">Window overview</span><h3 id="pi-activity-title">Loaded record dates</h3></div><span className="pi-widget-total">{feed.items.length}<small>records</small></span></div>
+          <div className="pi-widget-heading"><h3 id="pi-activity-title">Loaded record dates</h3><span className="pi-widget-total">{feed.items.length}<small>records</small></span></div>
           <svg className="pi-activity-chart" viewBox="0 0 560 106" role="img" aria-label={`Dates of ${feed.items.length} loaded records; a capped source sample, not total market activity`}>
             {[20, 52, 84].map(y => <line key={y} x1="0" x2="560" y1={y} y2={y} stroke="currentColor" opacity="0.1" />)}
             {overview.bins.map((bin, index) => {
@@ -173,11 +171,11 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
           </svg>
           <div className="pi-chart-axis"><span>{eventDate(feed.since)}</span><span>{eventDate(feed.until)}</span></div>
           <div className="pi-chart-legend"><span><i className="pi-tone-fda" />FDA actions</span><span><i className="pi-tone-trials" />Study updates</span><span><i className="pi-tone-news" />News</span></div>
-          <p className="pi-widget-note">Up to 20 recent records per source. This sample does not measure market activity.</p>
+          <p className="pi-widget-note">Sample · Up to 20 records per source</p>
         </section>
-        <section className="pi-phase-widget" aria-labelledby="pi-phase-title"><div className="pi-widget-heading"><div><span className="pi-section-eyebrow">Study landscape</span><h3 id="pi-phase-title">Clinical study phases</h3></div><FlaskConical size={19} aria-hidden="true" /></div>
+        <section className="pi-phase-widget" aria-labelledby="pi-phase-title"><div className="pi-widget-heading"><h3 id="pi-phase-title">Clinical study phases</h3><FlaskConical size={19} aria-hidden="true" /></div>
           {overview.trials ? <div className="pi-phase-bars" tabIndex={0} role="region" aria-label="Loaded study phase breakdown">{overview.phases.map(phase => <div key={phase.label}><div><span>{phase.label}</span><strong>{phase.count}</strong></div><div className="pi-phase-track"><span style={{ width: `${phase.count / overview.trials * 100}%` }} /></div></div>)}</div> : <p className="pi-widget-note">No study records loaded in this window. Review ClinicalTrials.gov availability below.</p>}
-          <p className="pi-widget-note">{overview.trials} loaded studies · Combined phases stay together. An update does not establish a new result.</p>
+          <p className="pi-widget-note">{overview.trials} loaded studies</p>
         </section>
       </div>}
       <div className="pi-content">
@@ -189,7 +187,7 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
             </select></label>
             </div>
           </div>
-          <p className="pi-list-note">Newest first · {filtered.length} matching records · Up to 20 recent records per source, not market totals</p>
+          <p className="pi-list-note">{filtered.length} records · Newest first</p>
           {!visible.length ? <div className="pi-empty"><FileSearch size={28} strokeWidth={1.5} aria-hidden="true" /><h4>{sourceUnavailable ? `${SOURCE_LABELS[activeProvider.id]} unavailable` : feed.items.length ? "No matching records" : "No records in this window"}</h4>
             <p>{sourceUnavailable ? "Choose another record type or review the source status panel. Other loaded records remain available." : feed.items.length ? "Try another record type or search term." : "Choose a longer window or review source availability."}</p>
             {(query || source !== "all") && <button className="pi-button" onClick={() => { setQuery(""); filterSource("all"); }}>Clear filters</button>}
@@ -216,7 +214,6 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
         </section>
         <aside className="pi-source-panel" aria-labelledby="pi-sources-title">
           <h3 id="pi-sources-title"><Database size={16} aria-hidden="true" />Sources & freshness</h3>
-          <p>Successful source checks are shared for up to one hour. Check updates reads the latest available snapshot.</p>
           {feed.sources.map(provider => <div className="pi-source" key={provider.id}>
             <a href={provider.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={13} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
             <span className={`pi-source-status ${provider.status === "stale" || provider.status === "unavailable" || provider.status === "authentication_required" ? "pi-status-attention" : ""}`}>{SOURCE_STATUS[provider.status]}</span>
@@ -224,14 +221,14 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
             <dl><div><dt>Successful check</dt><dd>{checkedDate(provider.checked_at)}</dd></div>
               {provider.source_updated_at && <div><dt>Dataset date</dt><dd>{eventDate(provider.source_updated_at)}</dd></div>}
             </dl>
-            {provider.limited && <p className="pi-limit">Showing a recent sample. More records exist at the source.</p>}
+            {provider.limited && <p className="pi-limit">Recent sample</p>}
           </div>)}
-          <div className="pi-reading-note"><strong>Read the date correctly</strong><p>A trial record update does not by itself mean new results, a new trial or a drug approval. Original and supplemental FDA actions are labeled separately.</p></div>
+          <details className="pi-reading-note"><summary>Data notes</summary><p>Trials and news use the therapy filter; FDA actions cover all therapies. Updates indicate record changes, not new results or approvals. Charts show a capped sample, not market totals. Source checks are cached for up to one hour.</p></details>
         </aside>
       </div>
     </>}
     {!feed && <div className="pi-initial" aria-busy={busy}><FlaskConical size={30} strokeWidth={1.5} aria-hidden="true" /><h3>{busy ? "Loading pharma updates" : "Pharma updates are unavailable"}</h3>
-      <p>{busy ? "Gathering dated records from FDA and ClinicalTrials.gov." : "Retry the connection to load source records. No sample data is substituted."}</p>
+      {!busy && <p>Check updates to retry.</p>}
     </div>}
   </div>;
 }

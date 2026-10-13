@@ -24,9 +24,9 @@
 .aw-interpolation .aw-selected-file { padding: 16px 0; }
 .aw-interpolation .aw-mode-option { padding: 15px 12px; border-radius: 10px; background: #151518; }
 .aw-interpolation .aw-mode-option.selected { border-color: #6b7470; background: rgba(180, 205, 191, .055); }
-.mi-mode-rule { display: block; font-size: 11px; color: var(--mi-accent); margin: 5px 0 8px; line-height: 1.65; }
+.mi-mode-rule { display: block; font-size: 11px; color: var(--mi-accent); margin-top: 5px; line-height: 1.65; }
 .aw-interpolation .aw-generate { min-height: 42px; margin-top: 20px; border-radius: 9px; }
-.aw-interpolation .aw-empty-state { padding: 38px 30px; border-radius: 16px; background: radial-gradient(ellipse at 50% 0%, rgba(180, 205, 191, .045), transparent 65%), #101012; min-height: 570px; }
+.aw-interpolation .aw-empty-state { padding: 38px 30px; border-radius: 16px; background: radial-gradient(ellipse at 50% 0%, rgba(180, 205, 191, .045), transparent 65%), #101012; min-height: 380px; }
 .aw-interpolation .aw-empty-state h3 { font-size: 22px; letter-spacing: -.5px; max-width: 430px; line-height: 1.4; }
 .aw-interpolation .aw-empty-state > p { max-width: 440px; }
 .mi-guide { display: flex; align-items: center; gap: 18px; width: 100%; max-width: 420px; margin-bottom: 35px; }
@@ -39,11 +39,6 @@
 .mi-guide-arrow { display: flex; color: #7b8b82; flex: 0 0 auto; }
 .mi-month-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 13px; }
 .mi-month-grid > span { padding: 5px 3px; border-radius: 4px; background: #202724; color: #bdd0c4; font-size: 9px; }
-.mi-capabilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; width: 100%; margin-top: 35px; border-top: 1px solid var(--color-border); padding-top: 27px; }
-.mi-capabilities > div { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 7px; }
-.mi-capabilities svg { color: var(--mi-accent); margin-bottom: 3px; }
-.mi-capabilities strong { font-size: 12px; font-weight: 500; }
-.mi-capabilities span { font-size: 11px; color: var(--color-text-secondary); line-height: 1.7; }
 .aw-interpolation .mi-preview-state { padding: 28px; justify-content: flex-start; }
 .aw-interpolation .mi-preview-state .aw-state-icon { width: 38px; height: 38px; border-radius: 10px; margin-bottom: 16px; color: var(--mi-accent); }
 .aw-interpolation .mi-preview-state .aw-state-icon svg { width: 19px; height: 19px; }
@@ -100,7 +95,6 @@
   .aw-interpolation .aw-tool-layout { grid-template-columns: 280px minmax(0,1fr); gap: 20px; }
   .aw-interpolation .aw-input-panel { padding: 18px; }
   .aw-interpolation .aw-empty-state { padding: 30px 22px; }
-  .mi-capabilities { gap: 12px; }
   .mi-ready-footer { flex-direction: column; align-items: stretch; }
   .mi-ready-footer p { max-width: none; }
   .mi-calculate { justify-content: center; }
@@ -108,15 +102,14 @@
 @media (max-width: 1050px) {
   .aw-interpolation .aw-tool-layout { grid-template-columns: minmax(0,1fr); }
   .mi-setup-intro { grid-column: 1/-1; margin-bottom: 0; }
-  .aw-interpolation .aw-empty-state { min-height: 460px; }
-  .mi-capabilities { max-width: 560px; }
+  .aw-interpolation .aw-empty-state { min-height: 380px; }
 }
 @media (max-width: 768px) {
   .aw-interpolation .aw-tool-heading h2 { font-size: 25px; }
   .aw-interpolation .aw-workflow { gap: 12px; padding-top: 2px; }
   .aw-interpolation .aw-workflow li:not(:last-child)::after { width: 6px; margin-left: 0; }
   .mi-setup-intro { margin-bottom: 20px; }
-  .aw-interpolation .aw-empty-state { min-height: 430px; padding: 26px 18px; }
+  .aw-interpolation .aw-empty-state { min-height: 320px; padding: 26px 18px; }
   .aw-interpolation .aw-empty-state h3 { font-size: 20px; }
   .mi-guide { gap: 10px; margin-bottom: 25px; max-width: 390px; }
   .mi-guide-sheet { padding: 12px 10px; }
@@ -126,9 +119,6 @@
   .mi-month-grid { gap: 3px; }
   .mi-month-grid > span { font-size: 8px; padding: 4px 2px; }
   .mi-guide-caption { font-size: 9px; }
-  .mi-capabilities { gap: 14px; margin-top: 24px; padding-top: 20px; }
-  .mi-capabilities strong { font-size: 11px; }
-  .mi-capabilities span { font-size: 11px; }
   .aw-interpolation .mi-preview-state { padding: 22px 16px; }
   .mi-input-summary { gap: 12px; }
   .mi-input-summary dt { font-size: 10px; }

@@ -43,3 +43,11 @@ passed using temporary authenticated accounts. These also verified the single-ye
 timeline label. Seven real-source pharma compatibility checks passed, with no
 browser exceptions. The reviewed adoption CSV was unchanged. No LLM or web search
 requests were used for the monthly calculation review.
+
+Copy refinement: removed promotional headings, introductory paragraphs and
+repeated capability descriptions from both workspace tabs. Monthly mode rules
+remain concise; the idle preview keeps its CSV illustration. Pharma retains
+source timestamps, availability and sample labels, with detailed interpretation
+notes collapsed under Data notes. Six monthly interaction/layout checks and six
+pharma design checks passed after this refinement, along with TypeScript and
+scoped lint. Calculation logic and source records are unchanged.

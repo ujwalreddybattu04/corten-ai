@@ -198,11 +198,7 @@ export default function YearlyMonthlyWorkspace() {
     <div className="aw-tool aw-interpolation">
       <div className="aw-tool-heading">
         <div>
-          <span className="aw-eyebrow">Chryselys analyst tools</span>
           <h2>Monthly interpolation</h2>
-          <p>
-            Turn yearly targets into a smooth monthly series. Review the curve, verify the targets and export your results.
-          </p>
         </div>
         <ol className="aw-workflow" aria-label="Analysis progress">
           {["Input", "Calculate", "Review"].map((label, index) => (
@@ -223,7 +219,7 @@ export default function YearlyMonthlyWorkspace() {
         <aside className="aw-input-panel" aria-label="Interpolation setup">
           <div className="mi-setup-intro">
             <span className="mi-panel-icon"><FileSpreadsheet size={18} strokeWidth={1.5} aria-hidden="true" /></span>
-            <div><h3>Set up your analysis</h3><p>Source data and calculation rules</p></div>
+            <div><h3>Setup</h3></div>
           </div>
           <section className="aw-setup-section" aria-labelledby="aw-input-title">
             <div className="aw-section-title">
@@ -269,9 +265,8 @@ export default function YearlyMonthlyWorkspace() {
               <span className="aw-upload-icon">
                 <Upload size={20} strokeWidth={1.5} />
               </span>
-              <strong>{file ? "Replace CSV" : "Drop your yearly CSV here"}</strong>
-              <span>{file ? "Choose a replacement file" : "or click to browse your files"}</span>
-              <small>Up to 10 MB · Multiple value columns</small>
+              <strong>{file ? "Replace CSV" : "Upload CSV"}</strong>
+              <span>Browse or drop a file · Max 10 MB</span>
             </button>
             {file && (
               <div className="aw-selected-file">
@@ -310,7 +305,7 @@ export default function YearlyMonthlyWorkspace() {
             </p>
             <a className="aw-example-link" href="/examples/yearly-adoption-example.csv" download>
               <Download size={13} />
-              Download the 13-year review example
+              Sample CSV
             </a>
             <details className="aw-encoding">
               <summary>
@@ -366,9 +361,6 @@ export default function YearlyMonthlyWorkspace() {
                 <div>
                   <strong>Average</strong>
                   <small className="mi-mode-rule">12-month mean = yearly target</small>
-                  <span>
-                    The first month is positive.
-                  </span>
                 </div>
               </button>
               <button
@@ -383,9 +375,6 @@ export default function YearlyMonthlyWorkspace() {
                 <div>
                   <strong>Exit</strong>
                   <small className="mi-mode-rule">December = yearly target</small>
-                  <span>
-                    The first month is non-negative.
-                  </span>
                 </div>
               </button>
             </div>
@@ -407,9 +396,7 @@ export default function YearlyMonthlyWorkspace() {
                   : "Generate monthly series"}
             </button>
           </section>
-          <p className="aw-data-note">
-            Uploaded values stay unchanged. Keep your exports; files are not saved as workspace projects.
-          </p>
+          <p className="aw-data-note">Files are not saved. Download results to keep them.</p>
         </aside>
         <div className="aw-results" ref={resultsPanel} aria-busy={busy}>
           {error && (
@@ -458,29 +445,15 @@ export default function YearlyMonthlyWorkspace() {
                   <FileSpreadsheet size={24} strokeWidth={1.5} />
                 )}
               </div>}
-              <h3>
+              {(preview || status !== "idle") && <h3>
                 {status === "calculating"
-                  ? "Building the monthly curve"
+                  ? "Calculating…"
                   : status === "reading"
-                    ? "Reading your yearly input"
+                    ? "Reading CSV…"
                     : preview
-                      ? "Your yearly input is ready"
-                      : "From annual targets to monthly detail"}
-              </h3>
-              <p>
-                {status === "calculating"
-                  ? "Solving across the full timeline and checking every yearly target before releasing the result."
-                  : status === "reading"
-                    ? "Checking column names, years, and numeric values before calculation."
-                    : preview
-                      ? "Review your input, choose Average or Exit, then generate the monthly series."
-                      : "Upload a CSV to review its values, generate a monthly curve, and download CSV, JSON or PDF results."}
-              </p>
-              {!preview && status === "idle" && <div className="mi-capabilities">
-                <div><CalendarDays size={17} aria-hidden="true" /><strong>Yearly targets</strong><span>Choose Average or Exit</span></div>
-                <div><ShieldCheck size={17} aria-hidden="true" /><strong>Checked results</strong><span>Validate before rounding</span></div>
-                <div><Download size={17} aria-hidden="true" /><strong>Ready to export</strong><span>CSV, JSON and PDF</span></div>
-              </div>}
+                      ? "Input ready"
+                      : ""}
+              </h3>}
               {status === "calculating" && (
                 <div className="aw-loading-preview" aria-hidden="true">
                   <div className="aw-loading-grid" />
@@ -541,7 +514,6 @@ export default function YearlyMonthlyWorkspace() {
                     <p>Rows have been sorted by year; values are unchanged.</p>
                   )}
                   <div className="mi-ready-footer">
-                    <p>{mode === "average" ? "Average" : "Exit"} mode selected. Every uploaded year is included.</p>
                     <button className="mi-calculate" disabled={busy} onClick={() => void generate()}>Create monthly results <ArrowRight size={14} aria-hidden="true" /></button>
                   </div>
                 </div>
