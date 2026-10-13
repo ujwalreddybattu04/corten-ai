@@ -221,8 +221,11 @@ def test_fullwidth_citations_are_rewritten_across_stream_chunks():
 
 
 def test_the_grounding_reminder_names_today_and_the_current_year():
+    # The reminder uses the UTC date (the server's clock), which differs from a local date for part of the day.
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).date()
     reminder = space_agent.grounding_reminder()
-    assert TODAY.isoformat() in reminder and f"means {YEAR}" in reminder
+    assert today.isoformat() in reminder and f"means {today.year}" in reminder
 
 
 # ── When the agent answers, and when the standard pipeline does ───────────────────────────────────
@@ -716,7 +719,10 @@ async def test_agent_setup_failures_never_show_internal_errors():
     with patch.object(space_agent, "agent_model", lambda _mode: (_ for _ in ()).throw(LLMProviderError("No AI provider is configured."))):
         events = [json.loads(e[6:]) async for e in space_agent.run_space_agent("q", [], data_space(), TurnContext())]
     assert events == [{"type": "error", "message": "No AI provider is configured.", "code": "llm_unavailable"}]
-    with patch.object(space_agent, "build_tools", side_effect=KeyError("secret internal detail")):
+    # A configured model (independent of any local .env), then an unexpected internal failure.
+    model = CortenChatModel(runtime=FakeRuntime(), model="openai/gpt-oss-120b")
+    with patch.object(space_agent, "agent_model", lambda _mode: model), \
+         patch.object(space_agent, "build_tools", side_effect=KeyError("secret internal detail")):
         events = [json.loads(e[6:]) async for e in space_agent.run_space_agent("q", [], data_space(), TurnContext())]
     assert events == [{"type": "error", "message": "The Space agent could not start. Please try again."}]
 
