@@ -84,8 +84,9 @@ about the Space itself ("What's this about?"), greetings and questions about Cor
 questions, and requests for a downloadable file. Setting `SPACE_AGENTS_ENABLED=false` sends every Space question to
 the standard pipeline without a redeploy of the frontend.
 
-**Known limits.** Prices are end-of-day closes, not live quotes. Yahoo Finance may refuse cloud addresses; the Stooq
-fallback covers US tickers only. openFDA is updated weekly and can lag recent approvals, so answers never present it
+**Known limits.** Prices are end-of-day closes, not live quotes. Yahoo Finance answers from the AWS host (verified
+2026-10-13); if it ever refuses cloud addresses, the Stooq fallback covers US tickers only. The IMF API refuses the AWS
+host (HTTP 403), so hosted answers use the World Bank: past years only, without IMF projections. openFDA is updated weekly and can lag recent approvals, so answers never present it
 as complete. Each Groq model allows 8,000 tokens per minute on the current plan. Several long agent answers in the
 same minute can hit that limit; the user then sees the provider's retry time.
 
