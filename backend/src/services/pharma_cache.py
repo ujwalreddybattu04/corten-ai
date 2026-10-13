@@ -31,7 +31,7 @@ class PharmaSharedCache:
 
     async def get(self, key):
         raw = await self._run(lambda r: r.get(key))
-        if not isinstance(raw, str) or len(raw) > 256_000:
+        if not isinstance(raw, str) or len(raw) > 1_000_000:
             return None
         try:
             value = json.loads(raw)
@@ -40,7 +40,9 @@ class PharmaSharedCache:
             return None
 
     async def set(self, key, value, ttl):
-        return await self._run(lambda r: r.set(key, json.dumps(value), ex=ttl))
+        raw=json.dumps(value)
+        if len(raw)>1_000_000:return None
+        return await self._run(lambda r: r.set(key, raw, ex=ttl))
 
     async def acquire(self, key, token):
         # None = Redis unavailable; False = another worker owns the lease.

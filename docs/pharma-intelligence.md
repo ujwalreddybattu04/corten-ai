@@ -1,0 +1,31 @@
+# Pharma intelligence pilot
+
+The workspace reads a shared PostgreSQL archive rather than calling public providers for each user. A scheduled worker ingests ClinicalTrials.gov, Drugs@FDA, FDA drug/MedWatch feeds, EMA's human-medicine export, and domain-restricted company/trade reporting. Initial company scope: Bristol Myers Squibb, Pfizer, Novartis, AstraZeneca and Amgen. Publisher text is limited to attributed headlines and short excerpts; original links remain available.
+
+## Evidence and events
+
+Source snapshots are immutable. Trial transitions are compared against previously archived snapshots; the first observation never establishes a stopped/completed trial or a changed completion date. Verified registration/results posting dates can appear historically. Date corrections are separate events. Stop reasons and estimated/actual completion qualifiers remain source facts.
+
+EMA's Commission-decision date can refer to a variation of a long-approved medicine. An initial authorisation requires matching the marketing-authorisation date. A later decision is an existing-product update. Positive EMA opinions remain distinct from final Commission decisions. Current indication text does not identify what a variation added. [EMA export documentation](https://www.ema.europa.eu/en/scientific-guidelines/download-website-data-json-data-format).
+
+Material / Watch / None are conservative, versioned review priorities, not recommendations to alter a forecast. Industry-sponsored Phase 2/3 results and stopping events, initial regulatory authorisations and official safety publications receive Material review priority. Generic approvals alone remain Watch: first-generic status, exclusivity expiry and launch are not established. Completion alone does not prove success.
+
+Drug identities derive from official ingredient/brand metadata and an explicitly verified Reblozyl/luspatercept/luspatercept-aamt identity. Ambiguous aliases remain unlinked; combinations retain distinct identities. Links attach to each event's evidence, preserving the correct asset on historical versions.
+
+## Bedrock and cost controls
+
+Regional Amazon Nova Pro (`amazon.nova-pro-v1:0`) produces briefs and follow-ups in Sydney. Claude profiles inspected in this project require routing outside the selected Region, so they are not used under the current project constraints. A protected Linux Unix-socket gateway uses the existing EC2 role; app containers receive no AWS credentials. IAM permits only the selected regional Nova models, `InvokeModel` and `CountTokens`.
+
+The gateway reserves estimated cost before every invocation in a private durable SQLite ledger: US$25 per UTC month, less a US$0.05 evaluation allowance; 100 new model generations per UTC day; two simultaneous calls; bounded text inputs and outputs; no hidden provider retries. Token-price ceilings exceed verified Sydney standard rates. Uncertain failures retain their reservations. This is an application inference guard, not a cap on the entire AWS bill, infrastructure, taxes or future provider price changes. Review rates against the [official regional price list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/ap-southeast-2/index.json) before changing models or rates.
+
+Canonical briefs are cached per event, public source version, prompt contract and model, with database leases coordinating concurrent workers. Cached briefs consume no additional model tokens. Caller questions, histories and answer modes never affect the shared brief; follow-ups receive only that user's current conversation and are never written to the public cache. Reader disconnects do not cancel an already-started shared generation. Missing, refused or truncated model responses are not published. When evidence/format validation rejects a completed model brief, the app explicitly labels a deterministic source-based summary instead of displaying the rejected interpretation.
+
+## Operations
+
+`PHARMA_INTELLIGENCE_ENABLED` defaults to false. Enable only after migration `0007`, installation of `corten-bedrock.service`, the socket mount, scoped IAM policy, successful isolated database checks, and initial ingestion. `corten-pharma-ingest.timer` runs every 15 minutes; individual sources have their own cadence and cooldown. Failed sources retain their last observation timestamp; Retry-After is honoured. Feed reads have a bounded public cache; record and timeline APIs resolve archive records outside recent samples.
+
+The initial archive is not a complete historical trial-change database. Earlier source versions unavailable at rollout are not reconstructed. Registry/FDA feeds and search-index discovery are bounded samples, with explicit source coverage/freshness. News dates are publisher or indexed publication dates, never invented event dates. A provider outage or access requirement appears in source status while other records remain usable.
+
+Run `pytest tests`, frontend tests, lint/typecheck and production build. `tests/pharma_postgres_check.py` runs only against a disposable `corten_pharma_check_*` PostgreSQL database after migration and checks idempotence, multi-worker generation, cancellation, immutable versions and timeline cursors. Use synthetic/public evidence for model evaluations. Live rollouts preserve personal records and Space agents.
+
+This deployment is a pilot on the existing host, not a validated high-availability or million-user deployment. Scale-out ingestion, managed database capacity, multi-instance socket gateways/budget coordination, monitoring and operational service objectives require a separate capacity rollout.

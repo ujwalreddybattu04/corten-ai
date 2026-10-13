@@ -1,0 +1,13 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "RegionalPharmaInference",
+    "Effect": "Allow",
+    "Action": ["bedrock:InvokeModel", "bedrock:CountTokens"],
+    "Resource": [
+      "arn:aws:bedrock:ap-southeast-2::foundation-model/amazon.nova-pro-v1:0",
+      "arn:aws:bedrock:ap-southeast-2::foundation-model/amazon.nova-lite-v1:0"
+    ],
+    "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-southeast-2"}}
+  }]
+}

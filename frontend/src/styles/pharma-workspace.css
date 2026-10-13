@@ -22,7 +22,7 @@
 .pi-feedback { min-height: 35px; padding: 10px 0; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .pi-feedback > span { display: flex; align-items: center; gap: 8px; }
 .pi-error { display: flex; align-items: center; gap: 14px; justify-content: space-between; padding: 13px 16px; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); line-height: 1.65; }
-.pi-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+.pi-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 28px; }
 .pi-summary button { min-width: 0; text-align: left; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); transition: border-color 160ms ease; }
 .pi-summary button:hover, .pi-summary button.selected { border-color: var(--color-text-secondary); }
 .pi-summary-label { display: flex; align-items: center; gap: 8px; color: var(--color-text-primary); font-size: var(--font-size-sm); }
@@ -208,6 +208,23 @@
 .pi-highlight-body > p, .pi-highlight-body > div { font-size: 11px; }
 @media (max-width: 680px) { .pi-heading .pi-actions { padding-top: 0; } .pi-summary button { padding: 14px 16px; } .pi-summary strong { margin: 0; font-size: 28px; } }
 @media (max-width: 420px) { .pi-summary-label .pi-widget-icon svg { display: block; } }
+.pi-impact-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--color-text-secondary); font-size: 12px; margin: 8px 0 12px; }
+.pi-impact { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+.pi-impact-material { color: #f0c98b; background: #282114; border-color: #5d492c; }
+.pi-impact-watch { color: #a8c3e5; background: #172230; border-color: #334961; }
+.pi-impact-none { color: var(--color-text-secondary); background: var(--color-bg-secondary); }
+.pi-material-filter[aria-pressed="true"] { border-color: #9b7945; color: #f0c98b; background: #282114; }
+.pi-drug-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.pi-drug-links a { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 6px; padding: 4px 8px; color: var(--color-text-secondary); font-size: 11px; text-decoration: none; }
+.pi-drug-links a:hover { color: var(--color-text-primary); border-color: var(--color-text-secondary); }
+.pi-timeline { list-style: none; padding: 0; margin: 24px 0; }
+.pi-timeline li { display: grid; grid-template-columns: 130px minmax(0,1fr); gap: 24px; padding: 20px 0; border-bottom: 1px solid var(--color-border); }
+.pi-timeline time { color: var(--color-text-secondary); font-size: 12px; padding-top: 7px; }
+.pi-timeline h3 { font-size: 15px; margin: 8px 0; line-height: 1.5; }
+.pi-timeline h3 a { color: var(--color-text-primary); text-decoration: none; }
+.pi-timeline h3 svg { margin-left: 8px; }
+.pi-timeline p, .pi-timeline-aliases { color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; }
+@media (max-width: 680px) { .pi-timeline li { grid-template-columns: 1fr; gap: 5px; } }
 .pi-highlight-card { animation: pi-enter 240ms ease-out; }
 .pi-activity-chart rect { transform-box: fill-box; transform-origin: bottom; animation: pi-bar-enter 360ms ease-out; }
 @keyframes pi-bar-enter { from { opacity: .4; transform: scaleY(.75); } to { opacity: 1; transform: scaleY(1); } }

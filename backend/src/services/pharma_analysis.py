@@ -105,6 +105,8 @@ def record_notes(item):
 
 
 def record_fingerprint(item):
+    if item.get("version"):
+        return {"record": item["id"], "version": item["version"], "policy": "events-1"}
     return [item["id"], item["title"], item["summary"], item["date"], item["date_label"],
             item["organization"], item["url"], sorted((item.get("details") or {}).items())]
 
@@ -204,6 +206,11 @@ class BriefSections:
 
 
 async def stream_analysis(item, source, query, history, kind, mode):
+    if item.get("version"):
+        from src.services.pharma_bedrock_analysis import stream_analysis as bedrock_stream
+        async for chunk in bedrock_stream(item,source,query,history,kind,mode):
+            yield chunk
+        return
     profile = resolve(mode, complexity=4 if kind == "brief" else 3)
     yield event("sources", sources=[{"title": item["title"], "url": item["url"],
         "content": item["summary"], "domain": urlsplit(item["url"]).hostname or ""}])

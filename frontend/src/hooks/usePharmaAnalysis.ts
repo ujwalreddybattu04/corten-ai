@@ -19,6 +19,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const [error, setError] = useState("");
     const [saved, setSaved] = useState(false);
     const [related, setRelated] = useState<string[]>([]);
+    const [model, setModel] = useState("");
     const controller = useRef<AbortController | null>(null);
     const turnsRef = useRef<PharmaTurn[]>([]);
     const id = useRef("");
@@ -50,6 +51,9 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                 } else if (event.type === "related") {
                     const questions = (event as unknown as { questions?: unknown }).questions;
                     if (Array.isArray(questions)) setRelated(questions.filter((q): q is string => typeof q === "string").slice(0, 5));
+                } else if (event.type === "analysis_meta") {
+                    const metadata = event as unknown as { model?: unknown; basis?: unknown };
+                    if (typeof metadata.model === "string") setModel(metadata.basis === "source_summary" ? "Source-based summary" : metadata.model === "amazon.nova-pro-v1:0" ? "Amazon Nova Pro · AWS Bedrock" : metadata.model === "amazon.nova-lite-v1:0" ? "Amazon Nova Lite · AWS Bedrock" : "");
                 }
             }, "analysis");
             if (!current()) return;
@@ -74,7 +78,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
     return { turns: busy && pending.current?.query === PHARMA_ANALYSIS_PROMPT ? [] : currentPharmaTurns(turns),
-        answer, question, sources, steps, busy, error, saved, related, threadId: saved ? id.current : "",
+        answer, question, sources, steps, busy, error, saved, related, model, threadId: saved ? id.current : "",
         ask: run, refresh: () => run(PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL),
         retry: () => run(pending.current?.query || PHARMA_ANALYSIS_PROMPT, pending.current?.label) };
 }

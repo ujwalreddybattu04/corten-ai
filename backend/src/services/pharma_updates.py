@@ -354,6 +354,29 @@ class PharmaUpdatesService:
         return await asyncio.shield(self._pending[slot])
 
     async def get_feed(self, topic: Topic = "all", days: Literal[7, 30, 90] = 7):
+        if topic not in TOPICS or days not in (7,30,90):raise ValueError("Invalid pharma filters")
+        if settings.PHARMA_INTELLIGENCE_ENABLED:
+            slot=("archive",topic,days);key=f"pharma:archive:events-1:{topic}:{days}"
+            now=datetime.now(timezone.utc)
+            cached=self._cache.get(slot)
+            if not cached or datetime.fromisoformat(cached["until"])<=now:
+                if self._shared:cached=await self._shared.get(key)
+            if cached and datetime.fromisoformat(cached["until"])>now:
+                return copy.deepcopy(cached["value"])
+            async def load_archive():
+                from src.services.pharma_repository import get_feed
+                value=await get_feed(topic,days)
+                cached={"until":(datetime.now(timezone.utc)+timedelta(seconds=60)).isoformat(),"value":value}
+                self._cache[slot]=cached
+                if self._shared:await self._shared.set(key,cached,60)
+                return value
+            if slot not in self._pending:
+                task=asyncio.create_task(load_archive());self._pending[slot]=task
+                def cleanup(done):
+                    self._pending.pop(slot,None)
+                    if not done.cancelled():done.exception()
+                task.add_done_callback(cleanup)
+            return copy.deepcopy(await asyncio.shield(self._pending[slot]))
         today = datetime.now(timezone.utc).date()
         since = (today - timedelta(days=days - 1)).isoformat()
         until = today.isoformat()

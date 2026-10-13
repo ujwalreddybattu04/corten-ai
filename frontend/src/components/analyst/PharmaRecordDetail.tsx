@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { pharmaThumbnail, requestPharmaFeed } from "@/lib/pharmaFeed";
-import { pharmaFieldText, pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
+import { pharmaFieldText, pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, requestArchivedPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
 import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
 import AnswerStream from "@/components/thread/AnswerStream";
 import { ModeMenu } from "@/components/chat/ComposerControls";
@@ -30,6 +30,9 @@ export default function PharmaRecordDetail() {
         try {
             const id = decodeURIComponent(params.id || "");
             if (!id || id.length > 240) throw new Error("This record link is invalid.");
+            const archived = await requestArchivedPharmaRecord(id, topic, days, abort.signal);
+            if (abort.signal.aborted) return;
+            if (archived) { setRecord(archived); return; }
             const cached = readPharmaRecord(id, topic, days);
             if (cached) { setRecord(cached); return; }
             const feed = await requestPharmaFeed(topic, days, abort.signal);
@@ -52,7 +55,7 @@ export default function PharmaRecordDetail() {
         </header>
         {busy ? <div className="pi-detail-state" role="status"><LoaderCircle className="pi-spinning" size={24} /><p>Loading record…</p></div>
             : error ? <div className="pi-detail-state" role="alert"><FileSearch size={28} /><h1>Record unavailable</h1><p>{error}</p><button className="pi-button" onClick={() => void load()}>Retry</button></div>
-            : record && <RecordView key={`${record.item.id}:${record.item.date}:${record.item.summary}`} record={record} />}
+            : record && <RecordView key={`${record.item.id}:${record.item.version || record.item.date}`} record={record} />}
     </section>;
 }
 
@@ -64,6 +67,8 @@ function RecordView({ record }: { record: PharmaRecord }) {
             <div className="pi-detail-heading"><div className="pi-detail-kicker"><span className={`pi-record-kind pi-tone-${item.source}`}><Icon size={14} aria-hidden="true" />{item.category}</span><span>{provider.name}</span></div>
                 <h1>{item.title}</h1>
                 <div className="pi-detail-meta"><span>{item.organization || "Organization not listed"}</span><span className="pi-detail-date">{item.date_label} · <time dateTime={item.date}>{date(item.date)}</time></span></div>
+                {item.impact && <p className="pi-impact-line"><span className={`pi-impact pi-impact-${item.impact.rating.toLowerCase()}`}>{item.impact.rating}</span>{item.event?.label}</p>}
+                {!!item.drugs?.length && <nav className="pi-drug-links" aria-label="Verified drug timelines">{item.drugs.map(drug => <Link key={drug.id} href={`/analyst-workspace/pharma/drug/${drug.id}`}>{drug.name}<ArrowUpRight size={13} /></Link>)}</nav>}
             </div>
         </header>
         <div className="pi-detail-layout"><RecordConversation record={record} /><RecordEvidence record={record} /></div>
@@ -90,6 +95,8 @@ function RecordEvidence({ record }: { record: PharmaRecord }) {
                 <div><dt>Organization</dt><dd>{item.organization || "Not listed"}</dd></div>
                 </dl>
                 {item.summary && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}
+                {item.event?.reason && <div className="pi-detail-description"><h3>Reported stop reason</h3><p>{item.event.reason}</p></div>}
+                {item.impact && <div className="pi-detail-description"><h3>Impact basis</h3><p>{item.impact.rationale}</p></div>}
                 <a className="pi-detail-source-link" href={item.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={14} /><span className="sr-only"> (opens in a new tab)</span></a>
                 <p className="pi-detail-checked">Checked {provider.checked_at ? new Date(provider.checked_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "time unavailable"}</p>
                 {provider.status === "stale" && <p className="pi-status-attention">Previous snapshot · refresh unavailable</p>}
@@ -112,6 +119,7 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         : record.item.source === "fda" ? ["What does this FDA action mean?", "What are the possible forecasting implications?"]
         : ["What could this mean for the competitive landscape?", "What should we verify next?"];
     return <section className="pi-detail-conversation" aria-labelledby="pi-analysis-title">
+        {chat.model && <p className="pi-widget-note">{chat.model}</p>}
         <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Analyst brief</h2><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Create a new brief from this source snapshot"><RefreshCw size={13} aria-hidden="true" />Refresh brief</button></div></div>
         {chat.turns.map((turn, i) => <div className="pi-detail-turn" key={i}>
             {i > 0 && <div className="pi-detail-question">{turn.query}</div>}

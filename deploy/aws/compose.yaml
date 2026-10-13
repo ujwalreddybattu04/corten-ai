@@ -42,6 +42,7 @@ services:
     volumes:
       - /opt/corten/data/reports:/app/reports
       - /opt/corten/data/space-files:/app/space-files
+      - /run/corten-bedrock:/run/corten-bedrock:ro
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     depends_on:

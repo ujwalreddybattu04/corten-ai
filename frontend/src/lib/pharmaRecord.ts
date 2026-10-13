@@ -1,12 +1,12 @@
 import { getStorageAccount, accountStorage } from "./accountStorage";
 import { isPrivateChat } from "./questionDrafts";
-import { PHARMA_TOPICS, parsePharmaFeed, type PharmaFeed, type PharmaItem, type PharmaSource, type PharmaTopic } from "./pharmaFeed";
+import { PHARMA_TOPICS, PHARMA_SOURCE_LABELS, parsePharmaFeed, validPharmaItem, type PharmaFeed, type PharmaItem, type PharmaSource, type PharmaTopic } from "./pharmaFeed";
 import type { SearchSource, ThreadData } from "@/hooks/useSearch";
 
-export interface PharmaRecord { item: PharmaItem; feed: PharmaFeed; }
+export interface PharmaRecord { item: PharmaItem; feed: Pick<PharmaFeed, "topic" | "days" | "sources">; }
 export interface PharmaTurn { query: string; answer: string; sources: SearchSource[]; }
 // 3: expert brief (Why it matters, Forecast impact rating, What to watch); older saved briefs are regenerated.
-const ANALYSIS_VERSION = 3;
+const ANALYSIS_VERSION = 4;
 export const PHARMA_REFRESH_LABEL = "Refresh analyst brief";
 export function currentPharmaTurns(turns: PharmaTurn[]) {
     const start = turns.findLastIndex(turn => turn.query === PHARMA_REFRESH_LABEL);
@@ -20,11 +20,11 @@ export function pharmaFilters(search: string) {
     const params = new URLSearchParams(search);
     const topic = PHARMA_TOPICS.some(t => t.id === params.get("topic")) ? params.get("topic") as PharmaTopic : "all";
     const days = [7, 30, 90].includes(Number(params.get("days"))) ? Number(params.get("days")) as 7 | 30 | 90 : 7;
-    const source = ["fda", "trials", "news"].includes(params.get("source") || "") ? params.get("source")! : "all";
+    const source = Object.keys(PHARMA_SOURCE_LABELS).includes(params.get("source") || "") ? params.get("source")! : "all";
     return { topic, days, source };
 }
 
-export function pharmaRecordPath(item: PharmaItem, feed: PharmaFeed) {
+export function pharmaRecordPath(item: PharmaItem, feed: Pick<PharmaFeed, "topic" | "days">) {
     return `/analyst-workspace/pharma/${encodeURIComponent(item.id)}?topic=${feed.topic}&days=${feed.days}`;
 }
 
@@ -66,6 +66,15 @@ export function readPharmaRecord(id: string, topic: PharmaTopic, days: 7 | 30 | 
 }
 
 export function recordProvider(record: PharmaRecord): PharmaSource { return record.feed.sources.find(s => s.id === record.item.source)!; }
+
+export async function requestArchivedPharmaRecord(id: string, topic: PharmaTopic, days: 7 | 30 | 90, signal: AbortSignal): Promise<PharmaRecord | null> {
+    const response = await fetch(`/api/v1/pharma/records/${encodeURIComponent(id)}`, { cache: "no-store", signal });
+    if (response.status === 404 && !id.startsWith("event:")) return null; // older deployment
+    if (!response.ok) throw new Error(response.status === 404 ? "This source record was not found." : "The source archive is temporarily unavailable. Please retry.");
+    const data = await response.json();
+    if (!validPharmaItem(data.item) || !data.source || data.source.id !== data.item.source || typeof data.source.name !== "string") throw new Error("The source archive returned an invalid record.");
+    return { item: data.item, feed: { topic, days, sources: [{ ...data.source, items: [data.item] }] } };
+}
 export function pharmaFieldText(name: string, value: string | string[] | undefined): string {
     if (!Array.isArray(value)) return value || "Not listed";
     return value.map(text => name === "phases"
@@ -106,6 +115,7 @@ export function pharmaOriginalSource(record: PharmaRecord): SearchSource {
 
 export function pharmaFingerprint(record: PharmaRecord) {
     const i = record.item;
+    if (i.version) return JSON.stringify({ record: i.id, version: i.version, policy: "events-1" });
     return JSON.stringify([i.id, i.title, i.summary, i.date, i.date_label, i.organization, i.url,
         Object.entries(i.details || {}).sort(([a], [b]) => a.localeCompare(b))]);
 }

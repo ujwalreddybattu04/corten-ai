@@ -1,0 +1,11 @@
+[Unit]
+Description=Ingest versioned public Pharma evidence
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/corten/current
+ExecStart=/usr/bin/docker compose -f deploy/aws/compose.yaml exec -T backend python -m src.services.pharma_ingest
+TimeoutStartSec=600
+UMask=0077

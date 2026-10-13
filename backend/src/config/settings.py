@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     NEWSAPI_KEY: str = ""
     GUARDIAN_API_KEY: str = ""
     OPENFDA_API_KEY: str = ""
+    PHARMA_INTELLIGENCE_ENABLED: bool = False
+    PHARMA_BEDROCK_SOCKET: str = "/run/corten-bedrock/gateway.sock"
+    PHARMA_BRIEF_MODEL: Literal["amazon.nova-pro-v1:0"] = "amazon.nova-pro-v1:0"
+    PHARMA_QUESTION_MODEL: Literal["amazon.nova-pro-v1:0", "amazon.nova-lite-v1:0"] = "amazon.nova-pro-v1:0"
     OPENWEATHER_API_KEY: str = ""
 
     # --- Web Search ---

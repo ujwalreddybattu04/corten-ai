@@ -1,0 +1,12 @@
+[Unit]
+Description=Check public Pharma sources periodically
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec=15min
+RandomizedDelaySec=30
+Persistent=true
+Unit=corten-pharma-ingest.service
+
+[Install]
+WantedBy=timers.target
