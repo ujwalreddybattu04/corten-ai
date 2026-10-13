@@ -5,7 +5,7 @@ import logging
 import re
 from urllib.parse import urlsplit
 
-from src.config.prompts import date_context, resolve_relative_dates
+from src.services.pharma_calendar import date_context, resolve_relative_dates
 from src.services.answer_modes import resolve
 from src.services.llm_runtime import LLMProviderError, llm_error_details
 from src.services.llm_service import groq_llm_service
