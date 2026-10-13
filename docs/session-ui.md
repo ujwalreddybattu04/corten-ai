@@ -17,3 +17,20 @@ cancellation. It also works over the mobile navigation drawer.
 Local browser checks cover eight login cases and seven confirmation cases,
 including delayed session hydration, failed passwords, safe return paths, mobile,
 reduced motion, interrupted sessions, cancellation and failed logout recovery.
+
+Verified on 13 October 2026: all fifteen local browser cases passed, including
+restoring page scrolling when a mobile drawer and confirmation close together.
+The final runtime source is `fbe4cb24f1e00fe04058d8aff61794723acac558`, with both
+[GitHub verification jobs passing](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38367507230).
+
+AWS received only the seven frontend files for this feature. They were applied
+to a copy of the existing live frontend and released without rebuilding or
+restarting the backend, database or cache. The release verified unchanged
+Space-agent source files and unchanged frontend files outside this feature.
+Live source checks allowed only line-ending differences from the reviewed base;
+the active source tree was retained. Frontend rollback uses the previous image.
+
+Five real-account checks passed on CloudFront: failed login, successful animated
+login, sidebar cancellation, Settings cancellation, and confirmed mobile logout
+with cookies cleared and scrolling restored. No browser runtime exceptions were
+reported. The disposable verification account was selected for exact-ID cleanup.
