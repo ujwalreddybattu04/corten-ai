@@ -17,5 +17,14 @@ Browser review uses isolated API fixtures and makes no provider calls. Ten
 scenario groups cover both composers, selected-state persistence after reload,
 the outgoing mode field, keyboard use, outside clicks, live resizing, five widths
 and a 240-pixel viewport, Settings navigation and reduced motion. No browser
-exceptions occurred. TypeScript and scoped lint passed. Hosted verification is
-recorded after deployment.
+exceptions occurred. TypeScript and scoped lint passed.
+
+The final release is `3535797b29b5c03d256f585af23b9f3e8d0ed8ac`; both
+[CI jobs](https://github.com/ujwalreddybattu04/corten-ai/actions/runs/38356758755)
+and all eleven isolated storage/account safeguards passed during AWS deployment.
+The hosted production bundle then passed all ten picker scenario groups using a
+temporary authenticated account. Search responses were fixtures to avoid model
+quota use; account sessions, sync and Response settings loaded from the real API.
+The follow-up picker was also checked at 320, 375 and 768 pixels. No browser
+exceptions occurred. Production focus is placed during layout after positioning,
+before the next keyboard event; it does not depend on an animation-frame delay.
