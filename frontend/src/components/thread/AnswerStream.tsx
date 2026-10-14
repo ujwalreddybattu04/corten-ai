@@ -140,6 +140,7 @@ interface AnswerStreamProps {
     thoughtTime?: number;
     onCopy?: () => void;
     sourcesPanelOpen?: boolean;
+    sourcesPanelId?: string;
     setSourcesPanelOpen?: (open: boolean) => void;
     relatedQuestions?: string[];
     onRelatedSelect?: (question: string) => void;
@@ -160,6 +161,7 @@ const AnswerStream = memo(({
     thoughtTime = 0,
     onCopy,
     sourcesPanelOpen: externalSourcesPanelOpen,
+    sourcesPanelId,
     setSourcesPanelOpen: externalSetSourcesPanelOpen,
     relatedQuestions = [],
     onRelatedSelect,
@@ -470,6 +472,8 @@ const AnswerStream = memo(({
                                         className={`sp-sources-action-btn ${sourcesPanelOpen ? "active" : ""}`}
                                         onClick={() => setSourcesPanelOpen(!sourcesPanelOpen)}
                                         aria-label="View sources"
+                                        aria-expanded={sourcesPanelOpen}
+                                        aria-controls={sourcesPanelId}
                                     >
                                         <div className="sp-sources-pill-favicons">
                                             {sources.slice(0, 3).map((source, i) => (

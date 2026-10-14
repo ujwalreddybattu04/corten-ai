@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical, LoaderCircle, Microscope, RefreshCw, ShieldCheck } from "lucide-react";
 import { pharmaThumbnail, requestPharmaFeed } from "@/lib/pharmaFeed";
 import { pharmaFieldText, pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, requestArchivedPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
 import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
-import AnswerStream from "@/components/thread/AnswerStream";
+import PharmaAnswer, { PharmaRelated } from "./PharmaAnswer";
 import { RecordThumbnail } from "./PharmaWorkspace";
 import { PharmaToolProgress } from "./PharmaResearch";
 import PharmaLoading from "./PharmaLoading";
@@ -102,7 +102,7 @@ function RecordEvidence({ record }: { record: PharmaRecord }) {
                 </dl>
                 {item.summary && item.source !== "ema" && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}
                 {item.event?.reason && <div className="pi-detail-description"><h3>Reported stop reason</h3><p>{item.event.reason}</p></div>}
-                {item.impact && <div className="pi-detail-description"><h3>Impact basis</h3><p>{item.impact.rationale}</p></div>}
+                {item.impact && <details className="pi-detail-impact"><summary>Impact assessment<ChevronDown size={13} /></summary><p>{item.impact.rationale}</p></details>}
                 <a className="pi-detail-source-link" href={item.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={14} /><span className="sr-only"> (opens in a new tab)</span></a>
                 <p className="pi-detail-checked">Checked {provider.checked_at ? new Date(provider.checked_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "time unavailable"}</p>
                 {provider.status === "stale" && <p className="pi-status-attention">Previous snapshot · refresh unavailable</p>}
@@ -151,10 +151,13 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         return () => cancelAnimationFrame(frame);
     }, [chat.answer, chat.busy]);
     useEffect(() => {
-        if (textarea.current) {
+        const resize = () => {
+            if (!textarea.current) return;
             textarea.current.style.height = "auto";
-            textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 160)}px`;
-        }
+            textarea.current.style.height = `${Math.min(textarea.current.scrollHeight + 1, 160)}px`;
+        };
+        resize(); window.addEventListener("resize", resize);
+        return () => window.removeEventListener("resize", resize);
     }, [input]);
     const submit = (query: string) => {
         const value = query.trim();
@@ -162,37 +165,38 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         following.current = true; setInput(""); void chat.ask(value);
         requestAnimationFrame(() => start.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }));
     };
-    const suggestions = record.item.source === "trials" ? ["What does this study phase mean?", "What should we verify before changing the forecast?"]
-        : record.item.source === "fda" ? ["What does this FDA action mean?", "What are the possible forecasting implications?"]
-        : ["What could this mean for the competitive landscape?", "What should we verify next?"];
+    const subject = record.item.drugs?.slice(0, 2).map(drug => drug.name).join(" and ")
+        || record.item.details?.ingredients?.slice(0, 2).join(" and ") || record.item.details?.interventions?.slice(0, 2).join(" and ") || "this development";
+    const suggestions = record.item.source === "trials" ? [`What endpoints and completion dates are registered for this study?`, `Find other clinical trials involving ${subject}.`]
+        : record.item.source === "fda" || record.item.source === "ema" ? [`What does the original regulatory record establish?`, `Find current labeling and clinical evidence for ${subject}.`]
+        : [`Find the original evidence behind this announcement.`, `What other recent developments involve ${subject}?`];
     return <section className="pi-detail-conversation" aria-labelledby="pi-analysis-title">
-        <div className="pi-detail-analysis-heading"><div><h2 id="pi-analysis-title">Analyst brief</h2>{chat.model && <p className="pi-detail-model">{chat.model}</p>}</div><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Reload the brief for this source version"><RefreshCw size={13} aria-hidden="true" />Refresh</button></div></div>
+        <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Overview</h2><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Refresh this brief" aria-label="Refresh this brief"><RefreshCw size={15} aria-hidden="true" /></button></div></div>
         {chat.turns.map((turn, i) => <div className="pi-detail-turn" key={i}>
             {i > 0 && <div className="pi-detail-question">{turn.query}</div>}
             <PharmaToolProgress steps={turn.tools || []} />
-            <AnswerStream query={turn.query} content={turn.answer} isStreaming={false} sources={turn.sources} />
+            <PharmaAnswer query={turn.query} content={turn.answer} sources={turn.sources} />
         </div>)}
         <div ref={start} className="pi-detail-current" aria-busy={chat.busy}>
             {chat.busy && <>{chat.turns.length > 0 && <div className="pi-detail-question">{chat.question}</div>}
                 <PharmaToolProgress steps={chat.tools} status={chat.answer ? "Presenting checked answer" : chat.steps.at(-1)?.content} busy />
                 {!chat.answer && <div className="pi-detail-preparing" role="status"><LoaderCircle size={15} className="pi-spinning" /><span>{chat.steps.at(-1)?.content || "Reviewing source evidence"}</span></div>}
-                {chat.answer && <AnswerStream content={chat.answer} isStreaming sources={chat.sources} />}
+                {chat.answer && <PharmaAnswer content={chat.answer} streaming sources={chat.sources} />}
             </>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p><button className="pi-button" onClick={chat.retry}>Retry analysis</button></div>}
         </div>
-        {!chat.busy && chat.turns.length > 0 && <div className="pi-detail-suggestions" aria-label="Suggested follow-up questions">
-            {(chat.related.length ? chat.related : suggestions).map(query => <button key={query} onClick={() => submit(query)}>{query}<ArrowUpRight size={14} /></button>)}
-        </div>}
+        {!chat.busy && chat.turns.length > 0 && <PharmaRelated questions={chat.related.length ? chat.related : suggestions} onSelect={submit} />}
         <div ref={end} className="pi-detail-end" />
         <div ref={composer} className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
+            <Microscope className="pi-composer-icon" size={18} aria-hidden="true" />
             <label className="sr-only" htmlFor="pi-followup">Ask about this record</label>
             <textarea ref={textarea} id="pi-followup" value={input} rows={1} maxLength={8000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record…" aria-describedby="pi-followup-hint" autoComplete="off"
                 onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chat.busy && chat.turns.length && input.trim()) event.currentTarget.form?.requestSubmit(); } }} />
-            <div className="pi-detail-composer-toolbar"><span className="pi-detail-model">Pharma research</span><div className="pi-detail-composer-actions">
+            <div className="pi-detail-composer-actions">
                 {chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFullAnswer}>Show full answer</button>}
                 <span id="pi-followup-hint" className="sr-only">Enter to send. Shift and Enter for a new line.</span>
-                <button type="submit" className="pi-detail-send" aria-label="Send follow-up" disabled={chat.busy || !chat.turns.length || !input.trim()}><ArrowUp size={17} /></button>
-            </div></div>
+                <button type="submit" className="pi-detail-send" aria-label={chat.busy ? "Response in progress" : "Send follow-up"} disabled={chat.busy || !chat.turns.length || !input.trim()}>{chat.busy ? <LoaderCircle size={16} className="pi-spinning" /> : <ArrowUp size={18} />}</button>
+            </div>
         </form></div></div>
     </section>;
 }

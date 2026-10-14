@@ -7,7 +7,7 @@ import { usePharmaResearch } from "@/hooks/usePharmaResearch";
 import { evidenceCsv, researchReport, type PharmaToolStep } from "@/lib/pharmaResearch";
 import { saveDownload } from "@/lib/interpolationDisplay";
 import { isPrivateChat } from "@/lib/questionDrafts";
-import AnswerStream from "@/components/thread/AnswerStream";
+import PharmaAnswer from "./PharmaAnswer";
 
 const EXAMPLES = [
     { icon: FlaskConical, title: "Clinical development", query: "Find recent phase 3 luspatercept studies and summarize their current status and primary endpoints." },
@@ -19,13 +19,14 @@ const EXAMPLES = [
 ];
 
 export function PharmaToolProgress({ steps, status, busy = false }: { steps: PharmaToolStep[]; status?: string; busy?: boolean }) {
+    const [expanded, setExpanded] = useState(busy);
     if (!steps.length) return null;
     const completed = steps.filter(step => step.status !== "running").length;
-    return <div className="pr-task-panel"><div className="pr-task-heading"><span>{busy ? <LoaderCircle size={14} className="pi-spinning" /> : <Check size={14} />}{busy ? status || "Checking sources" : "Source checks complete"}</span><small>{completed} / {steps.length}</small></div>
+    return <details className="pr-task-panel" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}><summary className="pr-task-heading"><span>{busy ? <LoaderCircle size={14} className="pi-spinning" /> : <BookOpen size={14} />}{busy ? status || "Checking sources" : "Research activity"}</span><small>{completed} / {steps.length}<ChevronDown size={13} /></small></summary>
         <ul className="pr-tools" aria-label="Research tools">{steps.map(step => <li key={step.id} data-status={step.status}>
         {step.status === "running" ? <LoaderCircle size={13} className="pi-spinning" /> : step.status === "available" ? <Check size={13} /> : <span aria-hidden="true">—</span>}
         <span>{step.label}</span><small>{step.status === "running" ? "Checking" : step.status === "available" ? `${step.count ?? 0} record${step.count === 1 ? "" : "s"}` : step.status === "empty" ? "No matches" : "Unavailable"}</small>
-    </li>)}</ul></div>;
+    </li>)}</ul></details>;
 }
 
 export default function PharmaResearch() {
@@ -34,8 +35,19 @@ export default function PharmaResearch() {
     const textarea = useRef<HTMLTextAreaElement>(null), latest = useRef<HTMLDivElement>(null);
     const end = useRef<HTMLDivElement>(null), composer = useRef<HTMLDivElement>(null), following = useRef(true);
     const last = chat.turns.at(-1);
+    useEffect(() => {
+        const node = composer.current, page = node?.closest<HTMLElement>(".pr-page");
+        if (!node || !page) return;
+        const measure = () => page.style.setProperty("--pr-composer-clearance", `${node.getBoundingClientRect().height + 40}px`);
+        const observer = new ResizeObserver(measure); observer.observe(node); measure();
+        return () => { observer.disconnect(); page.style.removeProperty("--pr-composer-clearance"); };
+    }, []);
     const submit = (query: string) => { if (!query.trim() || chat.busy) return; following.current = true; setInput(""); setDownloadError(""); void chat.ask(query); requestAnimationFrame(() => latest.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })); };
-    useEffect(() => { if (textarea.current) { textarea.current.style.height = "auto"; textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 180)}px`; } }, [input]);
+    useEffect(() => {
+        const resize = () => { if (textarea.current) { textarea.current.style.height = "auto"; textarea.current.style.height = `${Math.min(textarea.current.scrollHeight + 1, 180)}px`; } };
+        resize(); window.addEventListener("resize", resize);
+        return () => window.removeEventListener("resize", resize);
+    }, [input]);
     useEffect(() => {
         const wheel = (event: WheelEvent) => { if (event.deltaY < 0) following.current = false; };
         const pause = () => { following.current = false; };
@@ -66,9 +78,9 @@ export default function PharmaResearch() {
             {!chat.turns.length && !chat.busy && <><h1>What are you investigating?</h1><p>Ask about a drug, trial, approval, safety signal or competitor.</p></>}
         </header>
         {!chat.turns.length && !chat.busy && <div className="pr-examples">{EXAMPLES.map(({ icon: Icon, title, query }) => <button key={title} onClick={() => { setInput(query); textarea.current?.focus(); }}><Icon size={19} /><strong>{title}</strong><span>{query}</span><ArrowUpRight size={14} /></button>)}</div>}
-        {chat.turns.map((turn, index) => <article className="pr-turn" key={index}><h2>{turn.query}</h2><PharmaToolProgress steps={turn.tools || []} /><AnswerStream content={turn.answer} sources={turn.sources} isStreaming={false} /></article>)}
+        {chat.turns.map((turn, index) => <article className="pr-turn" key={index}><h2>{turn.query}</h2><PharmaToolProgress steps={turn.tools || []} /><PharmaAnswer content={turn.answer} sources={turn.sources} /></article>)}
         <div ref={latest} className="pr-current" aria-busy={chat.busy}>
-            {chat.busy && <><h2>{chat.question}</h2><PharmaToolProgress steps={chat.steps} status={chat.answer ? "Presenting checked answer" : chat.status} busy />{!chat.answer ? <p className="pr-status" role="status"><LoaderCircle size={15} className="pi-spinning" />{chat.status}</p> : <AnswerStream content={chat.answer} sources={chat.sources} isStreaming />}</>}
+            {chat.busy && <><h2>{chat.question}</h2><PharmaToolProgress steps={chat.steps} status={chat.answer ? "Writing answer" : chat.status} busy />{!chat.answer ? <p className="pr-status" role="status"><LoaderCircle size={15} className="pi-spinning" />{chat.status}</p> : <PharmaAnswer content={chat.answer} sources={chat.sources} streaming />}</>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p>{chat.question && <button className="pi-button" onClick={chat.retry}>Retry research</button>}</div>}
         </div>
         {!chat.busy && last && !chat.error && <>
@@ -81,11 +93,12 @@ export default function PharmaResearch() {
         </>}
         {downloadError && <p role="alert">{downloadError}</p>}
         <div ref={end} /><div ref={composer} className="pr-composer"><form onSubmit={event => { event.preventDefault(); submit(input); }}><label className="sr-only" htmlFor="pharma-research-query">Ask Pharma research</label>
-            <textarea id="pharma-research-query" ref={textarea} rows={2} value={input} maxLength={8000} placeholder="Ask Pharma research…" onChange={event => setInput(event.target.value)} onKeyDown={event => {
+            <Microscope className="pi-composer-icon" size={18} aria-hidden="true" />
+            <textarea id="pharma-research-query" ref={textarea} rows={1} value={input} maxLength={8000} placeholder="Ask Pharma research…" onChange={event => setInput(event.target.value)} onKeyDown={event => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chat.busy) event.currentTarget.form?.requestSubmit(); }
             }} />
-            <div className="pr-composer-bar"><span>Official sources · Scientific literature</span><div>{chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFull}>Show full answer</button>}
-                {chat.busy ? <button type="button" className="pr-send" aria-label="Stop research" onClick={chat.stop}><Square size={14} /></button> : <button type="submit" className="pr-send" aria-label="Send question" disabled={!input.trim()}><ArrowUp size={18} /></button>}</div></div>
+            <div className="pr-composer-bar">{chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFull}>Show full answer</button>}
+                {chat.busy ? <button type="button" className="pr-send" aria-label="Stop research" onClick={chat.stop}><Square size={14} /></button> : <button type="submit" className="pr-send" aria-label="Send question" disabled={!input.trim()}><ArrowUp size={18} /></button>}</div>
         </form></div>
         </div>
     </section>;
