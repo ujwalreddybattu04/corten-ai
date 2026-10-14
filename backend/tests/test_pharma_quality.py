@@ -42,6 +42,14 @@ def test_head_to_head_and_patent_plans_cannot_omit_the_critical_tool():
     assert research.refine_plan('generic apixaban and patents',chosen).calls[0].tool=='orange_book'
 
 
+def test_cross_program_comparison_is_not_mistaken_for_a_joint_intervention_trial():
+    chosen=research.Plan(intent='research',calls=[{'tool':'trials','query':'luspatercept','compare_with':'imetelstat','phase':'PHASE3','condition':'lower-risk MDS'},
+        {'tool':'trials','query':'COMMANDS','search_by':'intervention'},{'tool':'trials','query':'IMerge','search_by':'intervention'}])
+    refined=research.refine_plan('Compare Phase 3 luspatercept vs imetelstat in lower-risk MDS. Include COMMANDS and IMerge.',chosen)
+    assert [(c.query,c.search_by,c.compare_with) for c in refined.calls]==[
+        ('luspatercept','intervention',None),('imetelstat','intervention',None),('COMMANDS','term',None),('IMerge','term',None)]
+
+
 def test_false_warning_prescribing_provenance_results_and_chronology_are_blocked():
     labels=[{'kind':'drug_label','facts':{'brand_names':['KEYTRUDA'],'boxed_warning_present':False}}]
     with pytest.raises(LLMProviderError):check_claims('KEYTRUDA has a boxed warning. [1]',labels)

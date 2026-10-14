@@ -139,7 +139,7 @@ async def trials(call,client):
     filters=term+('; '+call.phase.replace('PHASE','Phase ') if call.phase else '')+('; '+condition if condition else '')
     method='joint intervention match; arm groups require verification' if call.compare_with else 'intervention match' if search=='query.intr' else 'study identifier' if search=='query.id' else 'sponsor match' if search=='query.spons' else 'keyword search'
     order='relevance' if call.compare_with else 'last update'
-    return rows,f'{filters} ({method}): {total if isinstance(total,int) else "an unknown number of"} registry matches; {len(rows)} retrieved, sorted by {order} (maximum twelve, previously six). This is not a complete pipeline. Current status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
+    return rows,f'{filters} ({method}): {total if isinstance(total,int) else "an unknown number of"} registry matches; {len(rows)} retrieved, sorted by {order} (maximum twelve). This is not a complete pipeline. Current status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
 
 
 def fda_term(query):

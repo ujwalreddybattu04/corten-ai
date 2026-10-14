@@ -71,7 +71,7 @@ async def test_trials_keep_status_results_and_date_qualifiers_separate():
     assert rows[0]['facts']['primary_completion']=={'date':'2026-10','type':'ESTIMATED'}
     assert rows[0]['facts']['stop_reason']=='Enrollment target not met.' and rows[0]['facts']['results_present']
     assert rows[0]['date_meaning']=='Registry update posted' and 'not proof of benefit' in coverage
-    assert '100' in coverage and 'six' in coverage
+    assert '100' in coverage and 'twelve' in coverage
 
 
 @pytest.mark.asyncio

@@ -109,7 +109,7 @@ def trial_comparison(evidence,coverage):
         if not isinstance(value,dict) or not value.get('date'):return 'Not listed'
         qualifier={'ACTUAL':'Actual','ESTIMATED':'Estimated'}.get(value.get('type'),'Qualifier not listed')
         return plain(value['date'])+' ('+qualifier+')'
-    lines=[f'The retrieved sample contains **{len(rows)} study records**. It is not a complete development pipeline.',
+    lines=[f'The retrieved sample contains **{len(rows)} study record'+('s' if len(rows)!=1 else '')+'**. It is not a complete development pipeline.',
         '', '### Retrieved trial comparison', '',
         '| Study / interventions | Phase / current status | Primary endpoints | Primary completion | Study completion | Registry results |',
         '| --- | --- | --- | --- | --- | --- |']
@@ -179,7 +179,22 @@ def refine_plan(query,chosen):
     """Intent-specific retrieval requirements do not depend on the planner remembering them."""
     if chosen.intent!='research':return chosen
     calls=list(chosen.calls)
-    if re.search(r'\bhead[- ]to[- ]head\b',query,re.I):
+    direct=bool(re.search(r'\bhead[- ]to[- ]head\b',query,re.I))
+    if not direct:
+        # "Compare A vs B" usually means compare their separate programs. It must not
+        # become an intersection search that silently drops both drugs' pivotal trials.
+        subjects={c.query.casefold() for c in calls if c.compare_with}|{c.compare_with.casefold() for c in calls if c.compare_with}
+        separated=[]
+        for call in calls:
+            if call.tool=='trials' and call.compare_with:
+                separated.extend(ToolCall(tool='trials',query=asset,search_by='intervention',phase=call.phase,condition=call.condition) for asset in (call.query,call.compare_with))
+            else:separated.append(call.model_copy(update={'search_by':'term'}) if subjects and call.tool=='trials' and call.query.casefold() not in subjects else call)
+        calls=[];seen=set()
+        for call in separated:
+            key=call.model_dump_json().casefold()
+            if key not in seen:calls.append(call);seen.add(key)
+        calls=calls[:4]
+    if direct:
         candidates=[c for c in calls if c.tool=='trials']
         pair=re.search(r'\b([A-Za-z][A-Za-z-]{3,60})\s+(?:vs\.?|versus)\s+([A-Za-z][A-Za-z-]{3,60})\b',query,re.I)
         if pair:
