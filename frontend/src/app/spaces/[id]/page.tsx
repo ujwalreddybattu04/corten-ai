@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
     ArrowLeft, ArrowUp, Users, Pencil, MoreHorizontal, Trash2, LogOut, FileText, Upload, Download, X, Plus, Loader2,
-    RefreshCw, FolderOpen, AlertCircle, Lock, ExternalLink, UserPlus, Globe, Sparkles,
+    RefreshCw, FolderOpen, AlertCircle, Lock, ExternalLink, UserPlus, Globe, SlidersHorizontal, ChevronDown, MessageSquare, Layers3,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { questionPath } from "@/lib/questionDrafts";
@@ -40,6 +40,7 @@ export default function SpaceDetailPage() {
     const [dialog, setDialog] = useState<"" | "share" | "details" | "delete" | "leave">("");
     const [menuOpen, setMenuOpen] = useState(false);
     const [draft, setDraft] = useState("");
+    const [contextOpen, setContextOpen] = useState(false);
 
     const load = useCallback(() => Promise.all([spacesApi.get(spaceId), spacesApi.threads(spaceId), spacesApi.files(spaceId)])
         .then(([detail, threadPage, fileList]) => {
@@ -124,6 +125,7 @@ export default function SpaceDetailPage() {
                         <p className="sv-head-meta">{access}</p>
                     </div>
                     <div className="sv-head-actions">
+                        <button className="sx-btn sx-btn--secondary sv-context-toggle" aria-expanded={contextOpen} aria-controls="space-context" onClick={() => setContextOpen(!contextOpen)}><SlidersHorizontal size={14} />{contextOpen ? "Close context" : "Files & settings"}</button>
                         <button className="sx-btn sx-btn--secondary" onClick={() => setDialog("share")}>
                             {owner ? <><UserPlus size={15} /> Share</> : <><Users size={15} /> Members</>}
                         </button>
@@ -144,7 +146,7 @@ export default function SpaceDetailPage() {
 
                 {notice && <div className="sx-banner sx-banner--info" role="status">{notice}<button className="sx-banner-close" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
 
-                <div className="sv-layout">
+                <div className={`sv-layout ${contextOpen ? "sv-layout--context-open" : ""}`}>
                     <main className="sv-main">
                         {editable ? <Composer space={space} fileCount={files.length} draft={draft} setDraft={setDraft} /> : (
                             <p className="sv-readonly"><Lock size={14} aria-hidden="true" /> You can read everything in this Space. Ask {space.ownerName ?? "the owner"} for edit access to ask questions here.</p>
@@ -158,7 +160,8 @@ export default function SpaceDetailPage() {
                             }}
                             onRemoved={threadId => { setThreads(current => current.filter(item => item.threadId !== threadId)); setSpace({ ...space, threadCount: Math.max(0, space.threadCount - 1) }); }} />
                     </main>
-                    <aside className="sv-rail" aria-label="Space context">
+                    <aside id="space-context" className="sv-rail" aria-label="Space context">
+                        <div className="sv-context-heading"><h2>Space context</h2><span>{files.length} file{files.length === 1 ? "" : "s"}</span></div>
                         <AgentSection space={space} />
                         <InstructionsSection space={space} editable={editable} onSave={save} />
                         <FilesSection space={space} files={files} editable={editable}
@@ -256,14 +259,14 @@ function ThreadList({ space, threads, next, userIsOwner, hasFiles, onSuggest, on
     const suggestions = starterQuestions(space, hasFiles);
     return (
         <section className="sv-threads" aria-labelledby="threads-heading">
-            <h2 id="threads-heading" className="sv-section-title">Threads {threads.length > 0 && <span className="sv-count">{space.threadCount}</span>}</h2>
+            <h2 id="threads-heading" className="sv-section-title">Conversations {threads.length > 0 && <span className="sv-count">{space.threadCount}</span>}</h2>
             {error && <p className="sx-error" role="alert">{error}</p>}
             {threads.length === 0 ? (
                 canEdit(space.role) ? (
                     <div className="sv-start">
-                        <p>Ask your first question. Every thread here is saved for the whole Space, with its instructions and files applied.</p>
+                        <div className="sv-start-heading"><MessageSquare size={20} strokeWidth={1.5} /><p>Start with a question</p></div>
                         <div className="sv-suggestions">
-                            {suggestions.map(text => <button key={text} type="button" onClick={() => onSuggest(text)}>{text}</button>)}
+                            {suggestions.map(text => <button key={text} type="button" onClick={() => onSuggest(text)}><span>{text}</span><Plus size={16} aria-hidden="true" /></button>)}
                         </div>
                     </div>
                 ) : <p className="sv-quiet">No one has asked a question in this Space yet.</p>
@@ -272,6 +275,7 @@ function ThreadList({ space, threads, next, userIsOwner, hasFiles, onSuggest, on
                     {threads.map(thread => (
                         <li key={thread.threadId} className="sv-thread">
                             <Link className="sv-thread-link" href={`/search?id=${encodeURIComponent(thread.threadId)}&space=${encodeURIComponent(space.id)}`}>
+                                <MessageSquare className="sv-thread-icon" size={16} strokeWidth={1.5} aria-hidden="true" />
                                 <span className="sv-thread-title">{thread.question || thread.title}</span>
                                 {thread.preview && <span className="sv-thread-preview">{thread.preview}</span>}
                                 <span className="sv-thread-meta">
@@ -327,11 +331,10 @@ function AgentSection({ space }: { space: Space }) {
     const agent = space.agent;
     if (!agent) return null;
     return (
-        <RailSection id="agent-heading" title="Agent">
-            <p className="sv-agent-name"><Sparkles size={14} aria-hidden="true" /> {agent.template ? `${agent.template.name} agent` : "Research agent"}</p>
-            <p className="sv-agent-hint">Plans each answer, calls these tools for live data and charts, and cites every source.</p>
+        <RailSection id="agent-heading" title="Assistant">
+            <p className="sv-agent-name"><Layers3 size={15} aria-hidden="true" /> {agent.template ? agent.template.name : "Research assistant"}</p>
             {agent.tools.length > 0
-                ? <ul className="sv-agent-tools" aria-label="Agent tools">{agent.tools.map(tool => <li key={tool.id} className="sv-tool-chip">{tool.label}</li>)}</ul>
+                ? <details className="sv-agent-capabilities"><summary>Available tools<span>{agent.tools.length}<ChevronDown size={13} /></span></summary><ul className="sv-agent-tools" aria-label="Agent tools">{agent.tools.map(tool => <li key={tool.id}>{tool.label}</li>)}</ul></details>
                 : <p className="sv-quiet">No tools: answers use only this Space&apos;s files.</p>}
         </RailSection>
     );

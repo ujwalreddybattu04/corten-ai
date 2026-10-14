@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Plus, MoreHorizontal, Pencil, Trash2, LogOut, RefreshCw, Loader2, ArrowRight, Users } from "lucide-react";
+import { Search, Plus, MoreHorizontal, Pencil, Trash2, LogOut, RefreshCw, Loader2, ArrowRight, Users, FolderOpen, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { spacesApi, relativeTime, canEdit, ROLE_LABELS, type PendingInvitation, type Space, type SpaceFields } from "@/lib/spacesApi";
 import { clearLegacyBrowserSpaces, legacyBrowserSpaces } from "@/lib/spaces";
@@ -121,7 +121,7 @@ export default function SpacesPage() {
                 <header className="sv-home-head">
                     <div>
                         <h1>Spaces</h1>
-                        <p>Organize research by project. Each Space has its own agent and tools, instructions, files, threads and people.</p>
+                        <p>Your research, sources and conversations, organized by project.</p>
                     </div>
                     <button className="sx-btn sx-btn--primary sv-new" onClick={() => setCreating(true)}><Plus size={16} /> New Space</button>
                 </header>
@@ -159,28 +159,24 @@ export default function SpacesPage() {
                     </div>
                 ) : spaces && spaces.length > 0 && (
                     <section aria-label="Your Spaces">
-                        <div className="sv-toolbar">
-                            {counts.shared > 0 ? (
-                                <div className="sv-segmented" role="tablist" aria-label="Filter Spaces">
+                        <div className="sv-toolbar sv-toolbar--library">
+                                <div className="sv-segmented" role="group" aria-label="Filter Spaces">
                                     {([["all", "All"], ["owned", "Created by me"], ["shared", "Shared with me"]] as [Filter, string][]).map(([key, label]) => (
-                                        <button key={key} role="tab" aria-selected={filter === key} className={filter === key ? "active" : ""}
-                                            onClick={() => setFilter(key)}>{label}</button>
+                                        <button key={key} aria-pressed={filter === key} className={filter === key ? "active" : ""}
+                                            onClick={() => setFilter(key)}>{label}<span className="sv-filter-count">{counts[key]}</span></button>
                                     ))}
                                 </div>
-                            ) : <h2 className="sv-section-title">Your Spaces</h2>}
-                            {spaces.length > 3 && (
                                 <label className="sv-search">
                                     <Search size={14} aria-hidden="true" />
                                     <input type="search" placeholder="Search Spaces" value={query} aria-label="Search Spaces"
                                         onChange={event => setQuery(event.target.value)} />
                                 </label>
-                            )}
                         </div>
                         <div className="sv-grid">
                             {visible.map(space => (
                                 <div key={space.id} className="sv-card-wrap">
                                     <Link href={`/spaces/${space.id}`} className="sv-card">
-                                        <SpaceIcon icon={space.icon} size={40} />
+                                        <div className="sv-card-top"><SpaceIcon icon={space.icon} size={36} /><span className="sv-card-access">{space.memberCount > 1 ? <Users size={12} /> : <Lock size={12} />}{space.memberCount > 1 ? "Shared" : "Private"}</span></div>
                                         <span className="sv-card-name">{space.name}</span>
                                         {(space.description || space.role !== "owner") && (
                                             <span className="sv-card-desc">{space.description || `Shared by ${space.ownerName ?? "a teammate"}`}</span>
@@ -212,6 +208,7 @@ export default function SpacesPage() {
                     </section>
                 )}
 
+                {empty && <section className="sv-empty-library" aria-label="No Spaces yet"><FolderOpen size={28} strokeWidth={1.4} /><div><h2>Create your first Space</h2><p>Start a project with New Space, or choose a template below.</p></div></section>}
                 <section className={`sv-templates ${empty ? "sv-templates--lead" : ""}`} aria-labelledby="templates-heading">
                     <div className="sv-toolbar">
                         <h2 id="templates-heading" className="sv-section-title">{empty ? "Start with a template" : "Templates"}</h2>

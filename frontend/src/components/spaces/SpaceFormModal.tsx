@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, ChevronDown } from "lucide-react";
 import { useModalFocus } from "@/hooks/useModalFocus";
 import type { Space, SpaceFields } from "@/lib/spacesApi";
 import { DEFAULT_SPACE_ICON, SPACE_EMOJI, SpaceIcon } from "./SpaceVisuals";
@@ -85,13 +85,13 @@ export default function SpaceFormModal({ initial, onSubmit, onClose }: {
                             placeholder="What is this Space for?" onChange={event => setDescription(event.target.value)} />
                     </div>
                     {!initial && (
-                        <div className="sv-field">
-                            <label htmlFor="space-instructions">Instructions <span className="sv-optional">Optional</span></label>
+                        <details className="sv-form-context"><summary>Instructions <span className="sv-optional">Optional</span><ChevronDown size={14} /></summary><div className="sv-field">
+                            <label htmlFor="space-instructions">Space instructions</label>
                             <textarea id="space-instructions" className="sx-input" rows={4} maxLength={INSTRUCTIONS_LIMIT} value={instructions}
-                                placeholder="How should answers in this Space be written? For example: answer as a market access analyst, use tables for comparisons, cite regulators first."
+                                placeholder="For example: prioritize primary sources and use tables for comparisons."
                                 onChange={event => setInstructions(event.target.value)} />
-                            <span className="sv-hint">Applied to every answer in this Space. Add files, links and people after creating it.</span>
-                        </div>
+                            <span className="sv-hint">Applied to answers in this Space. You can edit these later.</span>
+                        </div></details>
                     )}
                     {error && <p className="sx-error" role="alert">{error}</p>}
                     <div className="sv-dialog-foot">

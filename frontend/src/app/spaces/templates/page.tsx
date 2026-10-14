@@ -15,13 +15,13 @@ export default function TemplatesPage() {
                 <header className="sv-home-head">
                     <div>
                         <h1>Templates</h1>
-                        <p>Each template gives its Space an agent with the tools for the job, such as live market data, clinical trials, research papers and charts, plus instructions you can change at any time.</p>
+                        <p>Start with a focused set of tools and instructions. Make it your own.</p>
                     </div>
                 </header>
                 <div className="sv-toolbar">
-                    <div className="sv-segmented" role="tablist" aria-label="Template categories">
+                    <div className="sv-segmented" role="group" aria-label="Template categories">
                         {(["All", ...TEMPLATE_CATEGORIES] as const).map(item => (
-                            <button key={item} role="tab" aria-selected={category === item} className={category === item ? "active" : ""}
+                            <button key={item} aria-pressed={category === item} className={category === item ? "active" : ""}
                                 onClick={() => setCategory(item)}>{item}</button>
                         ))}
                     </div>

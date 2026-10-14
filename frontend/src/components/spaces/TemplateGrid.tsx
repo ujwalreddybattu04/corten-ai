@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { ArrowUpRight, Loader2 } from "lucide-react";
 import { spacesApi, type AgentTool } from "@/lib/spacesApi";
 import type { TemplateCard } from "@/lib/spaceTemplates";
 import { SpaceIcon } from "./SpaceVisuals";
@@ -53,7 +53,7 @@ export default function TemplateGrid({ templates }: { templates: TemplateCard[] 
                     return (
                         <button key={template.id} type="button" className="sv-template" disabled={!!creating}
                             aria-busy={creating === template.id} onClick={() => void use(template)}>
-                            <SpaceIcon icon={template.icon} size={36} />
+                            <span className="sv-template-top"><SpaceIcon icon={template.icon} size={36} /><span>{template.category}</span></span>
                             <span className="sv-template-text">
                                 <span className="sv-template-name">{template.name}</span>
                                 <span className="sv-template-desc">{template.description}</span>
@@ -64,6 +64,7 @@ export default function TemplateGrid({ templates }: { templates: TemplateCard[] 
                                     </span>
                                 )}
                             </span>
+                            <span className="sv-template-use">{creating === template.id ? "Creating Space" : "Use template"}<ArrowUpRight size={14} /></span>
                             {creating === template.id && <Loader2 size={15} className="sx-spin sv-template-busy" aria-label="Creating" />}
                         </button>
                     );
