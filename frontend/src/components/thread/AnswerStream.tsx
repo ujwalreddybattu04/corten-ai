@@ -11,9 +11,9 @@ import { preloadPyodide } from "@/hooks/usePyodideWorker";
 import { accountStorage } from "@/lib/accountStorage";
 import { splitArtifacts, type Artifact } from "@/lib/artifacts";
 import type { GeneratedFile } from "@/lib/chatApi";
-import { ArtifactCard, FileCards, ThinkingPanel, linkCitations } from "@/components/chat/AnswerExtras";
+import { ArtifactCard, FileCards, ThinkingPanel } from "@/components/chat/AnswerExtras";
 import { protectCurrency } from "@/lib/currency";
-import { citationNumbers, sourceLabel } from "@/lib/citations";
+import { citationNumbers, sourceLabel, linkCitations } from "@/lib/citations";
 
 // Premium Formatting Dependencies
 import remarkMath from "remark-math";
