@@ -80,6 +80,14 @@ def public_url(value):
         return None
 
 
+def tentative_submission(submission, products):
+    """FDA records tentative approval either on the submission or as each product's marketing status."""
+    if submission.get('submission_status') == 'TA' or 'tentative' in str(submission.get('submission_public_notes') or '').casefold():
+        return True
+    statuses = [str(p.get('marketing_status') or '').casefold() for p in products if isinstance(p, dict)]
+    return submission.get('submission_type') == 'ORIG' and bool(statuses) and all('tentative' in s for s in statuses)
+
+
 def normalize_fda(payload, since, until):
     """Inspect each submission; an application's other submissions may be older."""
     output = []
@@ -92,7 +100,7 @@ def normalize_fda(payload, since, until):
         for submission in application.get("submissions", []):
             action_date = iso_date(submission.get("submission_status_date"))
             status=submission.get('submission_status')
-            tentative=status=='TA' or 'tentative' in str(submission.get('submission_public_notes','')).casefold()
+            tentative=tentative_submission(submission,application.get('products',[]))
             if status not in ('AP','TA') or not action_date or not since <= action_date <= until:
                 continue
             kind = submission.get("submission_type", "")
@@ -359,7 +367,7 @@ class PharmaUpdatesService:
     async def get_feed(self, topic: Topic = "all", days: Literal[7, 30, 90] = 7):
         if topic not in TOPICS or days not in (7,30,90):raise ValueError("Invalid pharma filters")
         if settings.PHARMA_INTELLIGENCE_ENABLED:
-            slot=("archive",topic,days);key=f"pharma:archive:events-2:{topic}:{days}"
+            slot=("archive",topic,days);key=f"pharma:archive:events-3:{topic}:{days}"
             now=datetime.now(timezone.utc)
             cached=self._cache.get(slot)
             if not cached or datetime.fromisoformat(cached["until"])<=now:

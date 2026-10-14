@@ -84,10 +84,13 @@ def mentioned_drugs(item, aliases, matcher=None):
     # Structured subjects take precedence over drugs mentioned as comparators or prior treatments.
     subjects=details.get('ingredients') or details.get('interventions')
     if subjects:
-        found=set()
+        found=set();matcher=matcher or AliasMatcher(aliases)
         for value in subjects:
+            if not isinstance(value,str):continue
             identity=aliases.get(normalize_name(value))
+            # "Rimegepant 75 mg ODT" names the same subject; match whole aliases inside the structured field only.
             if identity:found.add(identity)
+            else:found.update(matcher.match(" ".join(unicodedata.normalize("NFKC",value).casefold().split())))
         return sorted(found)[:8]
     values = [item.get("title","")]
     text = " ".join(unicodedata.normalize("NFKC"," ".join(values)).casefold().split())

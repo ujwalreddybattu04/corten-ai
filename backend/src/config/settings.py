@@ -97,7 +97,8 @@ class Settings(BaseSettings):
     PHARMA_BEDROCK_SOCKET: str = "/run/corten-bedrock/gateway.sock"
     PHARMA_BRIEF_MODEL: Literal["amazon.nova-pro-v1:0"] = "amazon.nova-pro-v1:0"
     PHARMA_QUESTION_MODEL: Literal["amazon.nova-pro-v1:0", "amazon.nova-lite-v1:0"] = "amazon.nova-pro-v1:0"
-    PHARMA_PLANNER_MODEL: Literal["amazon.nova-pro-v1:0", "amazon.nova-lite-v1:0"] = "amazon.nova-lite-v1:0"
+    # Planning errors cost more than the planner call: the Lite planner produced unsearchable queries such as "Mounjaro (tirzepatide)".
+    PHARMA_PLANNER_MODEL: Literal["amazon.nova-pro-v1:0", "amazon.nova-lite-v1:0"] = "amazon.nova-pro-v1:0"
     OPENWEATHER_API_KEY: str = ""
 
     # --- Web Search ---

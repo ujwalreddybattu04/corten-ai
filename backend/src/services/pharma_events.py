@@ -4,7 +4,7 @@ import json
 import re
 from datetime import date
 
-RULE_VERSION = "events-2"
+RULE_VERSION = "events-3"
 STOPPED = {"TERMINATED", "WITHDRAWN", "SUSPENDED"}
 
 
@@ -111,8 +111,22 @@ def impact(event, item):
         rationale = "Completion is a milestone; it does not establish positive results or an approval."
     elif kind == "completion_date_moved":
         rationale = "The reported timeline changed; assess implications for timing without assuming a launch date."
-    elif kind in {"fda_original_approval", "ema_authorisation"}:
+    elif kind == "trial_registered":
+        # A new registration matters for forecasts when it is pivotal or an industry mid-stage study.
+        phases = set(evidence.get("phases") or [])
+        if not ("PHASE3" in phases or ("PHASE2" in phases and industrial)):
+            rating = "None"
+        rationale = "A new registry entry shows planned development; it does not establish enrolment, timing or results."
+    elif kind == "ema_authorisation":
         rating, rationale = "Material", "A verified regulatory authorisation warrants assessment of market assumptions."
+    elif kind == "fda_original_approval":
+        # FDA chemical types 1, 2 and 4 (and BLAs) are new active products; types 3 and 5+ reformulate existing ones.
+        chemical = re.search(r"\bType\s+(\d{1,2})\b", " ".join(str(v) for v in (item.get("summary"), (item.get("details") or {}).get("classification")) if v))
+        application = str((item.get("details") or {}).get("application", ""))
+        if chemical and chemical[1] not in {"1", "2", "4"} and not application.startswith("BLA"):
+            rationale = "A new formulation, dosage form or manufacturer of an existing active ingredient warrants review; it is not a new molecular entity."
+        else:
+            rating, rationale = "Material", "A verified regulatory authorisation warrants assessment of market assumptions."
     elif kind == "safety_alert":
         classification=(item.get('details') or {}).get('classification')
         if classification=='Class I' or not (item.get('details') or {}).get('recall_number'):
@@ -125,8 +139,14 @@ def impact(event, item):
         rationale = 'Tentative approval does not authorise marketing. Final approval and applicable patents/exclusivities require verification.'
     elif kind in {'press_release','fda_announcement'}:
         title=item.get('title','')
-        if kind=='fda_announcement' and re.search(r'\b(?:approves?|approval|authori[sz]es?)\b',title,re.I):
+        setback=re.search(r'\b(?:did not meet|does not meet|failed|fails|miss(?:ed|es)|not met|discontinu\w*|terminat\w*|halt\w*|futility|negative)\b',title,re.I)
+        refusal=re.search(r'\b(?:declin\w*|reject\w*|refus\w*|complete response letter|not approv\w*|withdraw\w*|revok\w*|suspend\w*)\b',title,re.I)
+        if kind=='fda_announcement' and refusal:
+            rating, rationale='Material','An official FDA refusal, withdrawal or suspension warrants review; verify the product, scope and action date in the source.'
+        elif kind=='fda_announcement' and re.search(r'\b(?:approves?|approved|grants?\s+(?:\w+\s+){0,2}approval|authori[sz]es?)\b',title,re.I):
             rating, rationale='Material','An official FDA approval announcement warrants assessment; verify the approved scope and action date in the source.'
+        elif kind=='press_release' and re.search(r'\bphase\s*(?:3|iii)\b',title,re.I) and setback:
+            rating, rationale='Material','A company-reported Phase 3 setback (missed endpoint, stop or discontinuation) warrants review of the data and pipeline assumptions. This is an attributed sponsor statement.'
         elif kind=='press_release' and re.search(r'\bphase\s*(?:3|iii)\b',title,re.I) and re.search(r'\b(?:positive|met|meets?|achiev\w*|successful)\b',title,re.I):
             rating, rationale='Material','Company-reported positive Phase 3 results warrant review of endpoints and full data. This is an attributed sponsor claim, not independent efficacy verification.'
     return {"rating": rating, "rationale": rationale, "policy_version": RULE_VERSION, "basis": "source_rules"}

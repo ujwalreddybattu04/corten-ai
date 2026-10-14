@@ -10,6 +10,7 @@ from src.models.pharma import PharmaDocument, PharmaSnapshot, PharmaEvent, Pharm
 from src.services.pharma_catalog import SOURCE_CATALOG, VERIFIED_IDENTITIES, AliasMatcher, drug_identity, normalize_name, unique_aliases, mentioned_drugs
 from src.services.pharma_events import RULE_VERSION, digest, impact, trial_events
 from src.services.pharma_quality import publication_item, publication_key
+from src.services.pharma_updates import tentative_submission
 
 
 async def register_drug(db,name,ingredients,aliases,url):
@@ -82,7 +83,7 @@ async def store_record(db,item,raw,events=None,now=None):
 
 async def link_drugs(db):
     aliases=unique_aliases((await db.execute(select(PharmaDrugAlias.alias,PharmaDrugAlias.drug_id))).all())
-    signature=digest([aliases,"subject-matcher-2"]);matcher=AliasMatcher(aliases)
+    signature=digest([aliases,"subject-matcher-3"]);matcher=AliasMatcher(aliases)
     state=await db.get(PharmaSourceState,"drug_links")
     since=state.checked_at if state and state.metadata_json.get("aliases_version")==signature else None
     now=datetime.now(timezone.utc)
@@ -108,10 +109,10 @@ async def link_drugs(db):
 
 async def _public_item(db,event):
     item=copy.deepcopy(event.evidence["item"])
-    if item.get('source')=='fda' and not (item.get('details') or {}).get('approval_status'):
+    if item.get('source')=='fda' and (item.get('details') or {}).get('approval_status')!='tentative':
         snapshot=await db.get(PharmaSnapshot,(event.document_id,event.version))
-        submission=(snapshot.raw if snapshot else {}).get('submission') or {}
-        if submission.get('submission_status')=='TA' or 'tentative' in str(submission.get('submission_public_notes','')).casefold():
+        raw=snapshot.raw if snapshot else {}
+        if tentative_submission(raw.get('submission') or {},raw.get('products') or []):
             old=item['details'].get('action','')
             label='FDA tentative approval — marketing not authorised'
             item['details']={**item['details'],'action':label,'approval_status':'tentative'}
@@ -163,16 +164,24 @@ async def get_feed(topic,days):
                 .where(PharmaDocument.source==name,PharmaEvent.event_date>=since,PharmaEvent.event_date<=today)
                 .order_by(PharmaEvent.event_date.desc(),PharmaEvent.id).limit(500))).all()
             usable=source["status"] in ("available","empty","stale")
-            selected=[];seen=set()
+            selected=[];seen=set();order={"Material":0,"Watch":1,"None":2}
             for event in events:
                 item=publication_item(event.evidence['item'])
                 if not item or not matches_topic(item,topic):continue
-                if name=='trials' and not (item.get('evidence') or {}).get('phases'):continue
+                if name=='trials':
+                    # Drug-development milestones only: registry phase N/A studies (devices, procedures) and
+                    # low-priority registrations stay archived and searchable but do not crowd the milestone feed.
+                    phases=set((item.get('evidence') or {}).get('phases') or [])
+                    if not phases&{'EARLY_PHASE1','PHASE1','PHASE2','PHASE3','PHASE4'}:continue
+                    if impact(item['event'],item)['rating']=='None':continue
                 key=publication_key(item)
                 if key in seen:continue
                 seen.add(key);selected.append(event)
+            if name=='trials':
+                # Results, stops and pivotal registrations lead; newest first within each priority.
+                selected.sort(key=lambda e:(order[impact(e.evidence['item']['event'],e.evidence['item'])['rating']],-e.event_date.toordinal(),e.id))
             source['matching_events_loaded']=len(selected)
-            if name=='trials':source['coverage']={**source['coverage'],'coverage':'Dated clinical milestones only; routine updates and first-observed snapshots are excluded. At most 20 newest matching events are displayed; wider windows can share the same newest events.'}
+            if name=='trials':source['coverage']={**source['coverage'],'coverage':'Dated drug-development milestones only (results, stops, completions, date changes and pivotal or industry Phase 2 registrations). Routine updates, first-observed snapshots and phase N/A studies are excluded. Up to 20 events are shown, highest priority first.'}
             source["limited"]=source["limited"] or len(selected)>20 or len(events)==500
             source["items"]=[await _public_item(db,event) for event in selected[:20]] if usable else []
             sources.append(source)
