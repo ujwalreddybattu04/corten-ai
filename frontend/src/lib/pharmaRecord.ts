@@ -2,9 +2,10 @@ import { getStorageAccount, accountStorage } from "./accountStorage";
 import { isPrivateChat } from "./questionDrafts";
 import { PHARMA_TOPICS, PHARMA_SOURCE_LABELS, parsePharmaFeed, validPharmaItem, type PharmaFeed, type PharmaItem, type PharmaSource, type PharmaTopic } from "./pharmaFeed";
 import type { SearchSource, ThreadData } from "@/hooks/useSearch";
+import type { PharmaToolStep } from "./pharmaResearch";
 
 export interface PharmaRecord { item: PharmaItem; feed: Pick<PharmaFeed, "topic" | "days" | "sources">; }
-export interface PharmaTurn { query: string; answer: string; sources: SearchSource[]; }
+export interface PharmaTurn { query: string; answer: string; sources: SearchSource[]; tools?: PharmaToolStep[]; }
 // 3: expert brief (Why it matters, Forecast impact rating, What to watch); older saved briefs are regenerated.
 const ANALYSIS_VERSION = 5;
 export const PHARMA_REFRESH_LABEL = "Refresh analyst brief";

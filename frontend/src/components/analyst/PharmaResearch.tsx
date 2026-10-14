@@ -24,7 +24,7 @@ export function PharmaToolProgress({ steps, status, busy = false }: { steps: Pha
     return <div className="pr-task-panel"><div className="pr-task-heading"><span>{busy ? <LoaderCircle size={14} className="pi-spinning" /> : <Check size={14} />}{busy ? status || "Checking sources" : "Source checks complete"}</span><small>{completed} / {steps.length}</small></div>
         <ul className="pr-tools" aria-label="Research tools">{steps.map(step => <li key={step.id} data-status={step.status}>
         {step.status === "running" ? <LoaderCircle size={13} className="pi-spinning" /> : step.status === "available" ? <Check size={13} /> : <span aria-hidden="true">—</span>}
-        <span>{step.label}</span><small>{step.status === "running" ? "Checking" : step.status === "available" ? `${step.count ?? 0} records` : step.status === "empty" ? "No matches" : "Unavailable"}</small>
+        <span>{step.label}</span><small>{step.status === "running" ? "Checking" : step.status === "available" ? `${step.count ?? 0} record${step.count === 1 ? "" : "s"}` : step.status === "empty" ? "No matches" : "Unavailable"}</small>
     </li>)}</ul></div>;
 }
 
@@ -66,14 +66,13 @@ export default function PharmaResearch() {
             {!chat.turns.length && !chat.busy && <><h1>What are you investigating?</h1><p>Ask about a drug, trial, approval, safety signal or competitor.</p></>}
         </header>
         {!chat.turns.length && !chat.busy && <div className="pr-examples">{EXAMPLES.map(({ icon: Icon, title, query }) => <button key={title} onClick={() => { setInput(query); textarea.current?.focus(); }}><Icon size={19} /><strong>{title}</strong><span>{query}</span><ArrowUpRight size={14} /></button>)}</div>}
-        {chat.turns.map((turn, index) => <article className="pr-turn" key={index}><h2>{turn.query}</h2><AnswerStream content={turn.answer} sources={turn.sources} isStreaming={false} /></article>)}
+        {chat.turns.map((turn, index) => <article className="pr-turn" key={index}><h2>{turn.query}</h2><PharmaToolProgress steps={turn.tools || []} /><AnswerStream content={turn.answer} sources={turn.sources} isStreaming={false} /></article>)}
         <div ref={latest} className="pr-current" aria-busy={chat.busy}>
             {chat.busy && <><h2>{chat.question}</h2><PharmaToolProgress steps={chat.steps} status={chat.answer ? "Presenting checked answer" : chat.status} busy />{!chat.answer ? <p className="pr-status" role="status"><LoaderCircle size={15} className="pi-spinning" />{chat.status}</p> : <AnswerStream content={chat.answer} sources={chat.sources} isStreaming />}</>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p>{chat.question && <button className="pi-button" onClick={chat.retry}>Retry research</button>}</div>}
         </div>
         {!chat.busy && last && !chat.error && <>
-            <PharmaToolProgress steps={chat.steps} />
-            {!!chat.coverage.length && <details className="pr-evidence"><summary>Evidence & coverage<span>{chat.records.length} retrieved records<ChevronDown size={14} /></span></summary>
+            {!!chat.coverage.length && <details className="pr-evidence"><summary>Evidence & coverage<span>{chat.records.length} retrieved record{chat.records.length === 1 ? "" : "s"}<ChevronDown size={14} /></span></summary>
                 {chat.coverage.map((item, i) => <p key={i}><strong>{item.tool.replaceAll("_", " ")}</strong> · {item.status}<br />{item.coverage}</p>)}
                 {chat.records.map((item, i) => <a key={i} href={item.url} target="_blank" rel="noopener noreferrer">[{item.citation}] {item.title}<ArrowUpRight size={13} /></a>)}
             </details>}

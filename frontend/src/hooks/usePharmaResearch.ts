@@ -16,9 +16,13 @@ export function usePharmaResearch(existingId: string) {
     const prior = useRef<PharmaTurn[]>([]), owner = useRef(getStorageAccount()), id = useRef(""), pending = useRef("");
     useEffect(() => {
         const timer = setTimeout(() => {
-            owner.current = getStorageAccount(); id.current = existingId || crypto.randomUUID();
+            owner.current = getStorageAccount();
             const restored = restoreResearchThread(existingId);
-            prior.current = restored ? [...restored.history, restored].map(t => ({ query: t.query, answer: t.answer, sources: researchSources(t.sources) })) : [];
+            id.current = restored ? existingId : crypto.randomUUID();
+            prior.current = restored ? [...restored.history, restored].map(t => {
+                const tools = (t as typeof t & { tools?: unknown[] }).tools;
+                return { query: t.query, answer: t.answer, sources: researchSources(t.sources), tools: Array.isArray(tools) ? tools.slice(0, 4).map(researchTool).filter((s): s is PharmaToolStep => !!s) : [] };
+            }) : [];
             setTurns(prior.current); setSaved(!!restored); setAnswer(""); setQuestion(""); setRecords([]); setCoverage([]); setSteps([]);
             setError(existingId && !restored ? "This research conversation is unavailable in this account or private session." : "");
         }, 0);
@@ -29,6 +33,7 @@ export function usePharmaResearch(existingId: string) {
         if (abort.current || !query || query.length > 8000) return;
         const controller = new AbortController(); abort.current = controller; pending.current = query;
         const previous = [...prior.current]; let refs: SearchSource[] = [];
+        const checks = new Map<string, PharmaToolStep>();
         const current = () => abort.current === controller && !controller.signal.aborted && owner.current === getStorageAccount();
         setBusy(true); setError(""); setQuestion(query); setAnswer(""); setSources([]); setSteps([]); setRecords([]); setCoverage([]); setStatus("Choosing Pharma sources");
         const display = progressiveText(text => { if (current()) setAnswer(text); }, controller.signal); reveal.current = display;
@@ -41,14 +46,14 @@ export function usePharmaResearch(existingId: string) {
                 else if (event.type === "sources") { refs = researchSources(event.sources); setSources(refs); }
                 else if (event.type === "tool_step") {
                     const step = researchTool(event);
-                    if (step) setSteps(rows => [...rows.filter(r => r.id !== step.id), step].sort((a, b) => a.id.localeCompare(b.id)));
+                    if (step) { checks.set(step.id, step); setSteps([...checks.values()].sort((a, b) => a.id.localeCompare(b.id))); }
                 } else if (event.type === "research_evidence") {
                     const evidence = researchEvidence(event); setRecords(evidence.records); setCoverage(evidence.coverage);
                 }
             }, "Pharma research");
             await display.finish();
             if (!current()) return;
-            const completed = [...previous, { query, answer: text, sources: refs }];
+            const completed = [...previous, { query, answer: text, sources: refs, tools: [...checks.values()] }];
             prior.current = completed; setTurns(completed); setAnswer(""); setQuestion("");
             const stored = saveResearchThread(completed, previous, id.current, owner.current); setSaved(stored);
         } catch (failure) {

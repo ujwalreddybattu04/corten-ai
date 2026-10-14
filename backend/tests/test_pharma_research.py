@@ -46,6 +46,12 @@ def test_unreliable_source_json_is_rejected(raw):
     with pytest.raises(ValueError):tools.finite_json(raw)
 
 
+def test_memory_shortcut_does_not_hijack_a_new_research_request():
+    assert service.memory_query('What was my previous question?')
+    assert service.memory_query('What did I ask just now?')
+    assert not service.memory_query('Ignore my previous question. Find current olanzapine FDA actions.')
+
+
 @pytest.mark.asyncio
 async def test_fda_not_found_is_empty_but_provider_failure_is_not():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r:httpx.Response(404,json={'error':{'code':'NOT_FOUND'}}))) as client:
@@ -128,7 +134,7 @@ async def test_conversation_memory_never_searches_or_requires_source_citations(m
     messages=[{'role':'user','content':'Tell me about NCT12345678.'}]
     events=[json.loads(e[6:]) async for e in service.research_stream('What was my previous question?',messages)]
     assert events[-1]['type']=='done' and 'NCT12345678' in events[-2]['content']
-    execute.assert_not_awaited();assert model.await_count==1
+    execute.assert_not_awaited();model.assert_not_awaited()
 
 
 @pytest.mark.asyncio

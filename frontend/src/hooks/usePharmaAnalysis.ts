@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStorageAccount } from "@/lib/accountStorage";
-import { getAnswerMode } from "@/lib/chatApi";
 import { isPrivateChat } from "@/lib/questionDrafts";
 import { conversationMessages } from "@/lib/conversation";
 import { openSearchStream } from "@/lib/searchConnection";
@@ -37,6 +36,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         const initial = !turnsRef.current.length;
         const display = label || (initial ? pharmaDisplayQuery(record) : query);
         const previous = [...turnsRef.current];
+        const checks = new Map<string, PharmaToolStep>();
         let canonicalSources = [pharmaOriginalSource(record)], text = "";
         setBusy(true); setRefreshing(query === PHARMA_ANALYSIS_PROMPT); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setTools([]); setRelated([]);
         const current = () => !abort.signal.aborted && controller.current === abort && getStorageAccount() === owner.current;
@@ -44,7 +44,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         reveal.current = displayText;
         try {
             const response = query !== PHARMA_ANALYSIS_PROMPT ? await openPharmaResearch(query, currentPharmaTurns(previous), abort.signal,
-                { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record) }) : await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
+                { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record) }) : await openSearchStream({ apiBase: "", query, focus: "all", mode: "auto", incognito: isPrivateChat(),
                 pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
                     days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question" },
                 messages: query === PHARMA_ANALYSIS_PROMPT ? [] : conversationMessages(currentPharmaTurns(previous)).slice(-120) }, abort.signal,
@@ -57,7 +57,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                     canonicalSources = next; setSources(next);
                 } else if (event.type === "tool_step") {
                     const step = researchTool(event);
-                    if (step) setTools(rows => [...rows.filter(r => r.id !== step.id), step].sort((a, b) => a.id.localeCompare(b.id)));
+                    if (step) { checks.set(step.id, step); setTools([...checks.values()].sort((a, b) => a.id.localeCompare(b.id))); }
                 } else if (["status", "thought", "query_step"].includes(event.type) && event.content) {
                     setSteps(value => [...value, { type: event.type as ResearchStep["type"], content: event.content! }]);
                 } else if (event.type === "related") {
@@ -70,7 +70,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
             }, "analysis");
             await displayText.finish();
             if (!current()) return;
-            const completed = [...previous, { query: display, answer: text, sources: canonicalSources }].slice(-60);
+            const completed = [...previous, { query: display, answer: text, sources: canonicalSources, tools: [...checks.values()] }].slice(-60);
             turnsRef.current = completed; setTurns(completed); setAnswer(""); setQuestion("");
             setSaved(savePharmaThread(record, completed, previous, id.current, owner.current));
         } catch (failure) {

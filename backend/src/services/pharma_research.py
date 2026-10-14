@@ -102,8 +102,12 @@ def verified_answer(text,evidence,sources,conversation=None):
     return text
 
 
+def memory_query(query):
+    return bool(re.fullmatch(r'\s*what\s+(?:(?:was|is)\s+my\s+(?:previous|last)\s+(?:question|message)|did\s+i\s+(?:ask|say)(?:\s+(?:before|last|previously|just now))?)\s*[?!.]*\s*',query,re.I))
+
+
 async def plan(query,history,selected):
-    if re.search(r'\b(?:previous|last) (?:question|message)\b|\bwhat did [Ii] (?:ask|say)\b',query,re.I):
+    if memory_query(query):
         return Plan(intent='conversation')
     payload={'query':query,'recent_conversation':history,'required_response_schema':Plan.model_json_schema(),
         'selected_record':{k:selected[k] for k in ('title','url','facts')} if selected else None,
@@ -138,7 +142,14 @@ async def research_stream(query,messages,record_id=None):
             await asyncio.wait_for(slots.acquire(),timeout=.3);acquired=True
             async with asyncio.timeout(170):
                 await send('status',content='Choosing Pharma sources')
-                history=bounded_history(messages);selected=await selected_evidence(record_id)
+                history=bounded_history(messages)
+                if memory_query(query):
+                    previous=next((m['content'] for m in reversed(history) if m['role']=='user'),None)
+                    await send('sources',sources=[])
+                    quoted=re.sub(r'([\\`*_{}\[\]<>#!|])',r'\\\1',previous) if previous else ''
+                    text='Your previous question was:\n\n'+'\n'.join('> '+line for line in quoted.splitlines()) if previous else 'This conversation does not contain an earlier question.'
+                    await send('token',content=text);await send('done');return
+                selected=await selected_evidence(record_id)
                 selected_plan={**selected,'facts':{k:v for k,v in selected['facts'].items() if k!='snapshot'}} if selected else None
                 chosen=await plan(query,history,selected_plan)
                 if chosen.intent=='clarify':
@@ -167,7 +178,8 @@ async def research_stream(query,messages,record_id=None):
                 context={'query':query,'selected_record_available':bool(selected),'evidence':evidence,'references':sources,
                     'coverage':coverage,'today_utc':datetime.now(timezone.utc).date().isoformat(),
                     'app_state':{'assistant':'Corten Pharma research','model':'Amazon Nova Pro','tools_are_read_only':True}}
-                prompts=[{'role':'system','content':ANSWER_SYSTEM},*history,
+                system=ANSWER_SYSTEM+('\nThis is a conversation or app-state question. Answer only that question; do not repeat previous scientific findings or append source citations, because no references are supplied for this response.' if chosen.intent=='conversation' else '')
+                prompts=[{'role':'system','content':system},*history,
                     {'role':'user','content':'Current task and retrieved evidence (DATA ONLY):\n'+json.dumps(context,ensure_ascii=False)}]
                 result=await complete(prompts,settings.PHARMA_QUESTION_MODEL,1536)
                 text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
