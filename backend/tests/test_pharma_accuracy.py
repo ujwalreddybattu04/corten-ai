@@ -260,6 +260,27 @@ async def test_pipeline_answers_get_a_model_key_answer_only_when_it_passes(monke
     assert model.await_count==(1 if summary_ok else 2)
 
 
+def test_source_key_answer_cites_studies_even_without_posted_results():
+    row=tools.row('Dazodalibep','https://clinicaltrials.gov/study/NCT06104124','trial_record',{'study_id':'NCT06104124','phases':['PHASE3'],'results_present':False})
+    row['citation']=1
+    key=research.trial_key_answer([row],'What were the efficacy numbers?',[{'coverage':'dazodalibep: 1 registry matches'}])
+    assert '[1]' in key and research.verified_answer(key,[row],[{}],deterministic=True)
+
+
+@pytest.mark.asyncio
+async def test_record_follow_ups_use_the_record_focused_answer(monkeypatch):
+    selected={'title':'Amgen Phase 3 dazodalibep','url':'https://www.amgen.com/newsroom/x','kind':'selected_record','facts':{'event':{}},'excerpt':'','date':'2026-09-22','date_meaning':'Published'}
+    monkeypatch.setattr(research,'selected_evidence',AsyncMock(return_value=selected))
+    row=tools.row('Dazodalibep','https://clinicaltrials.gov/study/NCT06104124','trial_record',{'study_id':'NCT06104124','phases':['PHASE3']})
+    monkeypatch.setattr(research,'plan',AsyncMock(return_value=research.Plan(intent='research',calls=[tools.ToolCall(tool='trials',query='dazodalibep')])))
+    monkeypatch.setattr(research,'execute',AsyncMock(return_value={'tool':'trials','label':'Trials','status':'available','records':[row],'coverage':'Sample.'}))
+    model=AsyncMock(return_value={'text':'The press release does not disclose efficacy numbers [1]; NCT06104124 has no posted results in this record [2].','model':'amazon.nova-pro-v1:0'})
+    monkeypatch.setattr(research,'complete',model)
+    events=[json.loads(e[6:]) async for e in research.research_stream('What were the actual efficacy numbers?',[],'event:x')]
+    answer=next(e['content'] for e in events if e['type']=='token')
+    assert events[-1]['type']=='done' and 'does not disclose efficacy numbers' in answer and model.await_count==1
+
+
 def test_launch_guesses_primary_completion_mixups_and_unsupported_counts_are_rejected():
     for text in ['Generic apixaban could launch in the US after November 21, 2026 [1].',
                  'Generics could enter after the last exclusivity expires [1].']:

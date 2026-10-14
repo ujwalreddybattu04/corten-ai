@@ -466,7 +466,8 @@ def trial_key_answer(evidence,query,coverage):
         totals=[int(n) for n in re.findall(r'(\d+) registry matches',' '.join(c['coverage'] for c in coverage))]
         posted=[r for r in rows if r['facts'].get('results_posted') or r['facts'].get('results_present') is True]
         lines.append('**'+str(len(rows))+' study record'+('s' if len(rows)!=1 else '')+' retrieved**'+(' from '+str(sum(totals))+' registry matches' if totals else '')
-            +'; registry results are posted for '+str(len(posted))+(': '+', '.join(name(r) for r in posted[:8]) if posted else '')+'. This sample is not a complete pipeline.')
+            +'; registry results are posted for '+str(len(posted))+(': '+', '.join(name(r) for r in posted[:8]) if posted else
+            ' of them ('+', '.join(name(r) for r in rows[:6])+(' and others' if len(rows)>6 else '')+')')+'. This sample is not a complete pipeline.')
         focus=posted
     results=[(r,short_result(r)) for r in focus[:3]]
     if any(text for _,text in results):
@@ -475,10 +476,12 @@ def trial_key_answer(evidence,query,coverage):
     return '\n'.join(lines)
 
 
-def source_answer(query,chosen,evidence,coverage):
+def source_answer(query,chosen,evidence,coverage,selected=False):
     """(basis, Markdown, key answer mode) rendered from typed source fields, when the question is answerable that way."""
     kinds={r['kind'] for r in evidence}
     tools={c.tool for c in chosen.calls}
+    # A follow-up on an opened record is about that record; a generic registry table would not answer it.
+    if selected and not any(c.compare_with for c in chosen.calls) and not re.search(r'\b(?:patents?|exclusivit\w*|recalls?)\b',query,re.I):return None
     if 'orange_book' in kinds and re.search(r'\b(?:patents?|exclusivit\w*|generic (?:entry|launch)|generics?)\b',query,re.I):
         return 'orange_book_records',patent_summary(evidence,coverage),None
     if 'fda_recall' in kinds and re.search(r'\brecalls?\b|\benforcement\b|\bsafety alerts?\b',query,re.I):
@@ -557,13 +560,18 @@ async def research_stream(query,messages,record_id=None):
                 await send('research_evidence',records=evidence,coverage=coverage)
                 if chosen.intent=='research' and not evidence:
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
-                rendered=source_answer(query,chosen,evidence,coverage) if chosen.intent=='research' else None
+                rendered=source_answer(query,chosen,evidence,coverage,selected=bool(selected)) if chosen.intent=='research' else None
+                if rendered:
+                    # An unverifiable source rendering falls back to the checked written answer, never to an error.
+                    try:rendered=(rendered[0],verified_answer(rendered[1],evidence,sources,deterministic=True),rendered[2])
+                    except LLMProviderError:rendered=None
                 if rendered:
                     basis,data_answer,key_mode=rendered
-                    data_answer=verified_answer(data_answer,evidence,sources,deterministic=True)
                     summary=model=None
                     if key_mode=='source':
-                        summary=verified_answer(trial_key_answer(evidence,query,coverage),evidence,sources,deterministic=True)
+                        # A source-built summary that cannot be verified is omitted; the verified tables still answer.
+                        try:summary=verified_answer(trial_key_answer(evidence,query,coverage),evidence,sources,deterministic=True)
+                        except LLMProviderError:summary=None
                     elif key_mode=='model':
                         await send('status',content='Writing the key answer from the retrieved sources')
                         summary,model=await key_answer(query,history,evidence,sources,searched,send)
