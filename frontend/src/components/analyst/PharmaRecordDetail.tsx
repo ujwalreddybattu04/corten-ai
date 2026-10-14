@@ -10,6 +10,7 @@ import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
 import AnswerStream from "@/components/thread/AnswerStream";
 import { ModeMenu } from "@/components/chat/ComposerControls";
 import { RecordThumbnail } from "./PharmaWorkspace";
+import { PharmaToolProgress } from "./PharmaResearch";
 
 const LABELS: Record<string, string> = { application: "Application", action: "Action", ingredients: "Active ingredients", study_id: "Study ID", status: "Study status", phases: "Trial phases", conditions: "Conditions", interventions: "Interventions",
     ema_product_number: "EMA product number", medicine_status: "Medicine status", initial_authorisation_date: "Initial authorisation", latest_procedure: "Latest procedure", indication: "Current indication",
@@ -172,18 +173,20 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         </div>)}
         <div ref={start} className="pi-detail-current" aria-busy={chat.busy}>
             {chat.busy && <>{chat.turns.length > 0 && <div className="pi-detail-question">{chat.question}</div>}
-                {!chat.answer && <div className="pi-detail-preparing" role="status"><LoaderCircle size={15} className="pi-spinning" /><span>Reviewing source evidence</span></div>}
+                <PharmaToolProgress steps={chat.tools} status={chat.answer ? "Presenting checked answer" : chat.steps.at(-1)?.content} busy />
+                {!chat.answer && <div className="pi-detail-preparing" role="status"><LoaderCircle size={15} className="pi-spinning" /><span>{chat.steps.at(-1)?.content || "Reviewing source evidence"}</span></div>}
                 {chat.answer && <AnswerStream content={chat.answer} isStreaming sources={chat.sources} />}
             </>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p><button className="pi-button" onClick={chat.retry}>Retry analysis</button></div>}
         </div>
+        {!chat.busy && !chat.error && <PharmaToolProgress steps={chat.tools} />}
         {!chat.busy && chat.turns.length > 0 && <div className="pi-detail-suggestions" aria-label="Suggested follow-up questions">
             {(chat.related.length ? chat.related : suggestions).map(query => <button key={query} onClick={() => submit(query)}>{query}<ArrowUpRight size={14} /></button>)}
         </div>}
         <div ref={end} className="pi-detail-end" />
         <div ref={composer} className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
             <label className="sr-only" htmlFor="pi-followup">Ask about this record</label>
-            <textarea ref={textarea} id="pi-followup" value={input} rows={1} maxLength={16000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record…" aria-describedby="pi-followup-hint" autoComplete="off"
+            <textarea ref={textarea} id="pi-followup" value={input} rows={1} maxLength={8000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record…" aria-describedby="pi-followup-hint" autoComplete="off"
                 onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chat.busy && chat.turns.length && input.trim()) event.currentTarget.form?.requestSubmit(); } }} />
             <div className="pi-detail-composer-toolbar"><ModeMenu compact /><div className="pi-detail-composer-actions">
                 {chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFullAnswer}>Show full answer</button>}

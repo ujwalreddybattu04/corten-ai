@@ -1,5 +1,6 @@
 "use client";
 import { accountStorage } from "@/lib/accountStorage";
+import { pharmaThreadPath } from "@/lib/pharmaResearch";
 
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -208,7 +209,7 @@ export default function Sidebar() {
                                     recentThreads.map((thread) => (
                                         <Link
                                             key={thread.id}
-                                            href={`/search?id=${encodeURIComponent(thread.id)}`}
+                                href={pharmaThreadPath(thread)}
                                             className={`sidebar-history-item ${thread.id === activeThreadId ? "active" : ""}`}
                                             title={thread.title || thread.query}
                                             aria-current={thread.id === activeThreadId ? "page" : undefined}

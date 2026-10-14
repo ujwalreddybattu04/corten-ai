@@ -117,6 +117,7 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
         {feed && <div className="pi-header-status"><span className={feed.status === "stale" ? "pi-status-attention" : ""}>{feed.status === "stale" ? "Previous snapshot" : "Loaded"} · {checkedDate(feed.checked_at)}</span><span>{feed.sources.filter(s => ["available", "empty"].includes(s.status)).length} / {feed.sources.length} sources available</span></div>}
       </div>
       <div className="pi-actions">
+        <Link className="pi-button" href="/analyst-workspace/pharma/research"><Search size={15} aria-hidden="true" />Ask Pharma</Link>
         <button className="pi-button" onClick={() => void load()} disabled={busy}>
           <RefreshCw size={15} className={busy ? "pi-spinning" : ""} aria-hidden="true" />{busy ? "Checking…" : "Check updates"}
         </button>

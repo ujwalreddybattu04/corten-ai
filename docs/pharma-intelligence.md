@@ -1,5 +1,24 @@
 # Pharma intelligence pilot
 
+## Question-driven research
+
+The Pharma workspace now includes an **Ask Pharma** research chat. Record briefs stay bound to their immutable source snapshot and share the public cache. Record follow-ups and the research page use a separate private workflow: a regional Bedrock planner chooses up to four read-only tools, the application validates the plan, retrieves evidence, then generates a complete answer that passes reference and identifier checks before progressive display. This is a bounded tool batch, not an unrestricted self-modifying agent.
+
+| Tool | Evidence | Important boundary |
+| --- | --- | --- |
+| Drug identity/history | Verified aliases and archived events | Ambiguous identities are not merged; archive history starts with observed records. |
+| Clinical trials | ClinicalTrials.gov current records, endpoints, enrollment and completion qualifiers | Six search matches, not a complete pipeline; current status is not an observed transition. Full result tables are not analyzed. |
+| FDA applications | Up to five matching applications and their recent approved submissions | Retains exact classification, including Labeling; does not establish first generic, launch or exclusivity. |
+| Drug labels | Up to three FDA-submitted labeling records | Excerpts are not a complete current approved label or patient-specific medical advice. |
+| Publications | Up to six distinct Europe PMC publication matches and abstract excerpts | Study type and dates remain visible; full-text and systematic review are not claimed. |
+| Official publications | Domain-restricted public search for regulatory, safety, company, patent, commercial and policy questions | Indexed excerpts, not full-document verification. Sales datasets, patent legal status and freedom-to-operate opinions are not supplied. |
+
+The interface shows actual source checks and counts, then cited answers, source coverage, a Markdown report and a spreadsheet-safe evidence CSV. Empty sources differ from failed sources. A failed or stopped generation never becomes a saved answer, and research results are not mixed into shared public briefs. Personal research conversations resume in Pharma from history; private sessions do not save. Evidence exports are available for the most recently completed research request in the current session; restored conversations retain answers and citations but do not reconstruct old source exports.
+
+All requests require sign-in and use the existing fail-closed Redis generation limits. Plans forbid additional tools/fields, arbitrary URLs, shell execution, emails and database mutations. Provider responses, evidence size, tool count, concurrency and total duration are bounded; individual source failures remain visible while other tools can complete. The existing regional Bedrock gateway still enforces the US$25 monthly pilot estimate and 100 model calls per UTC day. A research request normally uses two model calls, so the daily limit is a model-call limit, not 100 full research requests. No cross-region model calls, new infrastructure or licensed subscriptions are added.
+
+This covers public-source investigation across Pharma topics, not every enterprise workflow. Continuous alerts, uploads/full-document extraction, sandbox calculations, forecast writes, patent/legal determinations, licensed commercial feeds and specialist human review remain separate work. Fixed company-domain coverage is declared in the tool registry; a company outside that scope must not be presented as comprehensively reviewed.
+
 The workspace reads a shared PostgreSQL archive rather than calling public providers for each user. A scheduled worker ingests ClinicalTrials.gov, Drugs@FDA, FDA drug/MedWatch feeds, EMA's human-medicine export, and domain-restricted company/trade reporting. Initial company scope: Bristol Myers Squibb, Pfizer, Novartis, AstraZeneca and Amgen. Publisher text is limited to attributed headlines and short excerpts; original links remain available.
 
 ## Evidence and events

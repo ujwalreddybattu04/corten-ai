@@ -1,6 +1,7 @@
 "use client";
 import { useModalFocus } from "@/hooks/useModalFocus";
 import { accountStorage } from "@/lib/accountStorage";
+import { pharmaThreadPath } from "@/lib/pharmaResearch";
 
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -11,6 +12,8 @@ import remarkGfm from "remark-gfm";
 import { STORAGE_KEYS, EVENTS } from "@/config/constants";
 
 interface ThreadItem {
+    pharmaResearch?: { version?: number };
+    pharmaRecord?: { id?: string };
     id: string;
     title: string;
     query: string;
@@ -195,7 +198,7 @@ export default function HistoryModal({ isOpen, onClose }: HistoryModalProps) {
 
     const openThread = (thread: ThreadItem) => {
         onClose();
-        router.push(`/search?id=${encodeURIComponent(thread.id)}`);
+        router.push(pharmaThreadPath(thread));
     };
 
     const togglePin = (id: string) => {

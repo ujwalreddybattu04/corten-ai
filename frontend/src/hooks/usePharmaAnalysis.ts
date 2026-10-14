@@ -7,6 +7,7 @@ import { conversationMessages } from "@/lib/conversation";
 import { openSearchStream } from "@/lib/searchConnection";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
 import { progressiveText } from "@/lib/progressiveText";
+import { openPharmaResearch, researchTool, researchSources, type PharmaToolStep } from "@/lib/pharmaResearch";
 import { PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL, currentPharmaTurns, pharmaDisplayQuery, pharmaFingerprint, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
 import type { ResearchStep, SearchSource } from "@/hooks/useSearch";
 
@@ -16,6 +17,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const [question, setQuestion] = useState("");
     const [sources, setSources] = useState<SearchSource[]>([]);
     const [steps, setSteps] = useState<ResearchStep[]>([]);
+    const [tools, setTools] = useState<PharmaToolStep[]>([]);
     const [busy, setBusy] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [threadId, setThreadId] = useState("");
@@ -30,18 +32,19 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const owner = useRef(getStorageAccount());
     const pending = useRef<{ query: string; label?: string } | null>(null);
     const run = useCallback(async (query: string, label?: string) => {
-        if (controller.current || !query.trim() || query.length > 16000) return;
+        if (controller.current || !query.trim() || query.length > 8000) return;
         const abort = new AbortController(); controller.current = abort; pending.current = { query, label };
         const initial = !turnsRef.current.length;
         const display = label || (initial ? pharmaDisplayQuery(record) : query);
         const previous = [...turnsRef.current];
         let canonicalSources = [pharmaOriginalSource(record)], text = "";
-        setBusy(true); setRefreshing(query === PHARMA_ANALYSIS_PROMPT); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setRelated([]);
+        setBusy(true); setRefreshing(query === PHARMA_ANALYSIS_PROMPT); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setTools([]); setRelated([]);
         const current = () => !abort.signal.aborted && controller.current === abort && getStorageAccount() === owner.current;
         const displayText = progressiveText(value => { if (current()) setAnswer(value); }, abort.signal);
         reveal.current = displayText;
         try {
-            const response = await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
+            const response = query !== PHARMA_ANALYSIS_PROMPT ? await openPharmaResearch(query, currentPharmaTurns(previous), abort.signal,
+                { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record) }) : await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
                 pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
                     days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question" },
                 messages: query === PHARMA_ANALYSIS_PROMPT ? [] : conversationMessages(currentPharmaTurns(previous)).slice(-120) }, abort.signal,
@@ -50,8 +53,11 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                 if (!current()) return;
                 if (event.type === "token") displayText.append(event.content || event.data || "");
                 else if (event.type === "sources" && (event.sources || event.items)) {
-                    const next = (event.sources || event.items) as SearchSource[];
-                    if (next.length) { canonicalSources = next; setSources(next); }
+                    const next = query === PHARMA_ANALYSIS_PROMPT ? (event.sources || event.items) as SearchSource[] : researchSources(event.sources || event.items);
+                    canonicalSources = next; setSources(next);
+                } else if (event.type === "tool_step") {
+                    const step = researchTool(event);
+                    if (step) setTools(rows => [...rows.filter(r => r.id !== step.id), step].sort((a, b) => a.id.localeCompare(b.id)));
                 } else if (["status", "thought", "query_step"].includes(event.type) && event.content) {
                     setSteps(value => [...value, { type: event.type as ResearchStep["type"], content: event.content! }]);
                 } else if (event.type === "related") {
@@ -90,7 +96,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
     return { turns: busy && refreshing ? [] : currentPharmaTurns(turns),
-        answer, question, sources, steps, busy, error, saved, related, model, threadId: saved ? threadId : "",
+        answer, question, sources, steps, tools, busy, error, saved, related, model, threadId: saved ? threadId : "",
         ask: run, showFullAnswer: () => reveal.current?.showAll(), refresh: () => run(PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL),
         retry: () => run(pending.current?.query || PHARMA_ANALYSIS_PROMPT, pending.current?.label) };
 }

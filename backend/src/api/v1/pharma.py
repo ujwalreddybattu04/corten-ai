@@ -6,13 +6,14 @@ import json
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from src.api.deps import get_current_user_id
 from src.services.pharma_analysis import same_snapshot, stream_analysis
 from src.services.pharma_updates import Topic, pharma_updates_service
 from src.config.settings import settings
 from src.services import pharma_repository
 from sqlalchemy.exc import SQLAlchemyError
+from src.services.pharma_research import research_stream
 
 router = APIRouter()
 
@@ -75,8 +76,37 @@ async def timeline(identifier: str,response: Response,cursor: str|None=Query(Non
 
 
 class HistoryMessage(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=6000)
+
+
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    query: str = Field(min_length=1,max_length=8000)
+    messages: list[HistoryMessage] = Field(default_factory=list,max_length=12)
+    record_id: str | None = Field(default=None,min_length=1,max_length=240)
+    record_fingerprint: str | None = Field(default=None,min_length=1,max_length=20000)
+
+    @model_validator(mode='after')
+    def bounded(self):
+        if not self.query.strip():raise ValueError('Please enter a Pharma question.')
+        if bool(self.record_id)!=bool(self.record_fingerprint):raise ValueError('Reopen the source record before continuing.')
+        if sum(len(m.content.encode()) for m in self.messages)>18000:raise ValueError('Conversation context is too large.')
+        return self
+
+
+@router.post('/research/stream',dependencies=[Depends(get_current_user_id)])
+async def research(request: ResearchRequest):
+    if not settings.PHARMA_INTELLIGENCE_ENABLED:raise HTTPException(404,'Pharma research is not enabled.')
+    if request.record_id:
+        try:resolved=await pharma_repository.get_record(request.record_id)
+        except SQLAlchemyError:raise HTTPException(503,'The source archive is temporarily unavailable.') from None
+        if not resolved:raise HTTPException(404,'This source record was not found.')
+        if not same_snapshot(resolved['item'],request.record_fingerprint):
+            raise HTTPException(409,'The source record changed. Reopen it to review the current version.')
+    return StreamingResponse(research_stream(request.query,[m.model_dump() for m in request.messages],request.record_id),
+        media_type='text/event-stream',headers={'Cache-Control':'private, no-store','X-Accel-Buffering':'no'})
 
 
 class AnalysisRequest(BaseModel):

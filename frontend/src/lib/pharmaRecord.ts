@@ -6,7 +6,7 @@ import type { SearchSource, ThreadData } from "@/hooks/useSearch";
 export interface PharmaRecord { item: PharmaItem; feed: Pick<PharmaFeed, "topic" | "days" | "sources">; }
 export interface PharmaTurn { query: string; answer: string; sources: SearchSource[]; }
 // 3: expert brief (Why it matters, Forecast impact rating, What to watch); older saved briefs are regenerated.
-const ANALYSIS_VERSION = 4;
+const ANALYSIS_VERSION = 5;
 export const PHARMA_REFRESH_LABEL = "Refresh analyst brief";
 export function currentPharmaTurns(turns: PharmaTurn[]) {
     const start = turns.findLastIndex(turn => turn.query === PHARMA_REFRESH_LABEL);

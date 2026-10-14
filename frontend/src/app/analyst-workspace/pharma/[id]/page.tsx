@@ -4,6 +4,7 @@ import PharmaRecordDetail from "@/components/analyst/PharmaRecordDetail";
 import "@/styles/analyst-workspace.css";
 import "@/styles/pharma-workspace.css";
 import "@/styles/pharma-record.css";
+import "@/styles/pharma-research.css";
 
 export const metadata: Metadata = { title: "Pharma record | Corten AI" };
 export default function PharmaRecordPage() {

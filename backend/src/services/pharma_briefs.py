@@ -9,7 +9,7 @@ from src.models.pharma import PharmaSharedBrief
 from src.services.pharma_events import digest
 from src.services.llm_runtime import LLMProviderError
 
-CONTRACT = "source-only-regional-v1"
+CONTRACT = "source-only-regional-v2"
 # Tasks survive an individual reader disconnect; the durable lease coordinates workers.
 _tasks = {}
 
