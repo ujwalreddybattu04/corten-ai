@@ -13,7 +13,7 @@ import { splitArtifacts, type Artifact } from "@/lib/artifacts";
 import type { GeneratedFile } from "@/lib/chatApi";
 import { ArtifactCard, FileCards, ThinkingPanel, linkCitations } from "@/components/chat/AnswerExtras";
 import { protectCurrency } from "@/lib/currency";
-import { citationNumbers, sourceLabel, stripLeadingHeading } from "@/lib/citations";
+import { citationNumbers, sourceLabel } from "@/lib/citations";
 
 // Premium Formatting Dependencies
 import remarkMath from "remark-math";
@@ -451,7 +451,7 @@ const AnswerStream = memo(({
                                 rehypePlugins={[rehypeKatex]}
                                 components={markdownComponents}
                             >
-                                {linkCitations(protectCurrency(index === 0 ? stripLeadingHeading(segment.text, sources.length > 0) : segment.text))}
+                                {linkCitations(protectCurrency(segment.text))}
                             </ReactMarkdown>
                         ))}
                         <FileCards files={files} />
