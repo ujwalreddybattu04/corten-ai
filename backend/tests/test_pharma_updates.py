@@ -35,7 +35,9 @@ class NormalizationTests(unittest.TestCase):
                 {"submission_status": "AP", "submission_status_date": "20261020"},
             ]}]}
         items = normalize_fda(payload, "2026-10-01", "2026-10-09")
-        self.assertEqual(len(items), 1)
+        self.assertEqual(len(items), 2)
+        self.assertIn('tentative approval',items[1]['title'])
+        self.assertEqual(items[1]['details']['approval_status'],'tentative')
         self.assertEqual(items[0]["date"], "2026-10-08")
         self.assertIn("supplemental approval", items[0]["title"])
         self.assertIn("ApplNo=123456", items[0]["url"])

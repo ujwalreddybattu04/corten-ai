@@ -81,7 +81,14 @@ class AliasMatcher:
 
 def mentioned_drugs(item, aliases, matcher=None):
     details = item.get("details") or {}
-    values = [item.get("title",""),item.get("summary",""),
-              *(details.get("ingredients") or []),*(details.get("interventions") or [])]
+    # Structured subjects take precedence over drugs mentioned as comparators or prior treatments.
+    subjects=details.get('ingredients') or details.get('interventions')
+    if subjects:
+        found=set()
+        for value in subjects:
+            identity=aliases.get(normalize_name(value))
+            if identity:found.add(identity)
+        return sorted(found)[:8]
+    values = [item.get("title","")]
     text = " ".join(unicodedata.normalize("NFKC"," ".join(values)).casefold().split())
     return (matcher or AliasMatcher(aliases)).match(text)

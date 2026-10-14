@@ -158,7 +158,7 @@ async def test_official_search_rejects_external_and_deceptive_hosts(monkeypatch)
 def test_evidence_budget_preserves_whole_records_and_shared_reference_numbers():
     row=tools.row('Example','https://www.fda.gov/drugs/example','fda_application',{'application':'ANDA210968'})
     evidence,sources=service.assemble([{'records':[row,row,{**row,'facts':{'large':'x'*50000}}]}])
-    assert len(evidence)==2 and len(sources)==1 and [r['citation'] for r in evidence]==[1,1]
+    assert len(evidence)==1 and len(sources)==1 and [r['citation'] for r in evidence]==[1]
     assert service.verified_answer('ANDA210968 [1]',evidence,sources)
     for answer in ['NCT87654321 [1]','A fact [99]','A fact without a reference','https://evil.example [1]']:
         with pytest.raises(LLMProviderError):service.verified_answer(answer,evidence,sources)
@@ -201,8 +201,10 @@ async def test_one_bounded_reference_repair_never_publishes_an_unverified_draft(
     monkeypatch.setattr(service,'complete',model)
     events=[json.loads(e[6:]) async for e in service.research_stream('Investigate Example',[])]
     assert model.await_count==2 and not any(e.get('content')=='Uncited draft.' for e in events)
-    assert events[-1]['type']==('done' if repaired else 'error')
-    if not repaired:assert not any(e['type']=='token' for e in events)
+    assert events[-1]['type']=='done'
+    if not repaired:
+        answer=next(e['content'] for e in events if e['type']=='token')
+        assert 'unsupported draft has been withheld' in answer and 'Still uncited' not in answer and 'Example' in answer
 
 
 @pytest.mark.asyncio

@@ -19,8 +19,8 @@ class DailyBudgetExceeded(RuntimeError):pass
 
 
 class Ledger:
-    def __init__(self,path,limit=25_000_000_000):
-        self.path=str(path);self.limit=limit
+    def __init__(self,path,limit=25_000_000_000,daily_limit=1000):
+        self.path=str(path);self.limit=limit;self.daily_limit=daily_limit
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, month TEXT NOT NULL, day TEXT NOT NULL, charge INTEGER NOT NULL CHECK(charge>=0), settled INTEGER NOT NULL DEFAULT 0)")
     def connect(self):return sqlite3.connect(self.path,timeout=10)
@@ -34,7 +34,7 @@ class Ledger:
             used=db.execute("SELECT COALESCE(SUM(charge),0) FROM requests WHERE month=?",(month,)).fetchone()[0]
             # Keep a small allowance for the separately measured pre-deployment evaluations.
             if used+amount+50_000_000>self.limit:raise BudgetExceeded("Monthly Pharma inference budget reached")
-            if db.execute("SELECT count(*) FROM requests WHERE day=?",(day,)).fetchone()[0]>=100:raise DailyBudgetExceeded("Daily Pharma generation cap reached")
+            if db.execute("SELECT count(*) FROM requests WHERE day=?",(day,)).fetchone()[0]>=self.daily_limit:raise DailyBudgetExceeded("Daily Pharma generation cap reached")
             db.execute("INSERT INTO requests(id,month,day,charge) VALUES(?,?,?,?)",(identifier,month,day,amount))
         return identifier
     def settle(self,identifier,actual):
@@ -124,9 +124,13 @@ class Handler(BaseHTTPRequestHandler):
             length=int(self.headers.get('Content-Length','0'))
             if not 0<length<=MAX_BYTES:return self.reply(413,{'error':'prompt_too_large'})
             request=json.loads(self.rfile.read(length))
-            if not self.server.slots.acquire(blocking=False):return self.reply(429,{'error':'busy'})
-            try:value=complete(request,self.server.ledger)
-            finally:self.server.slots.release()
+            request=validated_request(request)
+            if not self.server.admissions.acquire(blocking=False):return self.reply(429,{'error':'busy'})
+            try:
+                if not self.server.slots.acquire(timeout=15):return self.reply(429,{'error':'busy'})
+                try:value=complete(request,self.server.ledger)
+                finally:self.server.slots.release()
+            finally:self.server.admissions.release()
             self.reply(200,value)
         except BudgetExceeded:self.reply(429,{'error':'monthly_budget_reached'})
         except DailyBudgetExceeded:self.reply(429,{'error':'daily_budget_reached'})
@@ -150,6 +154,7 @@ def main():
         os.chown(socket_path,0,10001);socket_path.chmod(0o660)
         private=Path('/opt/corten/private/bedrock');private.mkdir(mode=0o700,exist_ok=True)
         server.ledger=Ledger(private/'usage.sqlite3');server.slots=threading.BoundedSemaphore(2)
+        server.admissions=threading.BoundedSemaphore(8)
         server.serve_forever()
 
 if __name__=='__main__':main()

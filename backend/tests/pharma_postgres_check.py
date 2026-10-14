@@ -5,6 +5,7 @@ python -m tests.pharma_postgres_check is intentionally separate from unit tests.
 import asyncio
 import copy
 import json
+from datetime import datetime,timedelta,timezone
 from sqlalchemy import select,func
 from src.config.settings import settings
 from src.db.session import async_session_factory,engine
@@ -57,7 +58,21 @@ async def main():
     async with async_session_factory() as db:
         briefs=(await db.scalars(select(PharmaSharedBrief))).all()
         assert len(briefs)==2 and all(b.status=='ready' and b.owner is None for b in briefs)
+    retry_item={**chosen,'version':'b'*64};retry_calls=0
+    async def first_bad_then_good():
+        nonlocal retry_calls
+        retry_calls+=1
+        return {'text':'Source fallback' if retry_calls==1 else 'Repaired brief','model':'amazon.nova-pro-v1:0',
+            'usage':{'basis':'source_summary'} if retry_calls==1 else {'inputTokens':10,'outputTokens':5}}
+    assert (await _generate(retry_item,'amazon.nova-pro-v1:0',first_bad_then_good))['text']=='Source fallback'
+    assert (await _generate(retry_item,'amazon.nova-pro-v1:0',first_bad_then_good))['text']=='Source fallback'
+    assert retry_calls==1
+    assert (await _generate(retry_item,'amazon.nova-pro-v1:0',first_bad_then_good,refresh=True))['text']=='Repaired brief'
+    assert retry_calls==2
+    # A good brief's force-refresh has a shared cooldown rather than one model call per click.
+    assert (await _generate(retry_item,'amazon.nova-pro-v1:0',first_bad_then_good,refresh=True))['shared']
+    assert retry_calls==2
     await engine.dispose()
-    print(json.dumps({'snapshots':2,'real_events':4,'source_reversion_preserved':True,'multi_worker_single_generation':True,'cancelled_reader_cache':True,'archive_and_cursor':True}))
+    print(json.dumps({'snapshots':2,'real_events':4,'source_reversion_preserved':True,'multi_worker_single_generation':True,'cancelled_reader_cache':True,'archive_and_cursor':True,'fallback_retry_and_refresh_cooldown':True}))
 
 if __name__=='__main__':asyncio.run(main())

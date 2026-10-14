@@ -46,7 +46,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
             const response = query !== PHARMA_ANALYSIS_PROMPT ? await openPharmaResearch(query, currentPharmaTurns(previous), abort.signal,
                 { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record) }) : await openSearchStream({ apiBase: "", query, focus: "all", mode: "auto", incognito: isPrivateChat(),
                 pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
-                    days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question" },
+                    days: record.feed.days, kind: query === PHARMA_ANALYSIS_PROMPT ? "brief" : "question", refresh: label === PHARMA_REFRESH_LABEL },
                 messages: query === PHARMA_ANALYSIS_PROMPT ? [] : conversationMessages(currentPharmaTurns(previous)).slice(-120) }, abort.signal,
                 message => { if (current()) setSteps([{ type: "status", content: message }]); });
             text = await readArticleSummary(response, event => {

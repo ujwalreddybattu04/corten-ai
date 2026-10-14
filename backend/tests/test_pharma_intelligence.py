@@ -95,6 +95,14 @@ def test_durable_budget_concurrency_and_settlement(tmp_path):
     assert ledger.reserve(30_000_000,"2026-11")
     with pytest.raises(ValueError):ledger.settle(next(i for i in ids if i!=saved and i),40_000_000)
 
+
+def test_daily_cap_is_configurable_without_disabling_monthly_spend_guard(tmp_path):
+    ledger=gateway.Ledger(tmp_path/'daily.sqlite3',daily_limit=2)
+    assert ledger.limit==25_000_000_000
+    ledger.reserve(1000);ledger.reserve(1000)
+    with pytest.raises(gateway.DailyBudgetExceeded):ledger.reserve(1000)
+    assert gateway.Ledger(tmp_path/'default.sqlite3').daily_limit==1000
+
 def test_gateway_restricts_models_tools_and_partial_answers(tmp_path,monkeypatch):
     request={"modelId":"amazon.nova-pro-v1:0","system":[{"text":"Source only"}],"messages":[{"role":"user","content":[{"text":"Question"}]}],"inferenceConfig":{"maxTokens":512}}
     assert gateway.validated_request(request)["inferenceConfig"]["temperature"]==.1

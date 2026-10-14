@@ -13,7 +13,7 @@ from src.services import pharma_repository
 from src.services.pharma_sources import safe_source_url, read_response
 from src.services.pharma_updates import clean_text
 
-ToolName = Literal['drug_history','trials','fda','literature','labels','official_search']
+ToolName = Literal['drug_history','trials','fda','literature','labels','orange_book','official_search']
 Scope = Literal['regulatory','safety','companies','commercial','patents','policy']
 DOMAINS = {
     'regulatory': ('fda.gov','ema.europa.eu','ec.europa.eu','gov.uk'),
@@ -25,7 +25,7 @@ DOMAINS = {
 }
 TOOL_LABELS = {'drug_history':'Drug identity and archived events','trials':'ClinicalTrials.gov studies',
     'fda':'FDA applications and approval actions','literature':'Scientific publications',
-    'labels':'FDA-submitted drug labels','official_search':'Official publications'}
+    'labels':'FDA-submitted drug labels','orange_book':'FDA Orange Book patents and exclusivities','official_search':'Official publications'}
 
 
 class ToolCall(BaseModel):
@@ -33,19 +33,21 @@ class ToolCall(BaseModel):
     tool: ToolName
     query: str = Field(min_length=2,max_length=240)
     scope: Scope = 'regulatory'
-    search_by: Literal['term','intervention'] = 'term'
+    search_by: Literal['term','intervention','sponsor'] = 'term'
     phase: Literal['PHASE1','PHASE2','PHASE3','PHASE4'] | None = None
     condition: str | None = Field(default=None,min_length=2,max_length=160)
+    compare_with: str | None = Field(default=None,min_length=2,max_length=120)
 
     @model_validator(mode='after')
     def applicable_scope(self):
         if self.tool!='official_search' and self.scope!='regulatory':raise ValueError('Only official search uses scope')
-        if self.tool!='trials' and (self.phase or self.condition or self.search_by!='term'):raise ValueError('Only trials use registry filters')
+        if self.tool!='trials' and (self.phase or self.condition or self.compare_with or self.search_by!='term'):raise ValueError('Only trials use registry filters')
         return self
 
-    @field_validator('query')
+    @field_validator('query','condition','compare_with')
     @classmethod
     def scientific_term(cls, value):
+        if value is None:return value
         value=value.strip()
         if len(value)<2 or re.search(r'https?://|[\x00-\x1f]',value,re.I):
             raise ValueError('Use scientific search terms, not links or control characters')
@@ -102,34 +104,42 @@ async def drug_history(call,client):
 
 
 async def trials(call,client):
-    search='query.id' if re.fullmatch(r'NCT\d{8}',call.query) else 'query.intr' if call.search_by=='intervention' else 'query.term'
-    params={search:call.query,'pageSize':6,'format':'json','countTotal':'true','sort':'LastUpdatePostDate:desc'}
+    search='query.id' if re.fullmatch(r'NCT\d{8}',call.query) else 'query.intr' if call.search_by=='intervention' or call.compare_with else 'query.spons' if call.search_by=='sponsor' else 'query.term'
+    term=call.query if not call.compare_with else '"'+call.query.replace('"','')+'" AND "'+call.compare_with.replace('"','')+'"'
+    params={search:term,'pageSize':12,'format':'json','countTotal':'true','sort':'@relevance' if call.compare_with else 'LastUpdatePostDate:desc'}
     if call.phase:params['filter.advanced']='AREA[Phase]'+call.phase
-    if call.condition:params['query.cond']=call.condition
+    condition=call.condition
+    if condition and re.search(r'\b(?:MDS|myelodysplas\w*)\b',condition,re.I):condition='myelodysplastic syndromes'
+    if condition:params['query.cond']=condition
     result=await data(client,'https://clinicaltrials.gov/api/v2/studies',params=params)
     if not isinstance(result.get('studies'),list):raise ValueError('Invalid trial response')
     rows=[]
-    for study in result['studies'][:6]:
+    for study in result['studies'][:12]:
         protocol=study.get('protocolSection') or {};identity=protocol.get('identificationModule') or {}
         identifier=identity.get('nctId','')
         if not re.fullmatch(r'NCT\d{8}',identifier):continue
         status=protocol.get('statusModule') or {};design=protocol.get('designModule') or {}
         outcomes=protocol.get('outcomesModule') or {};interventions=protocol.get('armsInterventionsModule') or {}
-        facts={'study_id':identifier,'status':status.get('overallStatus'),'phases':design.get('phases',[]),
+        groups=interventions.get('armGroups',[])
+        facts={'study_id':identifier,'acronym':identity.get('acronym'),'official_title':identity.get('officialTitle'),
+            'study_type':design.get('studyType'),'design':design.get('designInfo'),
+            'arm_groups':[{'label':g.get('label'),'type':g.get('type'),'intervention_names':g.get('interventionNames',[])} for g in groups[:8]],
+            'status':status.get('overallStatus'),'phases':design.get('phases',[]),
             'conditions':(protocol.get('conditionsModule') or {}).get('conditions',[])[:8],
-            'interventions':[{'name':i.get('name'),'type':i.get('type')} for i in interventions.get('interventions',[])[:8]],
+            'interventions':[{'name':i.get('name'),'type':i.get('type'),'other_names':i.get('otherNames',[]),'arm_group_labels':i.get('armGroupLabels',[])} for i in interventions.get('interventions',[])[:8]],
             'sponsor':(protocol.get('sponsorCollaboratorsModule') or {}).get('leadSponsor'),
             'enrollment':design.get('enrollmentInfo'),'primary_outcomes':outcomes.get('primaryOutcomes',[])[:3],
             'primary_completion':status.get('primaryCompletionDateStruct'),'completion':status.get('completionDateStruct'),
             'stop_reason':status.get('whyStopped'),'results_posted':status.get('resultsFirstPostDateStruct'),
-            'results_present':study['hasResults'] if isinstance(study.get('hasResults'),bool) else True if study.get('resultsSection') else None}
+            'results_present':True if status.get('resultsFirstPostDateStruct',{}).get('date') or study.get('resultsSection') else study.get('hasResults') if isinstance(study.get('hasResults'),bool) else None}
         date=(status.get('lastUpdatePostDateStruct') or {}).get('date')
         rows.append(row(identity.get('briefTitle',identifier),'https://clinicaltrials.gov/study/'+identifier,'trial_record',facts,
             (protocol.get('descriptionModule') or {}).get('briefSummary',''),date,'Registry update posted'))
     total=result.get('totalCount')
-    filters=call.query+('; '+call.phase.replace('PHASE','Phase ') if call.phase else '')+('; '+call.condition if call.condition else '')
-    method='intervention match' if search=='query.intr' else 'study identifier' if search=='query.id' else 'keyword search'
-    return rows,f'{filters} ({method}): {total if isinstance(total,int) else "an unknown number of"} registry matches; {len(rows)} retrieved, sorted by last update (maximum six). This is not a complete pipeline. Current status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
+    filters=term+('; '+call.phase.replace('PHASE','Phase ') if call.phase else '')+('; '+condition if condition else '')
+    method='joint intervention match; arm groups require verification' if call.compare_with else 'intervention match' if search=='query.intr' else 'study identifier' if search=='query.id' else 'sponsor match' if search=='query.spons' else 'keyword search'
+    order='relevance' if call.compare_with else 'last update'
+    return rows,f'{filters} ({method}): {total if isinstance(total,int) else "an unknown number of"} registry matches; {len(rows)} retrieved, sorted by {order} (maximum twelve, previously six). This is not a complete pipeline. Current status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
 
 
 def fda_term(query):
@@ -147,11 +157,15 @@ async def fda(call,client):
     for application in result['results'][:5]:
         identifier=application.get('application_number','')
         if not re.fullmatch(r'(?:ANDA|NDA|BLA)\d{6}',identifier):continue
-        approved=sorted([s for s in application.get('submissions',[]) if s.get('submission_status')=='AP'],key=lambda s:s.get('submission_status_date',''),reverse=True)[:5]
+        def tentative(s):return s.get('submission_status')=='TA' or 'tentative' in str(s.get('submission_public_notes','')).casefold()
+        approved=sorted([s for s in application.get('submissions',[]) if s.get('submission_status')=='AP' and not tentative(s)],key=lambda s:s.get('submission_status_date',''),reverse=True)[:5]
+        pending=sorted([s for s in application.get('submissions',[]) if tentative(s)],key=lambda s:s.get('submission_status_date',''),reverse=True)[:5]
         facts={'application':identifier,'sponsor':application.get('sponsor_name'),
             'products':[{'brand':p.get('brand_name'),'ingredients':p.get('active_ingredients'),'form':p.get('dosage_form'),'route':p.get('route')} for p in application.get('products',[])[:6]],
             'approved_submissions':[{'type':s.get('submission_type'),'number':s.get('submission_number'),'date':s.get('submission_status_date'),
-                'classification':s.get('submission_class_code_description'),'notes':s.get('submission_public_notes')} for s in approved]}
+                'classification':s.get('submission_class_code_description'),'notes':s.get('submission_public_notes')} for s in approved],
+            'tentative_submissions':[{'type':s.get('submission_type'),'number':s.get('submission_number'),'date':s.get('submission_status_date'),
+                'classification':s.get('submission_class_code_description'),'notes':s.get('submission_public_notes'),'marketing_authorised':False} for s in pending]}
         rows.append(row(identifier+' — '+str(application.get('sponsor_name','FDA application')),
             'https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.process&ApplNo='+identifier[-6:],
             'fda_application',facts))
@@ -191,11 +205,51 @@ async def labels(call,client):
     for label in result['results'][:3]:
         identifier=label.get('set_id','')
         if not re.fullmatch(r'[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}',identifier):continue
-        facts={name:clean_text(' '.join(label.get(name,[])[:2]),1000) for name in ('indications_and_usage','boxed_warning','warnings_and_cautions','contraindications') if isinstance(label.get(name),list)}
+        facts={'sections':{},'boxed_warning_present':bool(label.get('boxed_warning'))}
+        for name in ('indications_and_usage','boxed_warning','warnings_and_cautions','contraindications'):
+            value=label.get(name)
+            if not isinstance(value,list):continue
+            full=clean_text(' '.join(v for v in value if isinstance(v,str)),100000)
+            # Choose representative passages from the entire section, not a prefix presented as complete.
+            limit=28000 if name=='indications_and_usage' else 5000
+            facts[name]=full if len(full)<=limit else full[:limit//2]+' … [middle omitted] … '+full[-limit//2:]
+            facts['sections'][name]={'characters':len(full),'complete':len(full)<=limit}
+            if name=='indications_and_usage':
+                titles=re.findall(r'(?:^|\s)1(?:\.\d+)?\s+([A-Z][A-Za-z0-9 ,()\-/–]{4,140}?)(?=\s+(?:KEYTRUDA|[A-Z][A-Z]+\s+is|1\.\d)|$)',full)
+                facts['indication_headings']=[t for t in dict.fromkeys(titles) if t!='INDICATIONS AND USAGE'][:50]
         facts['label_version']=label.get('version');facts['brand_names']=(label.get('openfda') or {}).get('brand_name',[])
+        facts['generic_names']=(label.get('openfda') or {}).get('generic_name',[])
         rows.append(row(', '.join(facts['brand_names']) or 'FDA-submitted label','https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid='+identifier,
             'drug_label',facts,date=label.get('effective_time'),date_meaning='Label effective time as recorded'))
-    return rows,'Up to three FDA-submitted labeling records. Content is excerpted; read the complete current label. Label availability alone does not establish FDA approval or suitability for an individual patient.'
+    return rows,'Up to three FDA-submitted labeling records. Section completeness and full character counts are explicit; omitted text must not be described as a complete list of main indications. A missing boxed-warning section is not a boxed warning. Read the linked full label; label availability alone does not establish FDA approval or suitability for an individual patient.'
+
+
+async def orange_book(call,client):
+    value=re.sub(r'[^\w .+/-]',' ',call.query,flags=re.UNICODE).strip()[:160]
+    if not value:raise ValueError('Empty Orange Book term')
+    search=' OR '.join(field+':"'+value+'"' for field in ('products.active_ingredients.name','products.brand_name'))
+    if re.fullmatch(r'(?:NDA|ANDA)?\d{6}',value,re.I):search='products.application_number:'+value[-6:]
+    found=await asyncio.gather(*(data(client,'https://api.fda.gov/drug/orangebook.json',params={'search':'('+search+') AND products.application_type:'+kind,'limit':6}) for kind in ('N','A')))
+    if any(not isinstance(result.get('results'),list) for result in found):raise ValueError('Invalid Orange Book response')
+    result={'results':[r for part in found for r in part['results']],'meta':found[0].get('meta',{})}
+    rows=[]
+    for entry in result['results'][:12]:
+        products=entry.get('products',[])
+        if isinstance(products,dict):products=[products]
+        products=[p for p in products if isinstance(p,dict)]
+        if not products:continue
+        application=str(products[0].get('application_number',''))
+        if not re.fullmatch(r'\d{6}',application):continue
+        facts={'products':products,'product_number':entry.get('product_number'),'approval_date':entry.get('approval_date'),
+            'patents':entry.get('patents',[]),'exclusivity':entry.get('exclusivity',[]),
+            'dataset_updated':result.get('meta',{}).get('last_updated'),
+            'launch_date_established':False}
+        rows.append(row('Orange Book application '+application,
+            'https://www.accessdata.fda.gov/scripts/cder/ob/results_product.cfm?Appl_Type='+str(products[0].get('application_type','N'))+'&Appl_No='+application,
+            'orange_book',facts))
+    totals=[part.get('meta',{}).get('results',{}).get('total',0) for part in found]
+    total=sum(v for v in totals if isinstance(v,int))
+    return rows,f'FDA Orange Book monthly data: {total} matching records, up to twelve retrieved, with listed patents and regulatory exclusivities. Listing and expiry do not resolve patent validity, litigation, settlements, tentative approval or actual generic launch; no launch date is established.'
 
 
 async def official_search(call,client):
@@ -213,7 +267,7 @@ async def official_search(call,client):
     return rows,'Domain-restricted public search excerpts, not a full-document review. Publisher statements remain attributed claims. No licensed sales/market-share feed is connected; patent listings alone do not establish enforceability, freedom to operate or launch timing.'
 
 
-EXECUTORS={'drug_history':drug_history,'trials':trials,'fda':fda,'literature':literature,'labels':labels,'official_search':official_search}
+EXECUTORS={'drug_history':drug_history,'trials':trials,'fda':fda,'literature':literature,'labels':labels,'orange_book':orange_book,'official_search':official_search}
 
 
 async def execute(call):
@@ -223,7 +277,7 @@ async def execute(call):
     kept=[];size=0
     for item in rows:
         length=len(json.dumps(item,ensure_ascii=False,allow_nan=False).encode())
-        if length>10000 or size+length>25000:continue
+        if length>42000 or size+length>88000:continue
         kept.append(item);size+=length
     if len(kept)<len(rows):coverage+=' Some records exceeded the evidence size limit and were omitted.'
     return {'tool':call.tool,'label':TOOL_LABELS[call.tool],'status':'available' if kept else 'empty','records':kept,'coverage':coverage}

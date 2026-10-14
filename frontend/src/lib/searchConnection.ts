@@ -15,7 +15,7 @@ function delay(ms: number, signal: AbortSignal) {
 export async function openSearchStream(
     request: { apiBase: string; query: string; focus: string; messages: ConversationMessage[]; spaceId?: string;
         mode?: string; attachments?: string[]; contextAttachments?: string[]; incognito?: boolean;
-        pharma?: { record_id: string; record_fingerprint: string; topic: string; days: number; kind: "brief" | "question" } },
+        pharma?: { record_id: string; record_fingerprint: string; topic: string; days: number; kind: "brief" | "question"; refresh?: boolean } },
     signal: AbortSignal, onWait: (message: string) => void,
     options: { budgetMs?: number; attemptMs?: number; delayMs?: number; fetcher?: typeof fetch } = {},
 ): Promise<Response> {

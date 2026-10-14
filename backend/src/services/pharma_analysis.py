@@ -205,10 +205,10 @@ class BriefSections:
         return "\n".join(out) + ("\n" if lines and not final else "")
 
 
-async def stream_analysis(item, source, query, history, kind, mode):
+async def stream_analysis(item, source, query, history, kind, mode, refresh=False):
     if item.get("version"):
         from src.services.pharma_bedrock_analysis import stream_analysis as bedrock_stream
-        async for chunk in bedrock_stream(item,source,query,history,kind,mode):
+        async for chunk in bedrock_stream(item,source,query,history,kind,mode,refresh=refresh):
             yield chunk
         return
     profile = resolve(mode, complexity=4 if kind == "brief" else 3)

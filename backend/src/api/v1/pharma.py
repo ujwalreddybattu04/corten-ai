@@ -119,6 +119,7 @@ class AnalysisRequest(BaseModel):
     messages: list[HistoryMessage] = Field(default_factory=list, max_length=120)
     mode: Literal["auto", "fast", "pro", "think"] = "auto"
     incognito: bool = False
+    refresh: bool = False
 
     @field_validator("query")
     @classmethod
@@ -137,7 +138,7 @@ async def analysis(request: AnalysisRequest):
         item,source=resolved["item"],resolved["source"]
         if not same_snapshot(item,request.record_fingerprint):raise HTTPException(409,"The source record changed. Reopen it to review the current version.")
         return StreamingResponse(stream_analysis(item,source,request.query,
-            [m.model_dump() for m in request.messages],request.kind,request.mode),media_type="text/event-stream",
+            [m.model_dump() for m in request.messages],request.kind,request.mode,request.refresh),media_type="text/event-stream",
             headers={"Cache-Control":"private, no-store","X-Accel-Buffering":"no"})
     # Resolve evidence on the server, never accept caller-supplied clinical facts.
     feed = await pharma_updates_service.get_feed(topic=request.topic, days=request.days)

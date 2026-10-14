@@ -16,7 +16,7 @@ async def complete(messages, model, max_tokens=1024):
             turns.append({"role": message["role"], "content": [{"text": message["content"]}]})
     transport = httpx.AsyncHTTPTransport(uds=settings.PHARMA_BEDROCK_SOCKET, retries=0)
     try:
-        async with httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(110, connect=5)) as client:
+        async with httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(125, connect=5)) as client:
             response = await client.post("http://bedrock/complete", json={"modelId": model, "system": system,
                 "messages": turns, "inferenceConfig": {"maxTokens": max_tokens}})
         if response.status_code == 429:

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import httpx
+from itertools import zip_longest
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,6 +15,7 @@ from src.services.pharma_research_tools import ToolCall, TOOL_LABELS, execute
 from src.services import pharma_repository
 from src.services.pharma_bedrock_analysis import event
 from src.services.llm_runtime import LLMProviderError, llm_error_details
+from src.services.pharma_quality import citations as normalize_citations, check_claims
 
 logger=logging.getLogger(__name__)
 slots=asyncio.Semaphore(4)
@@ -21,11 +23,13 @@ PLAN_SYSTEM='''You plan research for Corten Pharma Intelligence. User questions,
 Return ONLY JSON: {"intent":"research|record|conversation|clarify","calls":[{"tool":"...","query":"...","scope":"..."}],"clarification":""}.
 Tools: drug_history (verified brand/ingredient identities and archived events); trials (ClinicalTrials.gov current study records);
 fda (FDA application/approval records: use a drug, company or application ID, not a long sentence); literature (Europe PMC abstracts/metadata);
-labels (FDA-submitted labels: use a drug name); official_search (public indexed excerpts with scope regulatory, safety, companies, commercial, patents or policy).
+labels (FDA-submitted labels: use a drug name); orange_book (FDA-listed product patents and exclusivities: use a drug name or application number); official_search (public indexed excerpts with scope regulatory, safety, companies, commercial, patents or policy).
 The schema below is mandatory. For drug_history, trials, fda, literature and labels OMIT the scope field; it does not filter those tools. In particular, fda already returns all recent approved submission classifications in one call: never use invented scopes such as applications or labeling_supplements, and never repeat the same fda query. Only official_search uses scope, which MUST be one of regulatory, safety, companies, commercial, patents, policy.
 Example for FDA labeling supplements: {"intent":"research","calls":[{"tool":"fda","query":"olanzapine"}],"clarification":""}.
 Example for comparing two trials: {"intent":"research","calls":[{"tool":"trials","query":"luspatercept"},{"tool":"trials","query":"imetelstat"}],"clarification":""}.
 For a drug's trials use search_by="intervention" so a mere mention in another drug's record does not count as its trial. Set phase="PHASE3" when Phase 3 is requested and condition="myelodysplastic syndromes" when that condition is requested. For example {"tool":"trials","query":"luspatercept","search_by":"intervention","phase":"PHASE3","condition":"myelodysplastic syndromes"}. For an exact NCT identifier omit phase/condition filters and use the identifier as query. For disease-only exploration use search_by="term". Registry filters apply only to trials; omit them from other tools.
+For head-to-head comparisons search BOTH interventions in the SAME record using compare_with. Example: {"tool":"trials","query":"tirzepatide","compare_with":"semaglutide","phase":"PHASE3"}. Also search literature for the named comparison. Do not substitute two separately updated drug samples for a direct-comparison search. For MDS use the broad registry condition "myelodysplastic syndromes", not risk-subgroup phrases. Trial acronyms explicitly named by the user require their own keyword query.
+For a company pipeline use search_by="sponsor" with the company as query and a broad condition, plus official_search scope companies. Example Pfizer obesity pipeline: {"tool":"trials","query":"Pfizer","search_by":"sponsor","condition":"obesity"} and {"tool":"official_search","query":"Pfizer obesity pipeline","scope":"companies"}. For generic patents/exclusivities always use orange_book plus fda, and official_search for settlements/launch announcements if requested.
 Use 0-4 calls, each query 2-240 characters. Use only these tools and scopes. Never invent a drug identity, assume two drugs are equivalent, or request shell, email, database writes or arbitrary URLs.
 For broad drug research choose complementary sources. For comparisons, search each named asset rather than silently assuming complete competitor coverage.
 Use record with NO calls for a question answerable from the selected record, such as its date, identifier or meaning. Use research for other records, current updates, competitors, scientific evidence, patents or commercial questions. Use conversation with NO calls for previous questions or app state. Do not web-search conversation memory.
@@ -41,6 +45,7 @@ EMA: distinguish initial authorisation, later variations and positive opinions. 
 Trials: a current status is not an observed transition; record updates are not clinical milestones. Posted results do not mean positive results. Preserve actual/estimated completion qualifiers and partial dates. Quote supplied stop reasons accurately. Enrollment shortfalls do not establish efficacy failure or market demand. Distinguish a dated archive change from a current registry snapshot.
 Never state that no studies exist or that only one study is registered based on a search sample. Say "No matching studies were returned in this search" or "The retrieved sample contains..." and preserve the total-match count separately. Do not infer a different development strategy from missing matches. Preserve mixed phases such as Phase 2/3. Distinguish primary completion from full study completion, and an estimated date in the past from an actual completion event. An estimated study date does not establish a regulatory submission or launch schedule.
 Publications: identify abstract excerpts versus full-text review and retain study limitations; no invented efficacy comparisons or causal conclusions. Patent listings do not establish enforceability, freedom to operate or launch timing. Commercial statements must retain publisher, dates, currency, period and assumptions; do not invent licensed sales/market share. Research is not patient-specific diagnosis or prescribing.
+Do not recommend dose increases, switching medicines or prescribing decisions, including suggestions aimed at doctors based on observational studies. Publications are retrieved through Europe PMC, even when their links point to PubMed; never claim to have searched PubMed directly. Observational associations cannot establish dose effects or causal benefit. A boxed warning may be stated only when boxed_warning_present is true for the specific supplied label; distinguish ordinary warnings from boxed warnings. Label section completeness is explicit: do not call an excerpt or partial list the main or complete indications. Copy drug names exactly. For trial dates, compute chronology from the supplied dates rather than guessing; check results_posted and results_present before saying results are not posted.
 For forecast questions describe what the evidence supports and what assumptions are missing. Do not claim to change a forecast or assign probabilities without an approved method and inputs. Preserve supplied rule-based review ratings; they are priorities, not investment recommendations. End with concrete next checks only when useful; no generic closing questions or repeated disclaimers.
 '''
 
@@ -56,7 +61,7 @@ class Plan(BaseModel):
         if self.intent=='research' and not self.calls:raise ValueError('Research needs a tool')
         if self.intent!='research' and self.calls:raise ValueError('Unexpected tool calls')
         if self.intent=='clarify' and not self.clarification.strip():raise ValueError('Missing clarification')
-        identities=[(c.tool,c.query.casefold().strip(),c.scope) for c in self.calls]
+        identities=[(c.tool,c.query.casefold().strip(),c.scope,c.search_by,c.phase,(c.condition or '').casefold(),(c.compare_with or '').casefold()) for c in self.calls]
         if len(set(identities))!=len(identities):raise ValueError('Duplicate tool calls')
         return self
 
@@ -71,18 +76,21 @@ def bounded_history(messages,limit=12000):
 
 
 def assemble(results,selected=None):
-    evidence=[];sources=[];numbers={};size=0
-    rows=([selected] if selected else [])+[r for result in results for r in result.get('records',[])]
+    evidence=[];sources=[];numbers={};size=0;seen=set()
+    # Fairly interleave tool results so one drug cannot consume the comparison's entire budget.
+    rows=([selected] if selected else [])+[r for group in zip_longest(*(result.get('records',[]) for result in results)) for r in group if r is not None]
     for record in rows:
+        identity=(record['url'],record['kind'],json.dumps(record['facts'],sort_keys=True,ensure_ascii=False))
+        if identity in seen:continue
         length=len(json.dumps(record,ensure_ascii=False).encode())
-        if len(evidence)>=24 or size+length>44000:continue
+        if len(evidence)>=24 or length>42000 or size+length>72000:continue
         url=record['url']
         if url not in numbers:
             if len(sources)>=20:continue
             numbers[url]=len(sources)+1
             sources.append({'title':record['title'],'url':url,'domain':urlsplit_host(url),
                 'snippet':record.get('excerpt','')[:500],'citationIndex':numbers[url]})
-        evidence.append({**record,'citation':numbers[url]});size+=length
+        evidence.append({**record,'citation':numbers[url]});size+=length;seen.add(identity)
     return evidence,sources
 
 
@@ -103,37 +111,39 @@ def trial_comparison(evidence,coverage):
         return plain(value['date'])+' ('+qualifier+')'
     lines=[f'The retrieved sample contains **{len(rows)} study records**. It is not a complete development pipeline.',
         '', '### Retrieved trial comparison', '',
-        '| Study / interventions | Phase / current status | Primary endpoints | Primary completion | Study completion |',
-        '| --- | --- | --- | --- | --- |']
+        '| Study / interventions | Phase / current status | Primary endpoints | Primary completion | Study completion | Registry results |',
+        '| --- | --- | --- | --- | --- | --- |']
     for row in rows[:12]:
         facts=row['facts']
         names=[str(i['name']) for i in facts.get('interventions',[]) if i.get('name') and i.get('type') in ('DRUG','BIOLOGICAL')]
         phase=' / '.join(re.sub(r'^PHASE([1-4])$',r'Phase \1',str(p)) for p in facts.get('phases',[])) or 'Not listed'
         status=str(facts.get('status') or 'Not listed').replace('_',' ').capitalize()
         endpoints='; '.join(str(o['measure']) for o in facts.get('primary_outcomes',[]) if o.get('measure')) or 'Not listed'
-        cells=[plain(facts['study_id'])+' ['+str(row['citation'])+']'+(' · '+plain(', '.join(names)) if names else ''),
-            plain(phase)+' · '+plain(status),plain(endpoints),date(facts.get('primary_completion')),date(facts.get('completion'))]
+        posted=facts.get('results_posted')
+        results='Posted'+(' '+plain(posted.get('date','')) if isinstance(posted,dict) else ' '+plain(posted) if posted else '') if posted or facts.get('results_present') is True else 'No posted results in this record' if facts.get('results_present') is False else 'Not established'
+        label=facts['study_id']+(' · '+facts['acronym'] if facts.get('acronym') else '')
+        cells=[plain(label)+' ['+str(row['citation'])+']'+(' · '+plain(', '.join(names)) if names else ''),
+            plain(phase)+' · '+plain(status),plain(endpoints),date(facts.get('primary_completion')),date(facts.get('completion')),results]
         lines.append('| '+' | '.join(cells)+' |')
     if len(rows)>12:lines+=['',f'Showing 12 of {len(rows)} retrieved records; the evidence CSV contains the full retrieved sample.']
     lines+=['','### How to use this comparison',
         'The two completion columns are separate registry fields. Actual and estimated qualifiers are retained, including partial dates; an estimated date does not confirm that completion occurred.',
         '', 'Review differences in population, endpoints and design before comparing outcomes. These records do not establish head-to-head efficacy, a regulatory submission date or a market-entry timetable.',
         '', '### Search coverage']
+    upcoming=[r for r in rows if (r['facts'].get('completion') or {}).get('date','')>=datetime.now(timezone.utc).date().isoformat()]
+    if upcoming:
+        first=min(upcoming,key=lambda r:r['facts']['completion']['date'])
+        lines[1:1]=['', 'Earliest listed upcoming study completion in this retrieved sample: **'+plain(first['facts']['study_id'])+'**, '+date(first['facts']['completion'])+' ['+str(first['citation'])+']. This compares full-study dates; it does not establish a future result or launch date.']
     lines.extend('- '+plain(r['coverage']) for r in coverage)
     return '\n'.join(lines)
 
 
 def verified_answer(text,evidence,sources,conversation=None):
     if not text.strip() or len(text)>20000:raise LLMProviderError('The research answer was incomplete. Please retry.')
-    # Normalize only bounded numeric ranges; the validator still checks every resulting reference.
-    def expand(match):
-        first,last=map(int,match.groups())
-        if not 1<=first<=last<=20:raise LLMProviderError('The answer used an invalid reference range.')
-        return ''.join('['+str(i)+']' for i in range(first,last+1))
-    text=re.sub(r'\[(\d+)[-–](\d+)\]',expand,text)
+    text=normalize_citations(text)
     if any(e.get('kind')=='trial_record' for e in evidence):
         for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
-            if re.search(r'\b(?:there (?:are|is|were|was) no|no (?:current |registered )?(?:phase\s*\d|trials?|studies)|(?:only|exactly) one (?:current )?(?:phase\s*\d )?(?:stud[yi]|trial))',sentence,re.I):
+            if re.search(r'\b(?:no (?:current |registered )*(?:phase\s*\d\s+)?(?:trials?|studies)\b|(?:only|exactly) one (?:current )?(?:phase\s*\d )?(?:stud[yi]|trial))',sentence,re.I):
                 if not re.search(r'\b(?:retrieved|returned|sample|this search|these results|supplied|reviewed records)\b',sentence,re.I):
                     raise LLMProviderError('A limited registry search cannot establish that no other trials exist.')
     allowed={str(i+1) for i in range(len(sources))}
@@ -144,7 +154,7 @@ def verified_answer(text,evidence,sources,conversation=None):
     if any(i not in known for i in re.findall(r'\b(?:NCT\d{8}|(?:ANDA|NDA|BLA)\d{5,8})\b',text)):
         raise LLMProviderError('The answer contained an unverified record identifier. Please retry.')
     if re.search(r'https?://',text,re.I):raise LLMProviderError('The answer contained an unverified link format. Please retry.')
-    return text
+    return check_claims(text,evidence)
 
 
 def memory_query(query):
@@ -157,9 +167,35 @@ async def plan(query,history,selected):
     payload={'query':query,'recent_conversation':history,'required_response_schema':Plan.model_json_schema(),
         'selected_record':{k:selected[k] for k in ('title','url','facts')} if selected else None,
         'today_utc':datetime.now(timezone.utc).date().isoformat()}
-    result=await complete([{'role':'system','content':PLAN_SYSTEM},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],settings.PHARMA_QUESTION_MODEL,768)
-    try:return Plan.model_validate_json(result['text'])
+    result=await complete([{'role':'system','content':PLAN_SYSTEM},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],settings.PHARMA_PLANNER_MODEL,768)
+    try:
+        raw=re.sub(r'^```(?:json)?\s*|\s*```$','',result['text'].strip(),flags=re.I)
+        chosen=Plan.model_validate_json(raw)
+        return refine_plan(query,chosen)
     except ValueError:raise LLMProviderError('The research plan could not be validated. Please make the drug, company or question more specific.') from None
+
+
+def refine_plan(query,chosen):
+    """Intent-specific retrieval requirements do not depend on the planner remembering them."""
+    if chosen.intent!='research':return chosen
+    calls=list(chosen.calls)
+    if re.search(r'\bhead[- ]to[- ]head\b',query,re.I):
+        candidates=[c for c in calls if c.tool=='trials']
+        pair=re.search(r'\b([A-Za-z][A-Za-z-]{3,60})\s+(?:vs\.?|versus)\s+([A-Za-z][A-Za-z-]{3,60})\b',query,re.I)
+        if pair:
+            joint=ToolCall(tool='trials',query=pair[1],compare_with=pair[2],phase='PHASE3' if re.search(r'phase\s*(?:3|iii)',query,re.I) else None)
+        elif len(candidates)>=2:
+            joint=ToolCall(tool='trials',query=candidates[0].query,compare_with=candidates[1].query,phase=candidates[0].phase,condition=candidates[0].condition)
+        else:joint=None
+        if joint:
+            calls=[joint,*[c for c in calls if c.tool!='trials']][:4]
+    if re.search(r'\b(?:patents?|exclusivit\w*)\b',query,re.I) and not any(c.tool=='orange_book' for c in calls):
+        asset=next((c.query for c in calls if c.tool in {'fda','labels','drug_history'}),None)
+        if not asset:
+            match=re.search(r'\bgeneric\s+([A-Za-z][A-Za-z-]{3,60})\b',query,re.I)
+            if match:asset=match[1]
+        if asset:calls=[ToolCall(tool='orange_book',query=asset),*calls][:4]
+    return Plan(intent='research',calls=calls)
 
 
 async def selected_evidence(identifier):
@@ -184,7 +220,10 @@ async def research_stream(query,messages,record_id=None):
     async def work():
         acquired=False
         try:
-            await asyncio.wait_for(slots.acquire(),timeout=.3);acquired=True
+            try:await asyncio.wait_for(slots.acquire(),timeout=10)
+            except TimeoutError:
+                await send('error',message='Pharma research is busy. Please retry shortly.',code='pharma_busy',retry_after_seconds=10);return
+            acquired=True
             async with asyncio.timeout(170):
                 await send('status',content='Choosing Pharma sources')
                 history=bounded_history(messages)
@@ -219,12 +258,17 @@ async def research_stream(query,messages,record_id=None):
                 await send('research_evidence',records=evidence,coverage=coverage)
                 if chosen.intent=='research' and not evidence:
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
-                if chosen.calls and all(c.tool=='trials' for c in chosen.calls) and re.search(r'\b(?:compare|comparison|list|tabulate)\b',query,re.I):
+                if chosen.calls and all(c.tool=='trials' for c in chosen.calls) and re.search(r'\b(?:compare|comparison|list|tabulate|completions?|results)\b',query,re.I):
                     comparison=trial_comparison(evidence,coverage)
                     if comparison:
                         text=verified_answer(comparison,evidence,sources)
                         await send('analysis_meta',model='source-data',basis='registry_comparison',shared=False)
                         await send('token',content=text);await send('done');return
+                if chosen.calls and all(c.tool=='labels' for c in chosen.calls) and re.search(r'\b(?:indications?|warnings?|safety)\b',query,re.I):
+                    text=label_summary(evidence)
+                    if text:
+                        await send('analysis_meta',model='source-data',basis='label_sections',shared=False)
+                        await send('token',content=verified_answer(text,evidence,sources));await send('done');return
                 await send('status',content='Comparing evidence and checking references')
                 context={'query':query,'selected_record_available':bool(selected),'evidence':evidence,'references':sources,
                     'coverage':coverage,'today_utc':datetime.now(timezone.utc).date().isoformat(),
@@ -243,7 +287,10 @@ async def research_stream(query,messages,record_id=None):
                     await send('status',content='Checking references before displaying the answer')
                     result=await complete([*prompts,{'role':'assistant','content':result['text']},
                         {'role':'user','content':'The draft failed evidence or reference validation. Rewrite it using only the supplied evidence. Put valid literal [n] references in factual paragraphs and table rows. Never claim no trials exist or only one exists: describe only the retrieved sample. Do not infer a development strategy, submission or market-entry schedule from missing matches or estimated study dates. Preserve mixed phases and actual/estimated qualifiers. Remove unsupported identifiers, raw URLs and unverified claims. Do not add new facts.'}],settings.PHARMA_QUESTION_MODEL,1536)
-                    text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
+                    try:text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
+                    except LLMProviderError:
+                        # Do not turn useful retrieved evidence into a failed chat or publish the unsafe draft.
+                        text=evidence_summary(evidence,coverage)
                 await send('analysis_meta',model=result['model'],basis='research',shared=False)
                 await send('token',content=text);await send('done')
         except asyncio.CancelledError:raise
@@ -270,3 +317,39 @@ async def research_stream(query,messages,record_id=None):
     finally:
         if not task.done():task.cancel()
         await asyncio.gather(task,return_exceptions=True)
+
+
+def evidence_summary(evidence,coverage):
+    lines=['The retrieved source records are available, but the generated interpretation did not pass its checks. The unsupported draft has been withheld.','','### Verified source records']
+    for row in evidence[:12]:
+        facts=row['facts'];detail=''
+        if row['kind']=='trial_record':
+            detail='; '.join(str(v) for v in (facts.get('study_id'),facts.get('status')) if v)
+            if facts.get('results_posted') or facts.get('results_present') is True:detail+='; registry results posted'
+        elif row['kind']=='drug_label':detail='Boxed-warning section '+('present' if facts.get('boxed_warning_present') else 'not present in this retrieved label')
+        elif row['kind']=='fda_application':detail=str(facts.get('application',''))
+        title=re.sub(r'([\\`*_{}\[\]<>#|])',r'\\\1',row['title'])
+        lines.append('- '+title+(': '+detail if detail else '')+' ['+str(row['citation'])+'].')
+    lines+=['','### Coverage and next check']
+    lines.extend('- '+r['coverage'] for r in coverage)
+    return '\n'.join(lines)
+
+
+def label_summary(evidence):
+    rows=[r for r in evidence if r.get('kind')=='drug_label']
+    if not rows:return None
+    def plain(value):return re.sub(r'([\\`*_{}\[\]<>#|])',r'\\\1',str(value)).replace('\n',' ')
+    lines=[]
+    for row in rows:
+        facts=row['facts'];citation=' ['+str(row['citation'])+']'
+        lines+=['### '+plain(', '.join(facts.get('brand_names') or [row['title']])),'',
+            'Boxed-warning section: **'+('present' if facts.get('boxed_warning_present') else 'not present in this retrieved label')+'**.'+citation,'']
+        headings=facts.get('indication_headings') or []
+        if headings:
+            lines+=['Indication headings found across the source section (population, biomarker, line-of-therapy and combination restrictions remain in the full label):'+citation]
+            lines.extend('- '+plain(h)+citation for h in headings)
+        else:lines+=['Indications require review of the linked full section; a short excerpt is not a complete indication list.'+citation]
+        if facts.get('warnings_and_cautions'):
+            lines+=['','Warnings and cautions are a separate label section. Their presence does not create a boxed warning; review the full source for individual risks.'+citation]
+        lines+=['','These records describe labeling, not a recommendation to start treatment, switch medicines or increase a dose.','']
+    return '\n'.join(lines)

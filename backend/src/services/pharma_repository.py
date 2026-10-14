@@ -1,5 +1,7 @@
 """Immutable public evidence, idempotent events and archived drug timelines."""
 import copy
+import re
+import httpx
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import and_, or_, select, delete
 from sqlalchemy.dialects.postgresql import insert
@@ -7,6 +9,7 @@ from src.db.session import async_session_factory
 from src.models.pharma import PharmaDocument, PharmaSnapshot, PharmaEvent, PharmaSourceState, PharmaDrug, PharmaDrugAlias, PharmaEventDrug
 from src.services.pharma_catalog import SOURCE_CATALOG, VERIFIED_IDENTITIES, AliasMatcher, drug_identity, normalize_name, unique_aliases, mentioned_drugs
 from src.services.pharma_events import RULE_VERSION, digest, impact, trial_events
+from src.services.pharma_quality import publication_item, publication_key
 
 
 async def register_drug(db,name,ingredients,aliases,url):
@@ -79,7 +82,7 @@ async def store_record(db,item,raw,events=None,now=None):
 
 async def link_drugs(db):
     aliases=unique_aliases((await db.execute(select(PharmaDrugAlias.alias,PharmaDrugAlias.drug_id))).all())
-    signature=digest([aliases,"literal-matcher-1"]);matcher=AliasMatcher(aliases)
+    signature=digest([aliases,"subject-matcher-2"]);matcher=AliasMatcher(aliases)
     state=await db.get(PharmaSourceState,"drug_links")
     since=state.checked_at if state and state.metadata_json.get("aliases_version")==signature else None
     now=datetime.now(timezone.utc)
@@ -105,6 +108,18 @@ async def link_drugs(db):
 
 async def _public_item(db,event):
     item=copy.deepcopy(event.evidence["item"])
+    if item.get('source')=='fda' and not (item.get('details') or {}).get('approval_status'):
+        snapshot=await db.get(PharmaSnapshot,(event.document_id,event.version))
+        submission=(snapshot.raw if snapshot else {}).get('submission') or {}
+        if submission.get('submission_status')=='TA' or 'tentative' in str(submission.get('submission_public_notes','')).casefold():
+            old=item['details'].get('action','')
+            label='FDA tentative approval — marketing not authorised'
+            item['details']={**item['details'],'action':label,'approval_status':'tentative'}
+            if old:item['title']=item['title'].replace(old,label)
+            item['event']={**item['event'],'kind':'fda_tentative_approval','label':label}
+    item=publication_item(item) or item
+    item['impact']=impact(item['event'],item)
+    item['event']['impact']=item['impact']
     rows=(await db.execute(select(PharmaDrug).join(PharmaEventDrug,PharmaEventDrug.drug_id==PharmaDrug.id)
         .where(PharmaEventDrug.event_id==event.id).order_by(PharmaDrug.name).limit(8))).scalars().all()
     item["drugs"]=[{"id":d.id,"name":d.name,"evidence_url":d.evidence_url} for d in rows]
@@ -142,11 +157,22 @@ async def get_feed(topic,days):
         sources=[]
         for name in SOURCE_CATALOG:
             source=source_info(name,states.get(name),now)
-            events=(await db.scalars(select(PharmaEvent).join(PharmaDocument,PharmaDocument.id==PharmaEvent.document_id)
+            query=select(PharmaEvent).join(PharmaDocument,PharmaDocument.id==PharmaEvent.document_id)
+            if name=='trials':query=query.where(PharmaEvent.kind.not_in(['record_observed','record_updated']))
+            events=(await db.scalars(query
                 .where(PharmaDocument.source==name,PharmaEvent.event_date>=since,PharmaEvent.event_date<=today)
                 .order_by(PharmaEvent.event_date.desc(),PharmaEvent.id).limit(500))).all()
             usable=source["status"] in ("available","empty","stale")
-            selected=[event for event in events if matches_topic(event.evidence["item"],topic)]
+            selected=[];seen=set()
+            for event in events:
+                item=publication_item(event.evidence['item'])
+                if not item or not matches_topic(item,topic):continue
+                if name=='trials' and not (item.get('evidence') or {}).get('phases'):continue
+                key=publication_key(item)
+                if key in seen:continue
+                seen.add(key);selected.append(event)
+            source['matching_events_loaded']=len(selected)
+            if name=='trials':source['coverage']={**source['coverage'],'coverage':'Dated clinical milestones only; routine updates and first-observed snapshots are excluded. At most 20 newest matching events are displayed; wider windows can share the same newest events.'}
             source["limited"]=source["limited"] or len(selected)>20 or len(events)==500
             source["items"]=[await _public_item(db,event) for event in selected[:20]] if usable else []
             sources.append(source)
@@ -181,7 +207,10 @@ async def get_evidence(item):
     async with async_session_factory() as db:
         snapshot=await db.get(PharmaSnapshot,(item["document_id"],item["raw_version"]))
         if not snapshot:raise ValueError("Source version unavailable")
-        return copy.deepcopy(snapshot.raw)
+        raw=copy.deepcopy(snapshot.raw)
+        if item.get('source') in {'news','company','fda_updates','fda_safety'} and 'summary' in raw:
+            raw['summary']=(publication_item(item) or {}).get('summary','')
+        return raw
 
 
 async def search_drugs(query):
@@ -189,7 +218,37 @@ async def search_drugs(query):
         needle="%"+normalize_name(query).replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%"
         rows=(await db.scalars(select(PharmaDrug).join(PharmaDrugAlias,PharmaDrugAlias.drug_id==PharmaDrug.id)
             .where(PharmaDrugAlias.alias.ilike(needle,escape="\\")).distinct().order_by(PharmaDrug.name).limit(20))).all()
+        if not rows:
+            await discover_drug_aliases(db,query)
+            rows=(await db.scalars(select(PharmaDrug).join(PharmaDrugAlias,PharmaDrugAlias.drug_id==PharmaDrug.id)
+                .where(PharmaDrugAlias.alias.ilike(needle,escape="\\")).distinct().order_by(PharmaDrug.name).limit(20))).all()
         return [{"id":d.id,"name":d.name,"evidence_url":d.evidence_url} for d in rows]
+
+
+async def discover_drug_aliases(db,query):
+    """Populate missing public identities from exact FDA product facts, never an LLM guess."""
+    value=normalize_name(query)
+    if not re.fullmatch(r'[\w .+-]{2,120}',value):return
+    from src.services.pharma_sources import get_json,FDA_URL
+    search='products.brand_name:"'+value+'" OR products.active_ingredients.name:"'+value+'"'
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8,connect=3),follow_redirects=False) as client:
+            data=await get_json(client,FDA_URL,params={'search':search,'limit':3})
+    except (httpx.HTTPError,ValueError):return
+    added=False
+    for application in data.get('results',[])[:3]:
+        number=application.get('application_number','')
+        if not re.fullmatch(r'(?:ANDA|NDA|BLA)\d{6}',number):continue
+        url='https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.process&ApplNo='+number[-6:]
+        for product in application.get('products',[])[:6]:
+            ingredients=[i['name'] for i in product.get('active_ingredients',[]) if isinstance(i.get('name'),str) and len(i['name'])<=160]
+            brand=product.get('brand_name')
+            if not ingredients or not isinstance(brand,str) or len(brand)>240:continue
+            if not any(re.search(r'(?<!\w)'+re.escape(value)+r'(?!\w)',normalize_name(v)) for v in [brand,*ingredients]):continue
+            await register_drug(db,brand,ingredients,[brand,*ingredients],url);added=True
+    if added:
+        # Newly verified subjects can attach to existing archived events too.
+        await link_drugs(db);await db.commit()
 
 
 async def drug_timeline(identifier,limit=30,before=None):

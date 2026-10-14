@@ -10,6 +10,7 @@ from src.config.settings import settings
 from src.services.pharma_catalog import COMPANIES, TRADE_DOMAINS
 from src.services.pharma_events import digest, posted_date, study_facts
 from src.services.pharma_updates import clean_text, iso_date, normalize_fda, normalize_trials
+from src.services.pharma_quality import publication_item
 
 FDA_DRUGS_RSS="https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/drugs/rss.xml"
 FDA_SAFETY_RSS="https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml"
@@ -102,6 +103,8 @@ def rss_records(body,source,domains,since,until):
             "date":when,"date_label":"Published","organization":issuer,"category":"Safety" if source=="fda_safety" else "Regulatory" if source=="fda_updates" else "Industry news",
             "url":url,"tags":["Official FDA publication" if source.startswith("fda_") else "Trade reporting"],
             "details":{"publisher":issuer},"evidence":{"publication_date":when,"coverage":"Publisher headline and short summary"}}
+        record=publication_item(record)
+        if record is None:continue
         event={"kind":kind,"label":"FDA safety alert" if source=="fda_safety" else "FDA announcement" if source=="fda_updates" else "Trade report",
             "date":when,"date_label":"Published","changes":[],"baseline":True,"reason":None}
         rows.append((record,{"title":title,"url":url,"published":when,"summary":description},[event]))
@@ -111,7 +114,7 @@ def rss_records(body,source,domains,since,until):
 
 async def clinical_records(client,since,until,cursor=None):
     params={"pageSize":50,"sort":"LastUpdatePostDate:desc",
-        "filter.advanced":f"AREA[LastUpdatePostDate]RANGE[{since},{until}] AND AREA[StudyType]INTERVENTIONAL AND (AREA[InterventionType]DRUG OR AREA[InterventionType]BIOLOGICAL)"}
+        "filter.advanced":f"AREA[LastUpdatePostDate]RANGE[{since},{until}] AND AREA[StudyType]INTERVENTIONAL AND (AREA[Phase]PHASE1 OR AREA[Phase]PHASE2 OR AREA[Phase]PHASE3 OR AREA[Phase]PHASE4) AND (AREA[InterventionType]DRUG OR AREA[InterventionType]BIOLOGICAL)"}
     if cursor:params["pageToken"]=cursor
     data=await get_json(client,TRIALS_URL,limit=8_000_000,params=params)
     if not isinstance(data,dict) or not isinstance(data.get("studies"),list):raise ValueError("Invalid registry response")
@@ -121,6 +124,7 @@ async def clinical_records(client,since,until,cursor=None):
             normalized=normalize_trials({"studies":[raw]},since,until)
             if not normalized:continue
             item=normalized[0];facts=study_facts(raw)
+            if not facts['phases']:continue
             if len(json.dumps(raw).encode())>512_000:raise ValueError("Study exceeds snapshot limit")
             protocol=raw.get("protocolSection") or {};status=protocol.get("statusModule") or {}
             details=item["details"]
@@ -140,7 +144,7 @@ async def clinical_records(client,since,until,cursor=None):
 
 
 async def fda_records(client,since,until):
-    params={"search":f'submissions.submission_status:"AP" AND submissions.submission_status_date:[{since.replace("-","")} TO {until.replace("-","")}]',
+    params={"search":f'(submissions.submission_status:"AP" OR submissions.submission_status:"TA") AND submissions.submission_status_date:[{since.replace("-","")} TO {until.replace("-","")}]',
         "sort":"submissions.submission_status_date:desc","limit":100}
     auth=httpx.BasicAuth(settings.OPENFDA_API_KEY,"") if settings.OPENFDA_API_KEY else None
     data=await get_json(client,FDA_URL,limit=8_000_000,params=params,auth=auth)
@@ -154,6 +158,7 @@ async def fda_records(client,since,until):
             application_id,kind,number=item["id"].split(":")[1:]
             submission=next(s for s in application["submissions"] if str(s.get("submission_type",""))==kind and str(s.get("submission_number",""))==number)
             event_kind="fda_generic_approval" if application_id.startswith("ANDA") and kind=="ORIG" else "fda_original_approval" if kind=="ORIG" else "fda_supplemental_approval"
+            if item['details'].get('approval_status')=='tentative':event_kind='fda_tentative_approval'
             if event_kind=="fda_generic_approval":
                 item["title"]=item["title"].replace("FDA original approval","FDA generic approval")
                 item["details"]["action"]="FDA generic approval"
@@ -226,8 +231,10 @@ async def indexed_news(client,source,since,until):
             "date_label":"Indexed publication date","organization":issuer,"url":url,"category":"Company news" if source=="company" else "Regulatory" if source=='fda_updates' else "Industry news",
             "tags":["Official company source" if source=="company" else "Official FDA source" if source=='fda_updates' else "Trade reporting"],"details":{"publisher":issuer},
             "evidence":{"coverage":"Search-index headline and short excerpt; original page not fully retrieved","publication_date":when}}
+        item=publication_item(item)
+        if item is None:continue
         event={"kind":kind,"label":"Company publication" if source=="company" else "FDA publication" if source=='fda_updates' else "Trade report","date":when,"date_label":item["date_label"],"changes":[],"baseline":True,"reason":None}
-        rows.append((item,{"title":title,"summary":summary,"url":url,"published_date":when},[event]))
+        rows.append((item,{"title":title,"summary":item['summary'],"url":url,"published_date":when},[event]))
     return rows,{"limited":True,"undated_excluded":undated,"method":"domain_restricted_search_index","monitored_domains":domains,
         "coverage":"Search-index discovery of dated official publications" if source in ('company','fda_updates') else "Search-index discovery of dated trade publications"}
 

@@ -9,12 +9,12 @@ from src.models.pharma import PharmaSharedBrief
 from src.services.pharma_events import digest
 from src.services.llm_runtime import LLMProviderError
 
-CONTRACT = "source-only-regional-v2"
+CONTRACT = "source-only-regional-v3"
 # Tasks survive an individual reader disconnect; the durable lease coordinates workers.
 _tasks = {}
 
 
-async def _generate(item, model, generate):
+async def _generate(item, model, generate, refresh=False):
     key = digest([item["id"], item["version"], CONTRACT, model])
     owner = secrets.token_hex(16)
     deadline = asyncio.get_running_loop().time() + 125
@@ -25,9 +25,12 @@ async def _generate(item, model, generate):
                 version=item["raw_version"], contract=CONTRACT, model=model, status="pending", owner=owner,
                 lease_until=now+timedelta(seconds=130), usage={}).on_conflict_do_nothing())
             row = await db.scalar(select(PharmaSharedBrief).where(PharmaSharedBrief.key==key).with_for_update())
-            if row.status=="ready" and row.answer:
+            recent=row.generated_at and row.generated_at>=now-timedelta(minutes=5)
+            if row.status=="ready" and row.answer and (not refresh or recent):
                 return {"text":row.answer,"model":row.model,"usage":row.usage,"shared":True}
-            if row.owner==owner or not row.lease_until or row.lease_until<=now:
+            if row.status=='fallback' and row.answer and row.lease_until and row.lease_until>now and not refresh:
+                return {'text':row.answer,'model':row.model,'usage':row.usage,'shared':True}
+            if row.owner==owner or not row.lease_until or row.lease_until<=now or (row.status=='fallback' and refresh):
                 row.owner=owner;row.status="pending";row.lease_until=now+timedelta(seconds=130)
                 await db.commit()
                 break
@@ -39,9 +42,10 @@ async def _generate(item, model, generate):
         # The generator accepts no caller question or caller history.
         result = await asyncio.wait_for(generate(), timeout=115)
         async with async_session_factory() as db:
+            fallback=result['usage'].get('basis')=='source_summary'
             saved = await db.execute(update(PharmaSharedBrief).where(PharmaSharedBrief.key==key,
-                PharmaSharedBrief.owner==owner, PharmaSharedBrief.status=="pending").values(status="ready",
-                answer=result["text"],usage=result["usage"],generated_at=datetime.now(timezone.utc),lease_until=None,owner=None))
+                PharmaSharedBrief.owner==owner, PharmaSharedBrief.status=="pending").values(status="fallback" if fallback else "ready",
+                answer=result["text"],usage=result["usage"],generated_at=datetime.now(timezone.utc),lease_until=datetime.now(timezone.utc)+timedelta(minutes=2) if fallback else None,owner=None))
             if not saved.rowcount:
                 raise LLMProviderError("The source brief changed while it was being prepared. Please retry.")
             await db.commit()
@@ -54,12 +58,12 @@ async def _generate(item, model, generate):
         raise
 
 
-async def shared_brief(item, model, generate):
+async def shared_brief(item, model, generate, refresh=False):
     key = digest([item["id"],item["version"],CONTRACT,model])
     task = _tasks.get(key)
     if task is None:
         if len(_tasks)>=16:raise LLMProviderError("The analyst brief service is busy. Please retry shortly.")
-        task = asyncio.create_task(_generate(item,model,generate));_tasks[key]=task
+        task = asyncio.create_task(_generate(item,model,generate,refresh));_tasks[key]=task
         def done(completed):
             if _tasks.get(key) is completed:_tasks.pop(key,None)
             if not completed.cancelled():completed.exception()

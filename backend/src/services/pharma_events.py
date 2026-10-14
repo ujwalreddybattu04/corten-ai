@@ -4,7 +4,7 @@ import json
 import re
 from datetime import date
 
-RULE_VERSION = "events-1"
+RULE_VERSION = "events-2"
 STOPPED = {"TERMINATED", "WITHDRAWN", "SUSPENDED"}
 
 
@@ -114,9 +114,21 @@ def impact(event, item):
     elif kind in {"fda_original_approval", "ema_authorisation"}:
         rating, rationale = "Material", "A verified regulatory authorisation warrants assessment of market assumptions."
     elif kind == "safety_alert":
-        rating, rationale = "Material", "An official safety action warrants review; applicability and severity must be checked."
+        classification=(item.get('details') or {}).get('classification')
+        if classification=='Class I' or not (item.get('details') or {}).get('recall_number'):
+            rating, rationale = "Material", "An official safety alert or Class I recall warrants review; applicability must be checked."
+        else:
+            rating, rationale = "Watch", "A classified recall warrants review of affected products and lots; Class II/III alone does not establish material forecast impact."
     elif kind == "fda_generic_approval":
         rationale = "A generic approval warrants review; first-generic status, exclusivity and launch are not established."
+    elif kind == 'fda_tentative_approval':
+        rationale = 'Tentative approval does not authorise marketing. Final approval and applicable patents/exclusivities require verification.'
+    elif kind in {'press_release','fda_announcement'}:
+        title=item.get('title','')
+        if kind=='fda_announcement' and re.search(r'\b(?:approves?|approval|authori[sz]es?)\b',title,re.I):
+            rating, rationale='Material','An official FDA approval announcement warrants assessment; verify the approved scope and action date in the source.'
+        elif kind=='press_release' and re.search(r'\bphase\s*(?:3|iii)\b',title,re.I) and re.search(r'\b(?:positive|met|meets?|achiev\w*|successful)\b',title,re.I):
+            rating, rationale='Material','Company-reported positive Phase 3 results warrant review of endpoints and full data. This is an attributed sponsor claim, not independent efficacy verification.'
     return {"rating": rating, "rationale": rationale, "policy_version": RULE_VERSION, "basis": "source_rules"}
 
 

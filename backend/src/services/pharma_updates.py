@@ -91,10 +91,13 @@ def normalize_fda(payload, since, until):
         sponsor = clean_text(application.get("sponsor_name"), 160)
         for submission in application.get("submissions", []):
             action_date = iso_date(submission.get("submission_status_date"))
-            if submission.get("submission_status") != "AP" or not action_date or not since <= action_date <= until:
+            status=submission.get('submission_status')
+            tentative=status=='TA' or 'tentative' in str(submission.get('submission_public_notes','')).casefold()
+            if status not in ('AP','TA') or not action_date or not since <= action_date <= until:
                 continue
             kind = submission.get("submission_type", "")
             label = "FDA original approval" if kind == "ORIG" else "FDA supplemental approval" if kind == "SUPPL" else "FDA approval update"
+            if tentative:label='FDA tentative approval — marketing not authorised'
             number = str(submission.get("submission_number", ""))
             output.append({
                 "id": f"fda:{app_id}:{kind}:{number}", "source": "fda", "category": "Regulatory",
@@ -103,7 +106,7 @@ def normalize_fda(payload, since, until):
                 "date": action_date, "date_label": "FDA action date", "organization": sponsor,
                 "url": f"https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.process&ApplNo={app_id[-6:]}",
                 "tags": [label, app_id],
-                "details": {"application": app_id, "action": label, "ingredients": list(dict.fromkeys(clean_text(i.get("name"), 100) for p in application.get("products", []) for i in p.get("active_ingredients", []) if i.get("name")))[:8]},
+                "details": {"application": app_id, "action": label, "approval_status":'tentative' if tentative else 'approved', "ingredients": list(dict.fromkeys(clean_text(i.get("name"), 100) for p in application.get("products", []) for i in p.get("active_ingredients", []) if i.get("name")))[:8]},
             })
     return output
 
@@ -356,7 +359,7 @@ class PharmaUpdatesService:
     async def get_feed(self, topic: Topic = "all", days: Literal[7, 30, 90] = 7):
         if topic not in TOPICS or days not in (7,30,90):raise ValueError("Invalid pharma filters")
         if settings.PHARMA_INTELLIGENCE_ENABLED:
-            slot=("archive",topic,days);key=f"pharma:archive:events-1:{topic}:{days}"
+            slot=("archive",topic,days);key=f"pharma:archive:events-2:{topic}:{days}"
             now=datetime.now(timezone.utc)
             cached=self._cache.get(slot)
             if not cached or datetime.fromisoformat(cached["until"])<=now:
