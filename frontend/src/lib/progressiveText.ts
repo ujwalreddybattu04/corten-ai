@@ -19,7 +19,7 @@ const browserClock = (): RevealClock => ({
 export function progressiveText(update: (text: string) => void, signal: AbortSignal, clock = browserClock()) {
     let text = "", visible = 0, frame = 0, last = 0, ended = false, closed = false, instant = false;
     let resolve: (() => void) | undefined;
-    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
     const stopFrame = () => { if (frame) clock.cancel(frame); frame = 0; };
     const settled = () => { if (ended && visible === text.length) { resolve?.(); resolve = undefined; } };
     const flush = () => {
@@ -34,8 +34,8 @@ export function progressiveText(update: (text: string) => void, signal: AbortSig
         const elapsed = last ? Math.min(time - last, 80) : 32;
         if (elapsed < 28) { frame = clock.frame(tick); return; }
         last = time;
-        const target = Math.min(text.length, visible + Math.max(1, Math.floor(elapsed * Math.max(320, (text.length - visible) / 6) / 1000)));
-        // Preserve emoji, combining marks and non-Latin graphemes at every display boundary.
+        const target = Math.min(text.length, visible + Math.max(1, Math.floor(elapsed * Math.max(200, (text.length - visible) / 8) / 1000)));
+        // Reveal complete words, preserving emoji and non-Latin boundaries too.
         let boundary = visible;
         for (const part of segmenter.segment(text.slice(visible))) {
             boundary = visible + part.index + part.segment.length;

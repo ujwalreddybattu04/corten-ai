@@ -44,6 +44,14 @@ test("reveal boundaries preserve complete graphemes and exact Markdown/Unicode",
     s.reveal.cancel();
 });
 
+test("a complete answer is revealed at word boundaries rather than split English words", async () => {
+    const s = setup(), answer = "Regulatory evidence supports this specific labeling change. ".repeat(15);
+    const boundaries = new Set([...new Intl.Segmenter(undefined, { granularity: "word" }).segment(answer)].map(p => p.index + p.segment.length));
+    s.reveal.append(answer); const finished = s.reveal.finish(); s.flush(); await finished;
+    assert.ok(s.updates.length > 20 && s.updates.every(text => boundaries.has(text.length)));
+    assert.equal(s.updates.at(-1), answer); s.reveal.cancel();
+});
+
 test("multiple network chunks keep order, and showing all does not lose later chunks", async () => {
     const s = setup(); s.reveal.append("First "); s.tick();
     s.reveal.append("second "); s.reveal.showAll();

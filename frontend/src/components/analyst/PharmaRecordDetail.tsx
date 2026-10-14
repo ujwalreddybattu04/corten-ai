@@ -10,6 +10,7 @@ import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
 import AnswerStream from "@/components/thread/AnswerStream";
 import { RecordThumbnail } from "./PharmaWorkspace";
 import { PharmaToolProgress } from "./PharmaResearch";
+import PharmaLoading from "./PharmaLoading";
 
 const LABELS: Record<string, string> = { application: "Application", action: "Action", ingredients: "Active ingredients", study_id: "Study ID", status: "Study status", phases: "Trial phases", conditions: "Conditions", interventions: "Interventions",
     ema_product_number: "EMA product number", medicine_status: "Medicine status", initial_authorisation_date: "Initial authorisation", latest_procedure: "Latest procedure", indication: "Current indication",
@@ -56,7 +57,7 @@ export default function PharmaRecordDetail() {
         <header className="pi-detail-nav"><Link className="pi-button" href={back} aria-label="Back to Pharma intelligence"><ArrowLeft size={15} /><span className="pi-detail-back-full">Pharma intelligence</span><span className="pi-detail-back-short">Pharma</span></Link>
             {record && <a className="pi-button" href={record.item.url} target="_blank" rel="noopener noreferrer">Original source<ArrowUpRight size={15} /><span className="sr-only"> (opens in a new tab)</span></a>}
         </header>
-        {busy ? <div className="pi-detail-state" role="status"><LoaderCircle className="pi-spinning" size={24} /><p>Loading record…</p></div>
+        {busy ? <PharmaLoading />
             : error ? <div className="pi-detail-state" role="alert"><FileSearch size={28} /><h1>Record unavailable</h1><p>{error}</p><button className="pi-button" onClick={() => void load()}>Retry</button></div>
             : record && <RecordView key={`${record.item.id}:${record.item.version || record.item.date}`} record={record} />}
     </section>;

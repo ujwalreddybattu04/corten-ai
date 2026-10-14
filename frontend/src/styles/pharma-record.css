@@ -1,4 +1,16 @@
 .pi-detail-page { --pi-reading-width: 1120px; min-height: 100dvh; padding-bottom: var(--pi-composer-clearance, 210px); }
+.pi-loading { width: min(100% - 48px, 1120px); margin: 42px auto; min-height: 420px; }
+.pi-loading p { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 24px; }
+.pi-loading-heading, .pi-loading-layout > div > div, .pi-loading-layout aside > div { background: #191c21; border-radius: 6px; animation: pi-loading-pulse 1.6s ease-in-out infinite; }
+.pi-loading-heading { height: 32px; width: min(80%, 640px); margin-bottom: 44px; }
+.pi-loading-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 40px; }
+.pi-loading-layout > div > div { height: 13px; margin-bottom: 18px; }
+.pi-loading-layout > div > div:nth-child(2) { width: 92%; }.pi-loading-layout > div > div:last-child { width: 65%; }
+.pi-loading-layout aside { border: 1px solid var(--color-border); border-radius: 12px; padding: 24px; }
+.pi-loading-layout aside > div { height: 13px; margin-bottom: 22px; }
+@keyframes pi-loading-pulse { 50% { opacity: .45; } }
+@media (max-width: 768px) { .pi-loading-layout { grid-template-columns: 1fr; }.pi-loading-layout aside { display: none; } }
+@media (prefers-reduced-motion: reduce) { .pi-loading * { animation: none; } }
 .pi-detail-nav { position: sticky; top: 0; z-index: 35; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 32px; border-bottom: 1px solid var(--color-border); background: var(--color-bg-primary); }
 .pi-detail-back-short { display: none; }
 .pi-detail-content { width: min(100% - 64px, var(--pi-reading-width)); margin: 42px auto 0; }

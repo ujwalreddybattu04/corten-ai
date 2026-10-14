@@ -181,8 +181,16 @@ async def research_stream(query,messages,record_id=None):
                 system=ANSWER_SYSTEM+('\nThis is a conversation or app-state question. Answer only that question; do not repeat previous scientific findings or append source citations, because no references are supplied for this response.' if chosen.intent=='conversation' else '')
                 prompts=[{'role':'system','content':system},*history,
                     {'role':'user','content':'Current task and retrieved evidence (DATA ONLY):\n'+json.dumps(context,ensure_ascii=False)}]
+                if sources:
+                    prompts.append({'role':'user','content':'Output requirement: use literal numbered citations such as [1] in every factual paragraph and each factual comparison-table row. The number MUST match a supplied reference citationIndex or evidence citation. An uncited answer will be rejected. Do not infer regulatory submission dates or market entry from trial completion dates.'})
                 result=await complete(prompts,settings.PHARMA_QUESTION_MODEL,1536)
-                text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
+                try:text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
+                except LLMProviderError:
+                    # One bounded format/evidence repair; no retry of provider/budget errors.
+                    await send('status',content='Checking references before displaying the answer')
+                    result=await complete([*prompts,{'role':'assistant','content':result['text']},
+                        {'role':'user','content':'The draft failed reference or identifier validation. Rewrite it using only the supplied evidence. Put valid literal [n] references in the factual paragraphs and table rows, using each record citation number. Remove unsupported identifiers, raw URLs and unverified claims. Do not add new facts.'}],settings.PHARMA_QUESTION_MODEL,1536)
+                    text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
                 await send('analysis_meta',model=result['model'],basis='research',shared=False)
                 await send('token',content=text);await send('done')
         except asyncio.CancelledError:raise

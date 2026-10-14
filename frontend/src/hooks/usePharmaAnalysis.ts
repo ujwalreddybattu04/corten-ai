@@ -17,7 +17,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const [sources, setSources] = useState<SearchSource[]>([]);
     const [steps, setSteps] = useState<ResearchStep[]>([]);
     const [tools, setTools] = useState<PharmaToolStep[]>([]);
-    const [busy, setBusy] = useState(false);
+    const [busy, setBusy] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [threadId, setThreadId] = useState("");
     const [error, setError] = useState("");
@@ -83,16 +83,31 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     }, [record]);
     useEffect(() => {
         // Cleanup cancels this timer before React's development remount can issue a POST.
-        const timer = setTimeout(() => {
+        const timer = setTimeout(() => { void (async () => {
             owner.current = getStorageAccount();
             const prior = restorePharmaThread(record);
             id.current = prior?.id || crypto.randomUUID();
             setThreadId(id.current);
             if (prior) {
                 const restored = [...prior.history, prior].map(t => ({ query: t.query, answer: t.answer, sources: t.sources }));
-                turnsRef.current = restored; setTurns(restored); setSaved(true);
+                turnsRef.current = restored; setSaved(true);
+                const currentTurns = currentPharmaTurns(restored);
+                if (currentTurns.length === 1) {
+                    // Reopening a cached record follows the same visual flow without another model call or save.
+                    const abort = new AbortController(); controller.current = abort;
+                    setRefreshing(true); setQuestion(currentTurns[0].query); setSources(currentTurns[0].sources);
+                    const current = () => !abort.signal.aborted && controller.current === abort && getStorageAccount() === owner.current;
+                    const display = progressiveText(value => { if (current()) setAnswer(value); }, abort.signal); reveal.current = display;
+                    try {
+                        display.append(currentTurns[0].answer); await display.finish();
+                        if (current()) { setTurns(restored); setAnswer(""); setQuestion(""); }
+                    } finally {
+                        display.cancel(); if (reveal.current === display) reveal.current = null;
+                        if (controller.current === abort) { controller.current = null; setBusy(false); setRefreshing(false); }
+                    }
+                } else { setTurns(restored); setBusy(false); }
             } else void run(PHARMA_ANALYSIS_PROMPT);
-        }, 50);
+        })(); }, 50);
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
     return { turns: busy && refreshing ? [] : currentPharmaTurns(turns),

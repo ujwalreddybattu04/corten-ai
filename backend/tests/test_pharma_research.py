@@ -154,6 +154,21 @@ async def test_partial_provider_failure_is_visible_and_does_not_erase_good_evide
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('repaired',[True,False])
+async def test_one_bounded_reference_repair_never_publishes_an_unverified_draft(monkeypatch,repaired):
+    monkeypatch.setattr(service,'plan',AsyncMock(return_value=service.Plan(intent='research',calls=[tools.ToolCall(tool='fda',query='Example')])))
+    monkeypatch.setattr(service,'execute',AsyncMock(return_value={'tool':'fda','label':'FDA','status':'available',
+        'records':[tools.row('Example','https://www.fda.gov/drugs/example','fda_application',{})],'coverage':'Sample.'}))
+    model=AsyncMock(side_effect=[{'text':'Uncited draft.','model':'amazon.nova-pro-v1:0'},
+        {'text':'A supported finding [1].' if repaired else 'Still uncited.','model':'amazon.nova-pro-v1:0'}])
+    monkeypatch.setattr(service,'complete',model)
+    events=[json.loads(e[6:]) async for e in service.research_stream('Investigate Example',[])]
+    assert model.await_count==2 and not any(e.get('content')=='Uncited draft.' for e in events)
+    assert events[-1]['type']==('done' if repaired else 'error')
+    if not repaired:assert not any(e['type']=='token' for e in events)
+
+
+@pytest.mark.asyncio
 async def test_disconnect_cancels_private_work_and_releases_capacity(monkeypatch):
     started=asyncio.Event();finished=asyncio.Event()
     async def slow(*args):

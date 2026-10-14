@@ -2,6 +2,8 @@
 
 ## Question-driven research
 
+Source loading has an immediate skeleton, and completed responses reveal progressively at word boundaries. A saved brief with no follow-ups follows the same reveal flow when reopened, without another model call or a duplicate save. Existing multi-turn history still restores as a conversation. Reduced-motion, hidden-tab and Show full answer controls retain an immediate-display path. Research reference validation allows one bounded rewrite of an invalid draft; provider/budget errors are not retried, and a draft that still fails is never published. This repair can consume a third model call within the same existing gateway budget.
+
 The Pharma workspace now includes an **Ask Pharma** research chat. Record briefs stay bound to their immutable source snapshot and share the public cache. Record follow-ups and the research page use a separate private workflow: a regional Bedrock planner chooses up to four read-only tools, the application validates the plan, retrieves evidence, then generates a complete answer that passes reference and identifier checks before progressive display. This is a bounded tool batch, not an unrestricted self-modifying agent.
 
 | Tool | Evidence | Important boundary |
