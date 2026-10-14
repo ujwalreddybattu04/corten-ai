@@ -127,8 +127,9 @@ async def trials(call,client):
         rows.append(row(identity.get('briefTitle',identifier),'https://clinicaltrials.gov/study/'+identifier,'trial_record',facts,
             (protocol.get('descriptionModule') or {}).get('briefSummary',''),date,'Registry update posted'))
     total=result.get('totalCount')
-    filters={'search_by':search,'query':call.query,'phase':call.phase,'condition':call.condition}
-    return rows,f'Current registry snapshot; up to six search matches, sorted by last update. Applied filters: {json.dumps(filters)}. Registry reports {total if isinstance(total,int) else "an unknown number of"} matches. This is not a complete pipeline. Status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
+    filters=call.query+('; '+call.phase.replace('PHASE','Phase ') if call.phase else '')+('; '+call.condition if call.condition else '')
+    method='intervention match' if search=='query.intr' else 'study identifier' if search=='query.id' else 'keyword search'
+    return rows,f'{filters} ({method}): {total if isinstance(total,int) else "an unknown number of"} registry matches; {len(rows)} retrieved, sorted by last update (maximum six). This is not a complete pipeline. Current status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
 
 
 def fda_term(query):

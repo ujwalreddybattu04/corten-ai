@@ -84,7 +84,20 @@ async def test_drug_phase_condition_search_filters_actual_interventions(monkeypa
         return httpx.Response(200,json={'studies':[],'totalCount':0})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         rows,coverage=await tools.trials(tools.ToolCall(tool='trials',query='luspatercept',search_by='intervention',phase='PHASE3',condition='myelodysplastic syndromes'),client)
-    assert not rows and 'Applied filters' in coverage and 'not a complete pipeline' in coverage
+    assert not rows and 'Phase 3' in coverage and 'intervention match' in coverage and 'not a complete pipeline' in coverage
+
+
+def test_registry_comparison_preserves_mixed_phases_status_and_both_date_qualifiers():
+    row=tools.row('Example','https://clinicaltrials.gov/study/NCT12345678','trial_record',{
+        'study_id':'NCT12345678','phases':['PHASE2','PHASE3'],'status':'ACTIVE_NOT_RECRUITING',
+        'interventions':[{'name':'Example','type':'DRUG'}],'primary_outcomes':[{'measure':'At least 8 weeks; Hb >=1.5 g/dL | cohort A'}],
+        'primary_completion':{'date':'2023-10-13','type':'ACTUAL'},'completion':{'date':'2026-10','type':'ESTIMATED'}})
+    row['citation']=1
+    text=service.trial_comparison([row],[{'coverage':'One retrieved match.'}])
+    assert 'Phase 2 / Phase 3' in text and 'Active not recruiting' in text
+    assert '2023-10-13 (Actual)' in text and '2026-10 (Estimated)' in text
+    assert r'\>=1.5' in text and r'\| cohort A' in text
+    assert 'NCT12345678 [1]' in text and 'not a complete development pipeline' in text
 
 
 def test_registry_sample_cannot_be_presented_as_absence_and_reference_ranges_are_bounded():

@@ -91,6 +91,38 @@ def urlsplit_host(url):
     return urlsplit(url).hostname or ''
 
 
+def trial_comparison(evidence,coverage):
+    """Render requested registry comparisons from typed facts, never model-retyped dates or phases."""
+    rows=[r for r in evidence if r.get('kind')=='trial_record']
+    if not rows:return None
+    def plain(value):
+        return re.sub(r'([\\`*_{}\[\]<>#|])',r'\\\1',str(value)).replace('\n',' ')
+    def date(value):
+        if not isinstance(value,dict) or not value.get('date'):return 'Not listed'
+        qualifier={'ACTUAL':'Actual','ESTIMATED':'Estimated'}.get(value.get('type'),'Qualifier not listed')
+        return plain(value['date'])+' ('+qualifier+')'
+    lines=[f'The retrieved sample contains **{len(rows)} study records**. It is not a complete development pipeline.',
+        '', '### Retrieved trial comparison', '',
+        '| Study / interventions | Phase / current status | Primary endpoints | Primary completion | Study completion |',
+        '| --- | --- | --- | --- | --- |']
+    for row in rows[:12]:
+        facts=row['facts']
+        names=[str(i['name']) for i in facts.get('interventions',[]) if i.get('name') and i.get('type') in ('DRUG','BIOLOGICAL')]
+        phase=' / '.join(re.sub(r'^PHASE([1-4])$',r'Phase \1',str(p)) for p in facts.get('phases',[])) or 'Not listed'
+        status=str(facts.get('status') or 'Not listed').replace('_',' ').capitalize()
+        endpoints='; '.join(str(o['measure']) for o in facts.get('primary_outcomes',[]) if o.get('measure')) or 'Not listed'
+        cells=[plain(facts['study_id'])+' ['+str(row['citation'])+']'+(' · '+plain(', '.join(names)) if names else ''),
+            plain(phase)+' · '+plain(status),plain(endpoints),date(facts.get('primary_completion')),date(facts.get('completion'))]
+        lines.append('| '+' | '.join(cells)+' |')
+    if len(rows)>12:lines+=['',f'Showing 12 of {len(rows)} retrieved records; the evidence CSV contains the full retrieved sample.']
+    lines+=['','### How to use this comparison',
+        'The two completion columns are separate registry fields. Actual and estimated qualifiers are retained, including partial dates; an estimated date does not confirm that completion occurred.',
+        '', 'Review differences in population, endpoints and design before comparing outcomes. These records do not establish head-to-head efficacy, a regulatory submission date or a market-entry timetable.',
+        '', '### Search coverage']
+    lines.extend('- '+plain(r['coverage']) for r in coverage)
+    return '\n'.join(lines)
+
+
 def verified_answer(text,evidence,sources,conversation=None):
     if not text.strip() or len(text)>20000:raise LLMProviderError('The research answer was incomplete. Please retry.')
     # Normalize only bounded numeric ranges; the validator still checks every resulting reference.
@@ -187,6 +219,12 @@ async def research_stream(query,messages,record_id=None):
                 await send('research_evidence',records=evidence,coverage=coverage)
                 if chosen.intent=='research' and not evidence:
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
+                if chosen.calls and all(c.tool=='trials' for c in chosen.calls) and re.search(r'\b(?:compare|comparison|list|tabulate)\b',query,re.I):
+                    comparison=trial_comparison(evidence,coverage)
+                    if comparison:
+                        text=verified_answer(comparison,evidence,sources)
+                        await send('analysis_meta',model='source-data',basis='registry_comparison',shared=False)
+                        await send('token',content=text);await send('done');return
                 await send('status',content='Comparing evidence and checking references')
                 context={'query':query,'selected_record_available':bool(selected),'evidence':evidence,'references':sources,
                     'coverage':coverage,'today_utc':datetime.now(timezone.utc).date().isoformat(),
