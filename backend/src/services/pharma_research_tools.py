@@ -33,10 +33,14 @@ class ToolCall(BaseModel):
     tool: ToolName
     query: str = Field(min_length=2,max_length=240)
     scope: Scope = 'regulatory'
+    search_by: Literal['term','intervention'] = 'term'
+    phase: Literal['PHASE1','PHASE2','PHASE3','PHASE4'] | None = None
+    condition: str | None = Field(default=None,min_length=2,max_length=160)
 
     @model_validator(mode='after')
     def applicable_scope(self):
         if self.tool!='official_search' and self.scope!='regulatory':raise ValueError('Only official search uses scope')
+        if self.tool!='trials' and (self.phase or self.condition or self.search_by!='term'):raise ValueError('Only trials use registry filters')
         return self
 
     @field_validator('query')
@@ -98,7 +102,11 @@ async def drug_history(call,client):
 
 
 async def trials(call,client):
-    result=await data(client,'https://clinicaltrials.gov/api/v2/studies',params={'query.term':call.query,'pageSize':6,'format':'json','countTotal':'true','sort':'LastUpdatePostDate:desc'})
+    search='query.id' if re.fullmatch(r'NCT\d{8}',call.query) else 'query.intr' if call.search_by=='intervention' else 'query.term'
+    params={search:call.query,'pageSize':6,'format':'json','countTotal':'true','sort':'LastUpdatePostDate:desc'}
+    if call.phase:params['filter.advanced']='AREA[Phase]'+call.phase
+    if call.condition:params['query.cond']=call.condition
+    result=await data(client,'https://clinicaltrials.gov/api/v2/studies',params=params)
     if not isinstance(result.get('studies'),list):raise ValueError('Invalid trial response')
     rows=[]
     for study in result['studies'][:6]:
@@ -114,12 +122,13 @@ async def trials(call,client):
             'enrollment':design.get('enrollmentInfo'),'primary_outcomes':outcomes.get('primaryOutcomes',[])[:3],
             'primary_completion':status.get('primaryCompletionDateStruct'),'completion':status.get('completionDateStruct'),
             'stop_reason':status.get('whyStopped'),'results_posted':status.get('resultsFirstPostDateStruct'),
-            'results_present':bool(study.get('resultsSection'))}
+            'results_present':study['hasResults'] if isinstance(study.get('hasResults'),bool) else True if study.get('resultsSection') else None}
         date=(status.get('lastUpdatePostDateStruct') or {}).get('date')
         rows.append(row(identity.get('briefTitle',identifier),'https://clinicaltrials.gov/study/'+identifier,'trial_record',facts,
             (protocol.get('descriptionModule') or {}).get('briefSummary',''),date,'Registry update posted'))
     total=result.get('totalCount')
-    return rows,f'Current registry snapshot; up to six search matches, sorted by last update. Registry reports {total if isinstance(total,int) else "an unknown number of"} matches. Status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
+    filters={'search_by':search,'query':call.query,'phase':call.phase,'condition':call.condition}
+    return rows,f'Current registry snapshot; up to six search matches, sorted by last update. Applied filters: {json.dumps(filters)}. Registry reports {total if isinstance(total,int) else "an unknown number of"} matches. This is not a complete pipeline. Status is not a verified transition; posted results are not proof of benefit. Full result tables were not analyzed.'
 
 
 def fda_term(query):

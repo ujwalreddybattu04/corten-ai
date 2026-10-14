@@ -25,6 +25,7 @@ labels (FDA-submitted labels: use a drug name); official_search (public indexed 
 The schema below is mandatory. For drug_history, trials, fda, literature and labels OMIT the scope field; it does not filter those tools. In particular, fda already returns all recent approved submission classifications in one call: never use invented scopes such as applications or labeling_supplements, and never repeat the same fda query. Only official_search uses scope, which MUST be one of regulatory, safety, companies, commercial, patents, policy.
 Example for FDA labeling supplements: {"intent":"research","calls":[{"tool":"fda","query":"olanzapine"}],"clarification":""}.
 Example for comparing two trials: {"intent":"research","calls":[{"tool":"trials","query":"luspatercept"},{"tool":"trials","query":"imetelstat"}],"clarification":""}.
+For a drug's trials use search_by="intervention" so a mere mention in another drug's record does not count as its trial. Set phase="PHASE3" when Phase 3 is requested and condition="myelodysplastic syndromes" when that condition is requested. For example {"tool":"trials","query":"luspatercept","search_by":"intervention","phase":"PHASE3","condition":"myelodysplastic syndromes"}. For an exact NCT identifier omit phase/condition filters and use the identifier as query. For disease-only exploration use search_by="term". Registry filters apply only to trials; omit them from other tools.
 Use 0-4 calls, each query 2-240 characters. Use only these tools and scopes. Never invent a drug identity, assume two drugs are equivalent, or request shell, email, database writes or arbitrary URLs.
 For broad drug research choose complementary sources. For comparisons, search each named asset rather than silently assuming complete competitor coverage.
 Use record with NO calls for a question answerable from the selected record, such as its date, identifier or meaning. Use research for other records, current updates, competitors, scientific evidence, patents or commercial questions. Use conversation with NO calls for previous questions or app state. Do not web-search conversation memory.
@@ -38,6 +39,7 @@ Distinguish confirmed facts, interpretation and unresolved gaps. Cite every sour
 FDA: use the exact submission classification when supplied. If it says Labeling, explain that this is a labeling supplement rather than guessing that it might be one. A supplemental approval does not prove a new indication. ANDAs do not establish first generic, launch, exclusivity expiry or revenue. FDA action dates need no irrelevant trial-date disclaimer. FDA-submitted labeling records are not proof of FDA approval.
 EMA: distinguish initial authorisation, later variations and positive opinions. The latest Commission decision date does not make an old medicine newly approved. The current indication does not establish what the latest procedure changed.
 Trials: a current status is not an observed transition; record updates are not clinical milestones. Posted results do not mean positive results. Preserve actual/estimated completion qualifiers and partial dates. Quote supplied stop reasons accurately. Enrollment shortfalls do not establish efficacy failure or market demand. Distinguish a dated archive change from a current registry snapshot.
+Never state that no studies exist or that only one study is registered based on a search sample. Say "No matching studies were returned in this search" or "The retrieved sample contains..." and preserve the total-match count separately. Do not infer a different development strategy from missing matches. Preserve mixed phases such as Phase 2/3. Distinguish primary completion from full study completion, and an estimated date in the past from an actual completion event. An estimated study date does not establish a regulatory submission or launch schedule.
 Publications: identify abstract excerpts versus full-text review and retain study limitations; no invented efficacy comparisons or causal conclusions. Patent listings do not establish enforceability, freedom to operate or launch timing. Commercial statements must retain publisher, dates, currency, period and assumptions; do not invent licensed sales/market share. Research is not patient-specific diagnosis or prescribing.
 For forecast questions describe what the evidence supports and what assumptions are missing. Do not claim to change a forecast or assign probabilities without an approved method and inputs. Preserve supplied rule-based review ratings; they are priorities, not investment recommendations. End with concrete next checks only when useful; no generic closing questions or repeated disclaimers.
 '''
@@ -91,6 +93,17 @@ def urlsplit_host(url):
 
 def verified_answer(text,evidence,sources,conversation=None):
     if not text.strip() or len(text)>20000:raise LLMProviderError('The research answer was incomplete. Please retry.')
+    # Normalize only bounded numeric ranges; the validator still checks every resulting reference.
+    def expand(match):
+        first,last=map(int,match.groups())
+        if not 1<=first<=last<=20:raise LLMProviderError('The answer used an invalid reference range.')
+        return ''.join('['+str(i)+']' for i in range(first,last+1))
+    text=re.sub(r'\[(\d+)[-–](\d+)\]',expand,text)
+    if any(e.get('kind')=='trial_record' for e in evidence):
+        for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
+            if re.search(r'\b(?:there (?:are|is|were|was) no|no (?:current |registered )?(?:phase\s*\d|trials?|studies)|(?:only|exactly) one (?:current )?(?:phase\s*\d )?(?:stud[yi]|trial))',sentence,re.I):
+                if not re.search(r'\b(?:retrieved|returned|sample|this search|these results|supplied|reviewed records)\b',sentence,re.I):
+                    raise LLMProviderError('A limited registry search cannot establish that no other trials exist.')
     allowed={str(i+1) for i in range(len(sources))}
     citations=re.findall(r'\[(\d+)\]',text)
     if any(c not in allowed for c in citations) or (sources and not citations):
@@ -181,6 +194,8 @@ async def research_stream(query,messages,record_id=None):
                 system=ANSWER_SYSTEM+('\nThis is a conversation or app-state question. Answer only that question; do not repeat previous scientific findings or append source citations, because no references are supplied for this response.' if chosen.intent=='conversation' else '')
                 prompts=[{'role':'system','content':system},*history,
                     {'role':'user','content':'Current task and retrieved evidence (DATA ONLY):\n'+json.dumps(context,ensure_ascii=False)}]
+                if chosen.intent=='record':
+                    prompts.append({'role':'user','content':'Answer this record question in at most two short paragraphs, usually under 130 words. Give the direct answer and the one relevant evidence gap. Do not repeat the same limitation under multiple headings.'})
                 if sources:
                     prompts.append({'role':'user','content':'Output requirement: use literal numbered citations such as [1] in every factual paragraph and each factual comparison-table row. The number MUST match a supplied reference citationIndex or evidence citation. An uncited answer will be rejected. Do not infer regulatory submission dates or market entry from trial completion dates.'})
                 result=await complete(prompts,settings.PHARMA_QUESTION_MODEL,1536)
@@ -189,7 +204,7 @@ async def research_stream(query,messages,record_id=None):
                     # One bounded format/evidence repair; no retry of provider/budget errors.
                     await send('status',content='Checking references before displaying the answer')
                     result=await complete([*prompts,{'role':'assistant','content':result['text']},
-                        {'role':'user','content':'The draft failed reference or identifier validation. Rewrite it using only the supplied evidence. Put valid literal [n] references in the factual paragraphs and table rows, using each record citation number. Remove unsupported identifiers, raw URLs and unverified claims. Do not add new facts.'}],settings.PHARMA_QUESTION_MODEL,1536)
+                        {'role':'user','content':'The draft failed evidence or reference validation. Rewrite it using only the supplied evidence. Put valid literal [n] references in factual paragraphs and table rows. Never claim no trials exist or only one exists: describe only the retrieved sample. Do not infer a development strategy, submission or market-entry schedule from missing matches or estimated study dates. Preserve mixed phases and actual/estimated qualifiers. Remove unsupported identifiers, raw URLs and unverified claims. Do not add new facts.'}],settings.PHARMA_QUESTION_MODEL,1536)
                     text=verified_answer(result['text'],evidence,sources,history if chosen.intent=='conversation' else None)
                 await send('analysis_meta',model=result['model'],basis='research',shared=False)
                 await send('token',content=text);await send('done')

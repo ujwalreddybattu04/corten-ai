@@ -75,6 +75,30 @@ async def test_trials_keep_status_results_and_date_qualifiers_separate():
 
 
 @pytest.mark.asyncio
+async def test_drug_phase_condition_search_filters_actual_interventions(monkeypatch):
+    async def handler(request):
+        assert request.url.params['query.intr']=='luspatercept'
+        assert request.url.params['query.cond']=='myelodysplastic syndromes'
+        assert request.url.params['filter.advanced']=='AREA[Phase]PHASE3'
+        assert 'query.term' not in request.url.params
+        return httpx.Response(200,json={'studies':[],'totalCount':0})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        rows,coverage=await tools.trials(tools.ToolCall(tool='trials',query='luspatercept',search_by='intervention',phase='PHASE3',condition='myelodysplastic syndromes'),client)
+    assert not rows and 'Applied filters' in coverage and 'not a complete pipeline' in coverage
+
+
+def test_registry_sample_cannot_be_presented_as_absence_and_reference_ranges_are_bounded():
+    evidence=[{'kind':'trial_record','facts':{'study_id':'NCT12345678'}}]
+    sources=[{'url':'https://clinicaltrials.gov/study/NCT12345678'}]*2
+    for text in ['There are no current Phase 3 studies registered for luspatercept. [1]',
+                 'Only one current Phase 3 study is registered. [1]']:
+        with pytest.raises(LLMProviderError):service.verified_answer(text,evidence,sources)
+    assert service.verified_answer('The retrieved sample contains NCT12345678 [1-2].',evidence,sources).endswith('[1][2].')
+    assert service.verified_answer('No matching studies were returned in this search [1].',evidence,sources)
+    with pytest.raises(LLMProviderError):service.verified_answer('A fact [1-99].',evidence,sources)
+
+
+@pytest.mark.asyncio
 async def test_fda_supplement_classification_and_original_application_are_preserved():
     application={'application_number':'ANDA210968','sponsor_name':'Eugia',
         'products':[{'brand_name':'OLANZAPINE','active_ingredients':[{'name':'OLANZAPINE','strength':'5 mg'}]}],
