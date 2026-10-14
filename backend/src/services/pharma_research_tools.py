@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal
 from src.config.settings import settings
 from src.services import pharma_repository
@@ -33,6 +33,11 @@ class ToolCall(BaseModel):
     tool: ToolName
     query: str = Field(min_length=2,max_length=240)
     scope: Scope = 'regulatory'
+
+    @model_validator(mode='after')
+    def applicable_scope(self):
+        if self.tool!='official_search' and self.scope!='regulatory':raise ValueError('Only official search uses scope')
+        return self
 
     @field_validator('query')
     @classmethod

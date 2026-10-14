@@ -22,10 +22,23 @@ from src.services.llm_runtime import LLMProviderError
     {'intent':'research','calls':[{'tool':'fda','query':'https://evil.example'}]},
     {'intent':'research','calls':[{'tool':'fda','query':'olanzapine'}]*5},
     {'intent':'research','calls':[{'tool':'fda','query':'olanzapine'}]*2},
+    {'intent':'research','calls':[{'tool':'fda','query':'olanzapine','scope':'applications'}]},
+    {'intent':'research','calls':[{'tool':'fda','query':'olanzapine','scope':'safety'}]},
     {'intent':'clarify'},
 ])
 def test_unapproved_or_ambiguous_plans_fail_closed(value):
     with pytest.raises(ValidationError):service.Plan.model_validate(value)
+
+
+@pytest.mark.asyncio
+async def test_planner_receives_the_actual_schema_and_one_fda_call_covers_all_classifications(monkeypatch):
+    model=AsyncMock(return_value={'text':'{"intent":"research","calls":[{"tool":"fda","query":"olanzapine"}],"clarification":""}'})
+    monkeypatch.setattr(service,'complete',model)
+    result=await service.plan('Which olanzapine actions are labeling supplements?',[],None)
+    assert len(result.calls)==1 and result.calls[0].scope=='regulatory'
+    payload=json.loads(model.call_args.args[0][-1]['content'])
+    assert payload['required_response_schema']['additionalProperties'] is False
+    assert payload['required_response_schema']['$defs']['ToolCall']['properties']['scope']['enum']==['regulatory','safety','companies','commercial','patents','policy']
 
 
 @pytest.mark.parametrize('raw',['{"value":NaN}','{"value":Infinity}','[]','{"value":1e400}'])

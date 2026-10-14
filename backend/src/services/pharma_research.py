@@ -22,6 +22,9 @@ Return ONLY JSON: {"intent":"research|record|conversation|clarify","calls":[{"to
 Tools: drug_history (verified brand/ingredient identities and archived events); trials (ClinicalTrials.gov current study records);
 fda (FDA application/approval records: use a drug, company or application ID, not a long sentence); literature (Europe PMC abstracts/metadata);
 labels (FDA-submitted labels: use a drug name); official_search (public indexed excerpts with scope regulatory, safety, companies, commercial, patents or policy).
+The schema below is mandatory. For drug_history, trials, fda, literature and labels OMIT the scope field; it does not filter those tools. In particular, fda already returns all recent approved submission classifications in one call: never use invented scopes such as applications or labeling_supplements, and never repeat the same fda query. Only official_search uses scope, which MUST be one of regulatory, safety, companies, commercial, patents, policy.
+Example for FDA labeling supplements: {"intent":"research","calls":[{"tool":"fda","query":"olanzapine"}],"clarification":""}.
+Example for comparing two trials: {"intent":"research","calls":[{"tool":"trials","query":"luspatercept"},{"tool":"trials","query":"imetelstat"}],"clarification":""}.
 Use 0-4 calls, each query 2-240 characters. Use only these tools and scopes. Never invent a drug identity, assume two drugs are equivalent, or request shell, email, database writes or arbitrary URLs.
 For broad drug research choose complementary sources. For comparisons, search each named asset rather than silently assuming complete competitor coverage.
 Use record with NO calls for a question answerable from the selected record, such as its date, identifier or meaning. Use research for other records, current updates, competitors, scientific evidence, patents or commercial questions. Use conversation with NO calls for previous questions or app state. Do not web-search conversation memory.
@@ -102,7 +105,7 @@ def verified_answer(text,evidence,sources,conversation=None):
 async def plan(query,history,selected):
     if re.search(r'\b(?:previous|last) (?:question|message)\b|\bwhat did [Ii] (?:ask|say)\b',query,re.I):
         return Plan(intent='conversation')
-    payload={'query':query,'recent_conversation':history,
+    payload={'query':query,'recent_conversation':history,'required_response_schema':Plan.model_json_schema(),
         'selected_record':{k:selected[k] for k in ('title','url','facts')} if selected else None,
         'today_utc':datetime.now(timezone.utc).date().isoformat()}
     result=await complete([{'role':'system','content':PLAN_SYSTEM},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}],settings.PHARMA_QUESTION_MODEL,768)
