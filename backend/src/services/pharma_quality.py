@@ -25,6 +25,10 @@ def check_claims(text,evidence):
             raise LLMProviderError('The draft inferred prescribing advice. Analyst research must describe evidence rather than recommend treatment.')
         if re.search(r'\b(?:searched|queried|search of|searching)\s+(?:the\s+)?PubMed\b',sentence,re.I):
             raise LLMProviderError('PubMed was not queried directly; the publication tool uses Europe PMC.')
+        if re.search(r'\b(?:the|these|all) studies are observational\b|\bthis study is observational\b',sentence,re.I):
+            cited={int(n) for n in re.findall(r'\[(\d+)\]',sentence)}
+            if any(r.get('citation') in cited and r.get('kind')=='publication' and r.get('facts',{}).get('evidence_type')=='review' for r in evidence):
+                raise LLMProviderError('A review article must not be classified as an observational cohort study.')
         if labels and re.search(r'\bboxed\s+warning\b',sentence,re.I):
             negative=re.search(r'\b(?:no|none|not|without|absent|missing|doesn.t|does not)\b',sentence,re.I)
             matched=[label for label in labels if any(name and name.casefold() in sentence.casefold() for name in [*label.get('brand_names',[]),*label.get('generic_names',[])])]

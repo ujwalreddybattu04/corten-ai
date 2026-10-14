@@ -111,8 +111,8 @@ def trial_comparison(evidence,coverage):
         return plain(value['date'])+' ('+qualifier+')'
     lines=[f'The retrieved sample contains **{len(rows)} study record'+('s' if len(rows)!=1 else '')+'**. It is not a complete development pipeline.',
         '', '### Retrieved trial comparison', '',
-        '| Study / interventions | Phase / current status | Primary endpoints | Primary completion | Study completion | Registry results |',
-        '| --- | --- | --- | --- | --- | --- |']
+        '| Study / interventions | Phase / current status | Conditions / design | Primary endpoints | Primary completion | Study completion | Registry results |',
+        '| --- | --- | --- | --- | --- | --- | --- |']
     for row in rows[:12]:
         facts=row['facts']
         names=[str(i['name']) for i in facts.get('interventions',[]) if i.get('name') and i.get('type') in ('DRUG','BIOLOGICAL')]
@@ -122,8 +122,11 @@ def trial_comparison(evidence,coverage):
         posted=facts.get('results_posted')
         results='Posted'+(' '+plain(posted.get('date','')) if isinstance(posted,dict) else ' '+plain(posted) if posted else '') if posted or facts.get('results_present') is True else 'No posted results in this record' if facts.get('results_present') is False else 'Not established'
         label=facts['study_id']+(' · '+facts['acronym'] if facts.get('acronym') else '')
+        population=', '.join(str(v) for v in facts.get('conditions',[])) or 'Not listed'
+        allocation=(facts.get('design') or {}).get('allocation')
+        if allocation:population+='; '+str(allocation).replace('_',' ').lower()
         cells=[plain(label)+' ['+str(row['citation'])+']'+(' · '+plain(', '.join(names)) if names else ''),
-            plain(phase)+' · '+plain(status),plain(endpoints),date(facts.get('primary_completion')),date(facts.get('completion')),results]
+            plain(phase)+' · '+plain(status),plain(population),plain(endpoints),date(facts.get('primary_completion')),date(facts.get('completion')),results]
         lines.append('| '+' | '.join(cells)+' |')
     if len(rows)>12:lines+=['',f'Showing 12 of {len(rows)} retrieved records; the evidence CSV contains the full retrieved sample.']
     lines+=['','### How to use this comparison',
@@ -164,6 +167,8 @@ def memory_query(query):
 async def plan(query,history,selected):
     if memory_query(query):
         return Plan(intent='conversation')
+    explicit=explicit_plan(query)
+    if explicit:return explicit
     payload={'query':query,'recent_conversation':history,'required_response_schema':Plan.model_json_schema(),
         'selected_record':{k:selected[k] for k in ('title','url','facts')} if selected else None,
         'today_utc':datetime.now(timezone.utc).date().isoformat()}
@@ -173,6 +178,32 @@ async def plan(query,history,selected):
         chosen=Plan.model_validate_json(raw)
         return refine_plan(query,chosen)
     except ValueError:raise LLMProviderError('The research plan could not be validated. Please make the drug, company or question more specific.') from None
+
+
+def explicit_plan(query):
+    """Use unambiguous user-named assets directly; a model need not reinterpret these searches."""
+    pair=re.search(r'\b([A-Za-z][A-Za-z-]{3,60})\s+(?:vs\.?|versus)\s+([A-Za-z][A-Za-z-]{3,60})\b',query,re.I)
+    if pair and re.search(r'\b(?:trials?|studies|phase\s*(?:[1-4]|iii|ii)|head[- ]to[- ]head)\b',query,re.I):
+        phase=next(('PHASE'+str(n) for n in (1,2,3,4) if re.search(r'\bphase\s*'+str(n)+r'\b',query,re.I)),None)
+        condition='myelodysplastic syndromes' if re.search(r'\b(?:MDS|myelodysplas\w*)\b',query,re.I) else None
+        if re.search(r'\bhead[- ]to[- ]head\b',query,re.I):
+            calls=[ToolCall(tool='trials',query=pair[1],compare_with=pair[2],phase=phase,condition=condition),
+                ToolCall(tool='literature',query=pair[1]+' '+pair[2]+' randomized head-to-head')]
+        else:calls=[ToolCall(tool='trials',query=asset,search_by='intervention',phase=phase,condition=condition) for asset in (pair[1],pair[2])]
+        return Plan(intent='research',calls=calls)
+    if re.search(r'\b(?:patents?|exclusivit\w*)\b',query,re.I):
+        asset=re.search(r'\bgeneric\s+([A-Za-z][A-Za-z-]{3,60})\b',query,re.I)
+        if asset:return Plan(intent='research',calls=[ToolCall(tool='orange_book',query=asset[1]),ToolCall(tool='fda',query=asset[1]),
+            ToolCall(tool='official_search',query=asset[1]+' US generic launch patents settlements',scope='commercial')])
+    if re.search(r'\bpipeline\b',query,re.I):
+        from src.services.pharma_catalog import COMPANIES
+        company=next((name for name in COMPANIES.values() if re.search(r'(?<!\w)'+re.escape(name)+r'(?!\w)',query,re.I)),None)
+        if company:
+            condition=next((word for word in ('obesity','diabetes','cancer') if re.search(r'\b'+word+r'\b',query,re.I)),None)
+            return Plan(intent='research',calls=[ToolCall(tool='trials',query=company,search_by='sponsor',condition=condition),
+                ToolCall(tool='official_search',query=company+' '+(condition+' ' if condition else '')+'pipeline',scope='companies'),
+                ToolCall(tool='official_search',query=company+' '+(condition+' ' if condition else '')+'discontinued programs',scope='companies')])
+    return None
 
 
 def refine_plan(query,chosen):
@@ -273,6 +304,15 @@ async def research_stream(query,messages,record_id=None):
                 await send('research_evidence',records=evidence,coverage=coverage)
                 if chosen.intent=='research' and not evidence:
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
+                if any(r['kind']=='orange_book' for r in evidence) and re.search(r'\b(?:patents?|exclusivit\w*)\b',query,re.I):
+                    await send('analysis_meta',model='source-data',basis='orange_book_records',shared=False)
+                    await send('token',content=patent_summary(evidence,coverage));await send('done');return
+                if any(c.tool=='trials' and c.compare_with for c in chosen.calls) or re.search(r'\bpipeline\b',query,re.I) and any(r['kind']=='trial_record' for r in evidence):
+                    comparison=trial_comparison(evidence,coverage)
+                    if comparison:
+                        comparison+=publication_appendix(evidence)
+                        await send('analysis_meta',model='source-data',basis='registry_and_publications',shared=False)
+                        await send('token',content=verified_answer(comparison,evidence,sources));await send('done');return
                 if chosen.calls and all(c.tool=='trials' for c in chosen.calls) and re.search(r'\b(?:compare|comparison|list|tabulate|completions?|results)\b',query,re.I):
                     comparison=trial_comparison(evidence,coverage)
                     if comparison:
@@ -367,4 +407,53 @@ def label_summary(evidence):
         if facts.get('warnings_and_cautions'):
             lines+=['','Warnings and cautions are a separate label section. Their presence does not create a boxed warning; review the full source for individual risks.'+citation]
         lines+=['','These records describe labeling, not a recommendation to start treatment, switch medicines or increase a dose.','']
+    return '\n'.join(lines)
+
+
+def source_text(value):
+    return re.sub(r'([\\`*_{}\[\]<>#|])',r'\\\1',str(value)).replace('\n',' ')
+
+
+def publication_appendix(evidence):
+    rows=[r for r in evidence if r['kind']=='publication' or r['kind'].startswith('indexed_')]
+    if not rows:return ''
+    lines=['','### Retrieved publications','These are retrieved source titles, not verified full-document conclusions. Publication dates do not necessarily identify clinical-event dates.','']
+    lines.extend('- '+source_text(r['title'])+(' · '+source_text(r['date']) if r.get('date') else ' · publication date not supplied')+' ['+str(r['citation'])+'].' for r in rows[:10])
+    lines+=['','The current trial sample is not a complete list of active or discontinued programs. A company press release remains an attributed claim; a listed study or publication does not establish a mechanism, clinical benefit or a launch date.']
+    return '\n'.join(lines)
+
+
+def patent_summary(evidence,coverage):
+    """Patent/exclusivity dates are product-specific source data, never a computed launch floor."""
+    def when(value):
+        value=str(value or '')
+        if re.fullmatch(r'\d{8}',value):
+            try:return datetime.strptime(value,'%Y%m%d').date().isoformat()
+            except ValueError:return 'Invalid date in source'
+        return source_text(value) if value else 'Not listed'
+    lines=['FDA Orange Book listings below are specific to the listed application and product. **They do not establish a US generic launch date or an earliest launch date.**', '',
+        '| Application / product | Product / form / strength | Listing | Patent number or FDA exclusivity code | Listed expiry |',
+        '| --- | --- | --- | --- | --- |']
+    count=0;total=0
+    for row in evidence:
+        if row['kind']!='orange_book':continue
+        facts=row['facts']
+        for product in facts.get('products',[]):
+            label=str(product.get('application_type',''))+str(product.get('application_number',''))+' / '+str(facts.get('product_number',''))
+            name=' · '.join(str(v) for v in (product.get('brand_name'),product.get('dosage_form'),', '.join(str(v.get('strength','')) for v in product.get('active_ingredients',[]))) if v)
+            for kind,entries,identifier,expiry in [('Patent',facts.get('patents',[]),'patent_number','expiration_date'),('Regulatory exclusivity',facts.get('exclusivity',[]),'exclusivity_code','exclusivity_expiration_date')]:
+                for entry in entries:
+                    total+=1
+                    if count>=24:continue
+                    lines.append('| '+' | '.join([source_text(label)+' ['+str(row['citation'])+']',source_text(name),kind,source_text(entry.get(identifier,'Not listed')),when(entry.get(expiry))])+' |');count+=1
+    if not count:lines+=['','No patent or exclusivity entries were supplied in the retrieved product sample. This does not establish that none exist.']
+    if total>count:lines+=['',f'Showing {count} of {total} retrieved listings; evidence CSV retains the complete retrieved records.']
+    lines+=['','### Approval records and limitations']
+    for row in evidence:
+        if row['kind']!='fda_application':continue
+        facts=row['facts']
+        approved=facts.get('approved_submissions',[]);tentative=facts.get('tentative_submissions',[])
+        lines.append('- '+source_text(facts.get('application','FDA application'))+': '+str(len(approved))+' recent approved submission(s), '+str(len(tentative))+' tentative submission(s) in the retrieved sample. Tentative approval does not authorise marketing; approved submissions alone do not prove commercial launch. ['+str(row['citation'])+'].')
+    lines+=['','FDA exclusivity codes are reproduced exactly; different codes must not be renamed NCE or treated as interchangeable. Product-specific dates cannot be applied to every formulation or generic. Patent validity, delisting, litigation, settlements and actual marketing remain separate checks.','','### Search coverage']
+    lines.extend('- '+r['coverage'] for r in coverage)
     return '\n'.join(lines)

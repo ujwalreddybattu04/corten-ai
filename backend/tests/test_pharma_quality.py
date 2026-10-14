@@ -50,6 +50,16 @@ def test_cross_program_comparison_is_not_mistaken_for_a_joint_intervention_trial
         ('luspatercept','intervention',None),('imetelstat','intervention',None),('COMMANDS','term',None),('IMerge','term',None)]
 
 
+@pytest.mark.asyncio
+async def test_explicit_comparisons_pipeline_and_patents_do_not_need_a_model_planner(monkeypatch):
+    model=AsyncMock(side_effect=AssertionError('Explicit source queries do not need a model'))
+    monkeypatch.setattr(research,'complete',model)
+    for question in ['tirzepatide vs semaglutide head-to-head trials','Compare Phase 3 luspatercept vs imetelstat in lower-risk MDS','Pfizer obesity pipeline','generic apixaban patents']:
+        chosen=await research.plan(question,[],None)
+        assert chosen.intent=='research' and chosen.calls
+    model.assert_not_awaited()
+
+
 def test_false_warning_prescribing_provenance_results_and_chronology_are_blocked():
     labels=[{'kind':'drug_label','facts':{'brand_names':['KEYTRUDA'],'boxed_warning_present':False}}]
     with pytest.raises(LLMProviderError):check_claims('KEYTRUDA has a boxed warning. [1]',labels)
@@ -117,6 +127,17 @@ async def test_orange_book_prioritises_innovator_patents_and_keeps_generic_produ
     assert rows[0]['facts']['patents'][0]['expiration_date']=='2031-01-01'
     assert rows[0]['facts']['launch_date_established'] is False
     assert 'no launch date is established' in coverage
+
+
+def test_patent_expiries_and_np_exclusivity_are_never_transformed_into_a_launch_floor():
+    evidence=[{'kind':'orange_book','citation':1,'facts':{'product_number':'001','products':[{'application_type':'N','application_number':'220073','brand_name':'ELIQUIS SPRINKLE','dosage_form':'FOR SUSPENSION','active_ingredients':[{'strength':'0.15MG'}]}],
+        'patents':[{'patent_number':'6967208','expiration_date':'20261121'}],
+        'exclusivity':[{'exclusivity_code':'NP','exclusivity_expiration_date':'20280417'}]}}]
+    answer=research.patent_summary(evidence,[])
+    assert '| Regulatory exclusivity | NP | 2028-04-17 |' in answer
+    assert '2026-11-21' in answer and 'ELIQUIS SPRINKLE' in answer
+    assert 'do not establish a US generic launch date' in answer
+    assert 'New Chemical Entity' not in answer and 'until at least' not in answer
 
 
 def test_impact_prioritises_class_i_recall_and_positive_phase3_but_not_routine_class_ii():

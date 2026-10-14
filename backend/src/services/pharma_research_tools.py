@@ -186,10 +186,13 @@ async def literature(call,client):
         elif re.fullmatch(r'[A-Za-z0-9._-]{1,100}',identifier) and re.fullmatch(r'[A-Z]{2,8}',source):url='https://europepmc.org/article/'+source+'/'+identifier
         else:continue
         if identity:seen.add(identity)
+        abstract=clean_text(article.get('abstractText',''),20000)
+        types=(article.get('pubTypeList') or {}).get('pubType',[])
         rows.append(row(article.get('title',identifier),url,'publication',
             {'identifier':identifier,'source':source,'doi':article.get('doi'),'authors':article.get('authorString'),
              'journal':((article.get('journalInfo') or {}).get('journal') or {}).get('title'),
-             'publication_types':(article.get('pubTypeList') or {}).get('pubType',[])},
+             'publication_types':types,'abstract':abstract[:6000],'abstract_complete':len(abstract)<=6000,
+             'evidence_type':'review' if any('review' in str(t).casefold() for t in types) else 'randomized_trial' if any('randomized controlled trial'==str(t).casefold() for t in types) else 'study_design_not_classified'},
             article.get('abstractText',''),article.get('firstPublicationDate'),'Publication date'))
         if len(rows)>=6:break
     return rows,'Up to six Europe PMC publication matches, with bounded abstract excerpts where supplied. Full text and complete methods/results were not reviewed; publication is not regulatory approval.'
