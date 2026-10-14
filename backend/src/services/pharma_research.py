@@ -394,7 +394,7 @@ def label_summary(evidence):
     rows=[r for r in evidence if r.get('kind')=='drug_label']
     if not rows:return None
     def plain(value):return re.sub(r'([\\`*_{}\[\]<>#|])',r'\\\1',str(value)).replace('\n',' ')
-    lines=[]
+    lines=['Label findings by formulation:','']
     for row in rows:
         facts=row['facts'];citation=' ['+str(row['citation'])+']'
         lines+=['### '+plain(', '.join(facts.get('brand_names') or [row['title']])),'',
