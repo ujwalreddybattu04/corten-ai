@@ -222,23 +222,55 @@ def test_selected_record_and_application_with_one_url_get_separate_references():
     assert [r['citation'] for r in evidence]==[1,2] and len(sources)==2
 
 
+SURPASS={'study_id':'NCT03987919','acronym':'SURPASS-2','phases':['PHASE3'],'status':'COMPLETED','results_posted':{'date':'2022-02-14'},
+    'results_present':True,'primary_completion':{'date':'2021-01-28','type':'ACTUAL'},'completion':{'date':'2021-02-15','type':'ACTUAL'},
+    'primary_results':[{'measure':'Change in HbA1c','time_frame':'Week 40','unit':'Percentage of HbA1c','values':[{'group':'Tirzepatide','value':'-2.37'},
+        {'group':'Semaglutide','value':'-1.86'}],'analyses':[{'parameter':'LS Mean Difference','estimate':'-0.51','ci_percent':'95','ci_lower':'-0.64','ci_upper':'-0.38','p_value':'<0.001'}]}]}
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize('summary_ok',[True,False])
-async def test_source_rendered_answers_get_a_verified_key_answer_or_none(monkeypatch,summary_ok):
-    row=tools.row('SURPASS-2','https://clinicaltrials.gov/study/NCT03987919','trial_record',{'study_id':'NCT03987919','acronym':'SURPASS-2',
-        'phases':['PHASE3'],'status':'COMPLETED','results_posted':{'date':'2022-02-14'},'results_present':True,
-        'completion':{'date':'2021-02-15','type':'ACTUAL'},'primary_results':[{'measure':'Change in HbA1c','values':[{'group':'Tirzepatide','value':'-2.37'}]}]})
+async def test_registry_questions_get_a_source_built_key_answer_without_a_model_call(monkeypatch):
+    row=tools.row('SURPASS-2','https://clinicaltrials.gov/study/NCT03987919','trial_record',SURPASS)
     monkeypatch.setattr(research,'plan',AsyncMock(return_value=research.Plan(intent='research',calls=[tools.ToolCall(tool='trials',query='SURPASS-2')])))
     monkeypatch.setattr(research,'execute',AsyncMock(return_value={'tool':'trials','label':'Trials','status':'available','records':[row],'coverage':'Sample.'}))
-    good='SURPASS-2 completed on 2021-02-15 and posted an HbA1c change of -2.37 for tirzepatide [1].'
-    bad='SURPASS-2 showed a 0.9 point advantage and will complete on 2021-02-15 [1].'
-    model=AsyncMock(return_value={'text':good if summary_ok else bad,'model':'amazon.nova-pro-v1:0'})
+    model=AsyncMock(side_effect=AssertionError('Registry answers are built from source fields'))
     monkeypatch.setattr(research,'complete',model)
     events=[json.loads(e[6:]) async for e in research.research_stream('What happened in SURPASS-2?',[])]
     answer=next(e['content'] for e in events if e['type']=='token')
+    key=answer.split('### Retrieved trial comparison')[0]
+    assert events[-1]['type']=='done' and '### Key answer' in key and model.await_count==0
+    assert 'primary completion 2021-01-28 (actual); study completion 2021-02-15 (actual); registry results posted 2022-02-14' in key
+    assert 'Tirzepatide -2.37; Semaglutide -1.86 (Percentage of HbA1c); LS Mean Difference -0.51 (95% CI -0.64 to -0.38), p <0.001' in key.replace('\\','')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('summary_ok',[True,False])
+async def test_pipeline_answers_get_a_model_key_answer_only_when_it_passes(monkeypatch,summary_ok):
+    row=tools.row('SURPASS-2','https://clinicaltrials.gov/study/NCT03987919','trial_record',SURPASS)
+    monkeypatch.setattr(research,'plan',AsyncMock(return_value=research.Plan(intent='research',calls=[tools.ToolCall(tool='trials',query='Lilly',search_by='sponsor')])))
+    monkeypatch.setattr(research,'execute',AsyncMock(return_value={'tool':'trials','label':'Trials','status':'available','records':[row],'coverage':'Sample.'}))
+    good='**Key answer:** SURPASS-2 completed on 2021-02-15 and posted an HbA1c change of -2.37 for tirzepatide [1].'
+    bad='Generic tirzepatide could launch after 2021-02-15, a 0.9 point advantage [1].'
+    model=AsyncMock(return_value={'text':good if summary_ok else bad,'model':'amazon.nova-pro-v1:0'})
+    monkeypatch.setattr(research,'complete',model)
+    events=[json.loads(e[6:]) async for e in research.research_stream('What has Lilly announced about its diabetes pipeline?',[])]
+    answer=next(e['content'] for e in events if e['type']=='token')
     assert events[-1]['type']=='done' and 'Posted primary results' in answer
-    assert ('### Key answer' in answer)==summary_ok and '0.9 point' not in answer
+    assert ('### Key answer' in answer)==summary_ok and '0.9 point' not in answer and '**Key answer:**' not in answer
     assert model.await_count==(1 if summary_ok else 2)
+
+
+def test_launch_guesses_primary_completion_mixups_and_unsupported_counts_are_rejected():
+    for text in ['Generic apixaban could launch in the US after November 21, 2026 [1].',
+                 'Generics could enter after the last exclusivity expires [1].']:
+        with pytest.raises(LLMProviderError):check_claims(text,[])
+    assert check_claims('These listings do not establish when generics could launch [1].',[])
+    alpine={'kind':'trial_record','citation':1,'facts':{'study_id':'NCT03734016','acronym':'ALPINE','primary_completion':{'date':'2022-08-08','type':'ACTUAL'},
+        'completion':{'date':'2024-02-28','type':'ACTUAL'}}}
+    with pytest.raises(LLMProviderError):check_dates('ALPINE completed on 2022-08-08 [1].',[alpine],TODAY)
+    assert check_dates('ALPINE reached primary completion on 2022-08-08 and completed on 2024-02-28 [1].',[alpine],TODAY)
+    with pytest.raises(LLMProviderError):research.verified_answer('There are six Phase 3 trials of donanemab [1].',[alpine],[{}])
+    assert research.verified_answer('There are six Phase 3 trials in this retrieved sample [1].',[alpine],[{}])
 
 
 @pytest.mark.asyncio

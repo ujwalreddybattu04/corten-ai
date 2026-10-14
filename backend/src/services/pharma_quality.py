@@ -87,13 +87,15 @@ def check_dates(text,evidence,today=None):
     """Every specific date must come from the evidence, keep its qualifier and keep its chronology."""
     today=today or datetime.now(timezone.utc).date().isoformat()
     known=evidence_dates(evidence)
-    actual=set();estimated=set()
+    actual=set();estimated=set();primary_only=set();study=set()
     for row in evidence:
         if row.get('kind')!='trial_record':continue
         for field in ('primary_completion','completion'):
             value=(row.get('facts') or {}).get(field) or {}
             if isinstance(value,dict) and value.get('date'):
                 (actual if value.get('type')=='ACTUAL' else estimated if value.get('type')=='ESTIMATED' else set()).add(str(value['date']))
+                (primary_only if field=='primary_completion' else study).add(str(value['date']))
+    primary_only-=study
     for iso,precision,start,end in dates_in(text):
         if not _grounded(iso,precision,known,today):
             raise LLMProviderError('The draft contained a date that is not in the retrieved evidence.')
@@ -105,6 +107,9 @@ def check_dates(text,evidence,today=None):
             raise LLMProviderError('The draft called an actual registry date estimated.')
         if iso in estimated and iso not in actual and not past and COMPLETED_BEFORE.search(before):
             raise LLMProviderError('The draft described an estimated future date as completed.')
+        # A primary-completion date is not the date the whole study completed.
+        if iso in primary_only and COMPLETED_BEFORE.search(before) and not re.search(r'\bprimary\b',before[-60:],re.I):
+            raise LLMProviderError('The draft called a primary-completion date the study completion date.')
     return text
 
 
@@ -151,6 +156,11 @@ def check_claims(text,evidence):
             raise LLMProviderError('The draft inferred prescribing advice. Analyst research must describe evidence rather than recommend treatment.')
         if re.search(r'\b(?:searched|queried|search of|searching)\s+(?:the\s+)?PubMed\b',sentence,re.I):
             raise LLMProviderError('PubMed was not queried directly; the publication tool uses Europe PMC.')
+        # Patent, exclusivity and approval dates never establish when a generic or product can launch.
+        if (re.search(r'\b(?:generics?|biosimilars?|launch\w*|market entry|enter(?:s|ing)? the market)\b',sentence,re.I)
+                and re.search(r'\b(?:could|can|may|might|will|would|expected to|able to)\s+(?:\w+\s+){0,3}(?:launch|enter|be launched|become available|reach the market)\b|\blaunch(?:es|ed)?\s+(?:after|once|on|in|by)\b|\b(?:entry|launch) (?:date|timing) (?:is|would be|will be)\b',sentence,re.I)
+                and not re.search(r'\b(?:not|no|cannot|can\'t|does not|do not|doesn.t|is not|are not|unknown|unclear|not established)\b',sentence,re.I)):
+            raise LLMProviderError('Listed patent, exclusivity or approval dates do not establish a launch date.')
         if re.search(r'\b(?:the|these|all) studies are observational\b|\bthis study is observational\b',sentence,re.I):
             cited={int(n) for n in re.findall(r'\[(\d+)\]',sentence)}
             if any(r.get('citation') in cited and r.get('kind')=='publication' and r.get('facts',{}).get('evidence_type')=='review' for r in evidence):

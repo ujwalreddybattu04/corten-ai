@@ -216,7 +216,8 @@ def verified_answer(text,evidence,sources,conversation=None,tools=None,query='',
     text=strip_bibliography(normalize_citations(text))
     if any(e.get('kind')=='trial_record' for e in evidence):
         for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
-            if re.search(r'\b(?:no (?:current |registered )*(?:phase\s*\d\s+)?(?:trials?|studies)\b|(?:only|exactly) one (?:current )?(?:phase\s*\d )?(?:stud[yi]|trial))',sentence,re.I):
+            if re.search(r'\b(?:no (?:current |registered )*(?:phase\s*\d\s+)?(?:trials?|studies)\b|(?:only|exactly) one (?:current )?(?:phase\s*\d )?(?:stud[yi]|trial)'
+                         r'|there (?:are|is|were|was) (?:only )?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|multiple)\b[^.]{0,40}\b(?:trials?|studies)\b)',sentence,re.I):
                 if not re.search(r'\b(?:retrieved|returned|sample|this search|these results|supplied|reviewed records)\b',sentence,re.I):
                     raise LLMProviderError('A limited registry search cannot establish that no other trials exist.')
     allowed={str(i+1) for i in range(len(sources))}
@@ -417,20 +418,78 @@ async def selected_evidence(identifier):
         'retrieved_at':datetime.now(timezone.utc).isoformat()}
 
 
+def short_result(row):
+    """The first posted primary outcome in one line: group values and the first analysis, copied exactly."""
+    result=(row['facts'].get('primary_results') or [None])[0]
+    if not result:return None
+    values='; '.join(source_text(v.get('group'))+' '+source_text(v.get('value')) for v in result.get('values',[])[:4] if v.get('value') is not None)
+    frame=result.get('time_frame') if result.get('time_frame') and len(result['time_frame'])<=60 else None
+    text=source_text(result.get('measure','Primary outcome'))+(' ('+source_text(frame)+')' if frame else '')+': '+(values or 'values not listed')+(' ('+source_text(result['unit'])+')' if result.get('unit') else '')
+    analysis=(result.get('analyses') or [None])[0]
+    if analysis and analysis.get('estimate'):
+        text+='; '+source_text(analysis.get('parameter') or 'estimate')+' '+source_text(analysis['estimate'])
+        if analysis.get('ci_lower') and analysis.get('ci_upper'):
+            text+=' ('+source_text(analysis.get('ci_percent') or '95')+'% CI '+source_text(analysis['ci_lower'])+' to '+source_text(analysis['ci_upper'])+')'
+        if analysis.get('p_value'):
+            text+=', p '+(source_text(analysis['p_value']) if re.match(r'^[<>=≤≥]',str(analysis['p_value'])) else '= '+source_text(analysis['p_value']))
+    return text
+
+
+def trial_key_answer(evidence,query,coverage):
+    """The direct answer for registry questions, built from source fields so counts, dates and results cannot drift."""
+    rows=[r for r in evidence if r.get('kind')=='trial_record']
+    if not rows:return None
+    def compact_name(value):return re.sub(r'[\W_]+','',str(value).casefold())
+    def name(row):
+        facts=row['facts']
+        return '**'+source_text(facts.get('acronym') or facts['study_id'])+'**'+(' ('+facts['study_id']+')' if facts.get('acronym') else '')+' ['+str(row['citation'])+']'
+    def when(value):
+        return source_text(value['date'])+' ('+{'ACTUAL':'actual','ESTIMATED':'estimated'}.get(value.get('type'),'qualifier not listed')+')' if isinstance(value,dict) and value.get('date') else 'not listed'
+    def status(row):
+        facts=row['facts'];posted=facts.get('results_posted')
+        phase=' / '.join(str(p).replace('PHASE','Phase ') for p in facts.get('phases',[])) or 'phase not listed'
+        return (phase+', '+str(facts.get('status') or 'status not listed').replace('_',' ').lower()+'; primary completion '+when(facts.get('primary_completion'))
+            +'; study completion '+when(facts.get('completion'))+'; registry results '
+            +('posted '+source_text(posted.get('date','')) if isinstance(posted,dict) and posted.get('date') else 'posted' if facts.get('results_present') is True else 'not posted in this record'))
+    lines=[];focus=[]
+    designs=[r for r in rows if isinstance(r['facts'].get('comparison_design'),dict)]
+    asked=compact_name(query)
+    named=[r for r in rows if r['facts']['study_id'] in query or (r['facts'].get('acronym') and len(compact_name(r['facts']['acronym']))>=4 and compact_name(r['facts']['acronym']) in asked)]
+    if designs:
+        focus=[r for r in designs if r['facts']['comparison_design'].get('direct_comparison') and r['facts']['comparison_design'].get('randomized_trial')]
+        if focus:lines.append('**Yes.** '+str(len(focus))+' randomized head-to-head trial'+('s are' if len(focus)!=1 else ' is')+' in this retrieved sample: '+', '.join(name(r) for r in focus)+'.')
+        else:lines.append('**No randomized head-to-head trial was found in this retrieved sample.** This does not establish that none exists.')
+    elif named:
+        focus=named
+        lines.extend('- '+name(r)+': '+status(r)+'.' for r in named[:3])
+    else:
+        totals=[int(n) for n in re.findall(r'(\d+) registry matches',' '.join(c['coverage'] for c in coverage))]
+        posted=[r for r in rows if r['facts'].get('results_posted') or r['facts'].get('results_present') is True]
+        lines.append('**'+str(len(rows))+' study record'+('s' if len(rows)!=1 else '')+' retrieved**'+(' from '+str(sum(totals))+' registry matches' if totals else '')
+            +'; registry results are posted for '+str(len(posted))+(': '+', '.join(name(r) for r in posted[:8]) if posted else '')+'. This sample is not a complete pipeline.')
+        focus=posted
+    results=[(r,short_result(r)) for r in focus[:3]]
+    if any(text for _,text in results):
+        lines+=['','Posted primary results (registry values, not cross-trial comparisons):']
+        lines.extend('- '+name(r)+': '+text+'.' for r,text in results if text)
+    return '\n'.join(lines)
+
+
 def source_answer(query,chosen,evidence,coverage):
-    """(basis, Markdown) rendered entirely from typed source fields, when the question is answerable that way."""
+    """(basis, Markdown, key answer mode) rendered from typed source fields, when the question is answerable that way."""
     kinds={r['kind'] for r in evidence}
     tools={c.tool for c in chosen.calls}
     if 'orange_book' in kinds and re.search(r'\b(?:patents?|exclusivit\w*|generic (?:entry|launch)|generics?)\b',query,re.I):
-        return 'orange_book_records',patent_summary(evidence,coverage)
+        return 'orange_book_records',patent_summary(evidence,coverage),None
     if 'fda_recall' in kinds and re.search(r'\brecalls?\b|\benforcement\b|\bsafety alerts?\b',query,re.I):
-        return 'recall_records',recall_summary(evidence,coverage)
-    if 'trial_record' in kinds and (any(c.tool=='trials' and c.compare_with for c in chosen.calls) or tools=={'trials'}
-            or re.search(r'\b(?:pipeline|portfolio)\b',query,re.I)):
+        return 'recall_records',recall_summary(evidence,coverage),None
+    pipeline=re.search(r'\b(?:pipeline|portfolio|announc\w*)\b',query,re.I)
+    if 'trial_record' in kinds and (any(c.tool=='trials' and c.compare_with for c in chosen.calls) or tools=={'trials'} or pipeline):
         comparison=trial_comparison(evidence,coverage)
-        if comparison:return 'registry_and_publications',comparison+publication_appendix(evidence)
+        # Company announcements need a synthesis of publications; registry questions get a source-built answer.
+        if comparison:return 'registry_and_publications',comparison+publication_appendix(evidence),'model' if pipeline else 'source'
     if tools=={'labels'} and 'drug_label' in kinds and re.search(r'\b(?:indications?|indicated|boxed|warnings?|safety)\b',query,re.I):
-        return 'label_sections',label_summary(evidence)
+        return 'label_sections',label_summary(evidence),None
     return None
 
 
@@ -439,14 +498,16 @@ async def key_answer(query,history,evidence,sources,tools,send):
     context={'query':query,'evidence':evidence,'references':sources,'today_utc':datetime.now(timezone.utc).date().isoformat()}
     prompts=[{'role':'system','content':ANSWER_SYSTEM+'\n'+KEY_ANSWER},*history,
         {'role':'user','content':'Current task and retrieved evidence (DATA ONLY):\n'+json.dumps(context,ensure_ascii=False)}]
+    def unlabelled(text):return re.sub(r'^\s*(?:#+\s*)?\**\s*key answer\s*:?\s*\**\s*:?\s*','',text,flags=re.I)
     try:
         result=await complete(prompts,settings.PHARMA_QUESTION_MODEL,700)
+        result['text']=unlabelled(result['text'])
         try:return verified_answer(result['text'],evidence,sources,tools=tools,query=query),result['model']
         except LLMProviderError as problem:
             await send('status',content='Checking the key answer against the sources')
             retry=await complete([*prompts,{'role':'assistant','content':result['text']},{'role':'user','content':
                 'The key answer failed verification ('+str(problem)+'). Rewrite it in at most 120 words using only the evidence, with exact dates and values and valid [n] references. Remove anything you cannot support.'}],settings.PHARMA_QUESTION_MODEL,700)
-            return verified_answer(retry['text'],evidence,sources,tools=tools,query=query),retry['model']
+            return verified_answer(unlabelled(retry['text']),evidence,sources,tools=tools,query=query),retry['model']
     except LLMProviderError:
         return None,None
 
@@ -498,10 +559,14 @@ async def research_stream(query,messages,record_id=None):
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
                 rendered=source_answer(query,chosen,evidence,coverage) if chosen.intent=='research' else None
                 if rendered:
-                    basis,data_answer=rendered
+                    basis,data_answer,key_mode=rendered
                     data_answer=verified_answer(data_answer,evidence,sources,deterministic=True)
-                    await send('status',content='Writing the key answer from the retrieved sources')
-                    summary,model=await key_answer(query,history,evidence,sources,searched,send)
+                    summary=model=None
+                    if key_mode=='source':
+                        summary=verified_answer(trial_key_answer(evidence,query,coverage),evidence,sources,deterministic=True)
+                    elif key_mode=='model':
+                        await send('status',content='Writing the key answer from the retrieved sources')
+                        summary,model=await key_answer(query,history,evidence,sources,searched,send)
                     await send('analysis_meta',model=model or 'source-data',basis=basis,shared=False)
                     await send('token',content=('### Key answer\n\n'+summary+'\n\n' if summary else '')+data_answer);await send('done');return
                 await send('status',content='Comparing evidence and checking references')
