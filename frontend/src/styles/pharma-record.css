@@ -57,8 +57,10 @@
 .pi-detail-conversation .answer-stream-content ul, .pi-detail-conversation .answer-stream-content ol { padding-left: 22px; margin: 12px 0 20px; }
 .pi-detail-conversation .answer-stream-content li { margin: 8px 0; padding-left: 3px; }
 .pi-detail-conversation .answer-stream-content strong { font-weight: 600; }
-.pi-detail-conversation .answer-stream-content .liquid-line { animation: none; }
-.pi-detail-conversation .research-progress { display: none; }
+/* Words are paced by progressiveText. Reset the shared animation's hidden start state. */
+.pi-detail-conversation .answer-stream-content .liquid-line { animation: none; opacity: 1; transform: none; will-change: auto; }
+.pi-detail-conversation .research-container { display: none; }
+.pi-detail-conversation .answer-cursor { font-size: 0; width: 2px; height: 16px; background: currentColor; text-shadow: none; }
 .pi-detail-conversation .sp-action-row { margin-top: 22px; padding-top: 10px; }
 .pi-detail-turn { margin-bottom: 32px; }
 .pi-detail-turn + .pi-detail-turn { padding-top: 24px; border-top: 1px solid var(--color-border); }

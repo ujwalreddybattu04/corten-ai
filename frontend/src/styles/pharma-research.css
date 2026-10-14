@@ -6,6 +6,10 @@
 .pr-page .answer-stream-content h2, .pr-page .answer-stream-content h3 { font-size: 15px; font-weight: 600; margin: 26px 0 12px; line-height: 1.6; }
 .pr-page .answer-stream-content p { margin-bottom: 16px; }
 .pr-page .answer-stream-content li { margin: 8px 0; }
+/* Keep paced words visible throughout generation, including newly created Markdown blocks. */
+.pr-page .answer-stream-content .liquid-line { animation: none; opacity: 1; transform: none; will-change: auto; }
+.pr-page .research-container { display: none; }
+.pr-page .answer-cursor { font-size: 0; width: 2px; height: 16px; background: currentColor; text-shadow: none; }
 .pr-page .answer-table-wrapper { max-width: 100%; }
 .pr-page .answer-th, .pr-page .answer-td { text-align: left; }
 .pr-content { width: min(100% - 64px, 900px); margin: 36px auto 0; padding-bottom: 24px; }
