@@ -6,6 +6,7 @@ import { isPrivateChat } from "@/lib/questionDrafts";
 import { conversationMessages } from "@/lib/conversation";
 import { openSearchStream } from "@/lib/searchConnection";
 import { readArticleSummary } from "@/lib/articleSummaryStream";
+import { progressiveText } from "@/lib/progressiveText";
 import { PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL, currentPharmaTurns, pharmaDisplayQuery, pharmaFingerprint, pharmaOriginalSource, restorePharmaThread, savePharmaThread, type PharmaRecord, type PharmaTurn } from "@/lib/pharmaRecord";
 import type { ResearchStep, SearchSource } from "@/hooks/useSearch";
 
@@ -16,11 +17,14 @@ export function usePharmaAnalysis(record: PharmaRecord) {
     const [sources, setSources] = useState<SearchSource[]>([]);
     const [steps, setSteps] = useState<ResearchStep[]>([]);
     const [busy, setBusy] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [threadId, setThreadId] = useState("");
     const [error, setError] = useState("");
     const [saved, setSaved] = useState(false);
     const [related, setRelated] = useState<string[]>([]);
     const [model, setModel] = useState("");
     const controller = useRef<AbortController | null>(null);
+    const reveal = useRef<ReturnType<typeof progressiveText> | null>(null);
     const turnsRef = useRef<PharmaTurn[]>([]);
     const id = useRef("");
     const owner = useRef(getStorageAccount());
@@ -32,8 +36,10 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         const display = label || (initial ? pharmaDisplayQuery(record) : query);
         const previous = [...turnsRef.current];
         let canonicalSources = [pharmaOriginalSource(record)], text = "";
-        setBusy(true); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setRelated([]);
+        setBusy(true); setRefreshing(query === PHARMA_ANALYSIS_PROMPT); setError(""); setAnswer(""); setQuestion(display); setSources(canonicalSources); setSteps([]); setRelated([]);
         const current = () => !abort.signal.aborted && controller.current === abort && getStorageAccount() === owner.current;
+        const displayText = progressiveText(value => { if (current()) setAnswer(value); }, abort.signal);
+        reveal.current = displayText;
         try {
             const response = await openSearchStream({ apiBase: "", query, focus: "all", mode: getAnswerMode(), incognito: isPrivateChat(),
                 pharma: { record_id: record.item.id, record_fingerprint: pharmaFingerprint(record), topic: record.feed.topic,
@@ -42,7 +48,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                 message => { if (current()) setSteps([{ type: "status", content: message }]); });
             text = await readArticleSummary(response, event => {
                 if (!current()) return;
-                if (event.type === "token") setAnswer(value => value + (event.content || event.data || ""));
+                if (event.type === "token") displayText.append(event.content || event.data || "");
                 else if (event.type === "sources" && (event.sources || event.items)) {
                     const next = (event.sources || event.items) as SearchSource[];
                     if (next.length) { canonicalSources = next; setSources(next); }
@@ -56,13 +62,18 @@ export function usePharmaAnalysis(record: PharmaRecord) {
                     if (typeof metadata.model === "string") setModel(metadata.basis === "source_summary" ? "Source-based summary" : metadata.model === "amazon.nova-pro-v1:0" ? "Amazon Nova Pro · AWS Bedrock" : metadata.model === "amazon.nova-lite-v1:0" ? "Amazon Nova Lite · AWS Bedrock" : "");
                 }
             }, "analysis");
+            await displayText.finish();
             if (!current()) return;
             const completed = [...previous, { query: display, answer: text, sources: canonicalSources }].slice(-60);
             turnsRef.current = completed; setTurns(completed); setAnswer(""); setQuestion("");
             setSaved(savePharmaThread(record, completed, previous, id.current, owner.current));
         } catch (failure) {
             if (current()) { setAnswer(""); setError(failure instanceof Error ? failure.message : "The analysis could not be completed. Please retry."); }
-        } finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
+        } finally {
+            displayText.cancel();
+            if (reveal.current === displayText) reveal.current = null;
+            if (controller.current === abort) { controller.current = null; setBusy(false); setRefreshing(false); }
+        }
     }, [record]);
     useEffect(() => {
         // Cleanup cancels this timer before React's development remount can issue a POST.
@@ -70,6 +81,7 @@ export function usePharmaAnalysis(record: PharmaRecord) {
             owner.current = getStorageAccount();
             const prior = restorePharmaThread(record);
             id.current = prior?.id || crypto.randomUUID();
+            setThreadId(id.current);
             if (prior) {
                 const restored = [...prior.history, prior].map(t => ({ query: t.query, answer: t.answer, sources: t.sources }));
                 turnsRef.current = restored; setTurns(restored); setSaved(true);
@@ -77,8 +89,8 @@ export function usePharmaAnalysis(record: PharmaRecord) {
         }, 50);
         return () => { clearTimeout(timer); controller.current?.abort(); controller.current = null; };
     }, [record, run]);
-    return { turns: busy && pending.current?.query === PHARMA_ANALYSIS_PROMPT ? [] : currentPharmaTurns(turns),
-        answer, question, sources, steps, busy, error, saved, related, model, threadId: saved ? id.current : "",
-        ask: run, refresh: () => run(PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL),
+    return { turns: busy && refreshing ? [] : currentPharmaTurns(turns),
+        answer, question, sources, steps, busy, error, saved, related, model, threadId: saved ? threadId : "",
+        ask: run, showFullAnswer: () => reveal.current?.showAll(), refresh: () => run(PHARMA_ANALYSIS_PROMPT, PHARMA_REFRESH_LABEL),
         retry: () => run(pending.current?.query || PHARMA_ANALYSIS_PROMPT, pending.current?.label) };
 }

@@ -198,10 +198,11 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
               <div className="pi-record-body">
               <div className="pi-record-meta"><span>{item.category}</span><time dateTime={item.date}>{eventDate(item.date)}</time></div>
               {item.impact && <div className="pi-impact-line"><span className={`pi-impact pi-impact-${item.impact.rating.toLowerCase()}`} title={item.impact.rationale}>{item.impact.rating}</span><span>{item.event?.label}</span></div>}
-              <h4><Link href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)}>{item.title}<ArrowRight size={14} aria-hidden="true" /></Link></h4>
+              <h4><Link href={pharmaRecordPath(item, feed)} title={item.title} onClick={() => rememberPharmaRecord(item, feed)}>{item.title}<ArrowRight size={14} aria-hidden="true" /></Link></h4>
               <p className="pi-record-summary">{item.summary || "Open the original source for the full record."}</p>
               {!!item.drugs?.length && <nav className="pi-drug-links" aria-label="Verified drug timelines">{item.drugs.map(drug => <Link key={drug.id} href={`/analyst-workspace/pharma/drug/${drug.id}`}>{drug.name}<ArrowUpRight size={13} /></Link>)}</nav>}
               <div className="pi-record-footer"><span>{item.date_label} · {feed.sources.find(s => s.id === item.source)?.name}</span>
+                <Link className="pi-record-open" href={pharmaRecordPath(item, feed)} onClick={() => rememberPharmaRecord(item, feed)}>Open brief<ArrowUpRight size={13} aria-hidden="true" /><span className="sr-only">: {item.title}</span></Link>
                 <button aria-expanded={selected === item.id} aria-controls={`pi-details-${item.id.replaceAll(":", "-")}`} onClick={() => setSelected(selected === item.id ? null : item.id)}>
                   {selected === item.id ? "Hide details" : "Record details"}<ChevronDown size={14} aria-hidden="true" />
                 </button>
@@ -241,12 +242,13 @@ export function RecordThumbnail({ item, featured = false }: { item: PharmaItem; 
   const [failed, setFailed] = useState("");
   const image = item.source === "news" ? pharmaThumbnail(item.thumbnail) : null;
   const identifier = item.details?.study_id ?? item.details?.application ?? item.details?.ema_product_number ?? item.details?.recall_number;
-  const previewType = item.source === "trials" ? "Clinical study" : item.source === "fda_safety" ? "Safety publication" : ["fda", "ema", "fda_updates"].includes(item.source) ? "Regulatory record" : item.source === "company" ? "Company release" : "Industry reporting";
+  const previewType = SOURCE_LABELS[item.source];
+  const asset = item.drugs?.[0]?.name || item.organization || item.category;
   return <div className={`pi-thumbnail pi-thumbnail-${item.source}${featured ? " pi-thumbnail-featured" : ""}`}>
     {image && failed !== image ? <><Image src={image} alt="" width={560} height={280} unoptimized loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(image)} /><span className="pi-thumb-caption">Publisher image</span></> : <>
       <svg viewBox="0 0 300 140" aria-hidden="true" className="pi-thumb-art"><g fill="none" stroke="currentColor" strokeWidth="1.3">
         {item.source === "trials" ? <>{[0, 1, 2, 3, 4, 5].map(n => <g key={n}><path d={`M${158 + Math.sin(n * 1.1) * 25},${12 + n * 21} L${158 - Math.sin(n * 1.1) * 25},${12 + n * 21}`} opacity=".55" /><circle cx={158 + Math.sin(n * 1.1) * 25} cy={12 + n * 21} r="3" fill="currentColor" /></g>)}<path d="M158 12 C208 42 108 86 158 128 M158 12 C108 42 208 86 158 128" /></> : <><path d="M156 20l27 16v32l-27 16-27-16V36z M183 68l27-16 27 16v32l-27 16-27-16z M129 68l-27 16v32l27 16 27-16V84" /><path d="M156 20V4 M237 68l27-16 M102 116l-25 14" /><circle cx="156" cy="4" r="3" fill="currentColor" /><circle cx="264" cy="52" r="3" fill="currentColor" /></>}
-      </g></svg><span className="pi-thumb-overline">{previewType}</span><span className="pi-thumb-id">{identifier ?? (item.source === "news" ? "Pharma & biotech" : "Source record")}</span><span className="pi-thumb-caption">Illustrated record preview</span>
+      </g></svg><span className="pi-thumb-overline">{previewType}</span><span className="pi-thumb-asset">{asset}</span>{identifier && <span className="pi-thumb-id">{identifier}</span>}
     </>}
   </div>;
 }

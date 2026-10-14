@@ -80,9 +80,9 @@ function RecordView({ record }: { record: PharmaRecord }) {
 
 function RecordEvidence({ record }: { record: PharmaRecord }) {
     const { item } = record, provider = recordProvider(record);
-    const [expanded, setExpanded] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1101px)").matches);
+    const [expanded, setExpanded] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1201px)").matches);
     useEffect(() => {
-        const media = window.matchMedia("(min-width: 1101px)");
+        const media = window.matchMedia("(min-width: 1201px)");
         const change = () => setExpanded(media.matches);
         media.addEventListener("change", change);
         return () => media.removeEventListener("change", change);
@@ -99,7 +99,7 @@ function RecordEvidence({ record }: { record: PharmaRecord }) {
                 {fields.map(name => { const value = item.details?.[name as keyof NonNullable<typeof item.details>]; return <div key={name}><dt>{LABELS[name]}</dt><dd>{pharmaFieldText(name, value)}</dd></div>; })}
                 <div><dt>Organization</dt><dd>{item.organization || "Not listed"}</dd></div>
                 </dl>
-                {item.summary && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}
+                {item.summary && item.source !== "ema" && <div className="pi-detail-description"><h3>Description</h3><p>{item.summary}</p></div>}
                 {item.event?.reason && <div className="pi-detail-description"><h3>Reported stop reason</h3><p>{item.event.reason}</p></div>}
                 {item.impact && <div className="pi-detail-description"><h3>Impact basis</h3><p>{item.impact.rationale}</p></div>}
                 <a className="pi-detail-source-link" href={item.url} target="_blank" rel="noopener noreferrer">{provider.name}<ArrowUpRight size={14} /><span className="sr-only"> (opens in a new tab)</span></a>
@@ -114,35 +114,82 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
     const chat = usePharmaAnalysis(record);
     const [input, setInput] = useState("");
     const start = useRef<HTMLDivElement>(null);
+    const textarea = useRef<HTMLTextAreaElement>(null);
+    const end = useRef<HTMLDivElement>(null);
+    const composer = useRef<HTMLDivElement>(null);
+    const following = useRef(true);
+    useEffect(() => {
+        const node = composer.current, page = node?.closest<HTMLElement>(".pi-detail-page");
+        if (!node || !page) return;
+        const measure = () => page.style.setProperty("--pi-composer-clearance", `${node.getBoundingClientRect().height + 48}px`);
+        const observer = new ResizeObserver(measure); observer.observe(node); measure();
+        return () => { observer.disconnect(); page.style.removeProperty("--pi-composer-clearance"); };
+    }, []);
+    useEffect(() => {
+        let previousY = window.scrollY;
+        const wheel = (event: WheelEvent) => { if (event.deltaY < 0) following.current = false; };
+        const touch = () => { following.current = false; };
+        const key = (event: KeyboardEvent) => { if (["PageUp", "Home", "ArrowUp"].includes(event.key) && !(event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)) following.current = false; };
+        const scroll = () => {
+            const down = window.scrollY > previousY; previousY = window.scrollY;
+            if (down && end.current && composer.current && Math.abs(end.current.getBoundingClientRect().bottom - composer.current.getBoundingClientRect().top) < 90) following.current = true;
+        };
+        window.addEventListener("wheel", wheel, { passive: true });
+        window.addEventListener("touchmove", touch, { passive: true });
+        window.addEventListener("scroll", scroll, { passive: true });
+        window.addEventListener("keydown", key);
+        return () => { window.removeEventListener("wheel", wheel); window.removeEventListener("touchmove", touch); window.removeEventListener("scroll", scroll); window.removeEventListener("keydown", key); };
+    }, []);
+    useEffect(() => {
+        if (!chat.busy || !chat.answer || !following.current) return;
+        const frame = requestAnimationFrame(() => {
+            if (!following.current || !end.current || !composer.current) return;
+            const overflow = end.current.getBoundingClientRect().bottom - composer.current.getBoundingClientRect().top + 28;
+            if (overflow > 0) window.scrollBy({ top: overflow, behavior: "instant" });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [chat.answer, chat.busy]);
+    useEffect(() => {
+        if (textarea.current) {
+            textarea.current.style.height = "auto";
+            textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 160)}px`;
+        }
+    }, [input]);
     const submit = (query: string) => {
         const value = query.trim();
         if (!value || chat.busy || !chat.turns.length) return;
-        setInput(""); void chat.ask(value);
+        following.current = true; setInput(""); void chat.ask(value);
         requestAnimationFrame(() => start.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }));
     };
     const suggestions = record.item.source === "trials" ? ["What does this study phase mean?", "What should we verify before changing the forecast?"]
         : record.item.source === "fda" ? ["What does this FDA action mean?", "What are the possible forecasting implications?"]
         : ["What could this mean for the competitive landscape?", "What should we verify next?"];
     return <section className="pi-detail-conversation" aria-labelledby="pi-analysis-title">
-        {chat.model && <p className="pi-widget-note">{chat.model}</p>}
-        <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Analyst brief</h2><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Create a new brief from this source snapshot"><RefreshCw size={13} aria-hidden="true" />Refresh brief</button></div></div>
+        <div className="pi-detail-analysis-heading"><div><h2 id="pi-analysis-title">Analyst brief</h2>{chat.model && <p className="pi-detail-model">{chat.model}</p>}</div><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Reload the brief for this source version"><RefreshCw size={13} aria-hidden="true" />Refresh</button></div></div>
         {chat.turns.map((turn, i) => <div className="pi-detail-turn" key={i}>
             {i > 0 && <div className="pi-detail-question">{turn.query}</div>}
             <AnswerStream query={turn.query} content={turn.answer} isStreaming={false} sources={turn.sources} />
         </div>)}
-        <div ref={start} className="pi-detail-current">
+        <div ref={start} className="pi-detail-current" aria-busy={chat.busy}>
             {chat.busy && <>{chat.turns.length > 0 && <div className="pi-detail-question">{chat.question}</div>}
-                <AnswerStream content={chat.answer} isStreaming sources={chat.sources} researchSteps={chat.steps} />
+                {!chat.answer && <div className="pi-detail-preparing" role="status"><LoaderCircle size={15} className="pi-spinning" /><span>Reviewing source evidence</span></div>}
+                {chat.answer && <AnswerStream content={chat.answer} isStreaming sources={chat.sources} />}
             </>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p><button className="pi-button" onClick={chat.retry}>Retry analysis</button></div>}
         </div>
         {!chat.busy && chat.turns.length > 0 && <div className="pi-detail-suggestions" aria-label="Suggested follow-up questions">
             {(chat.related.length ? chat.related : suggestions).map(query => <button key={query} onClick={() => submit(query)}>{query}<ArrowUpRight size={14} /></button>)}
         </div>}
-        <div className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
+        <div ref={end} className="pi-detail-end" />
+        <div ref={composer} className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
             <label className="sr-only" htmlFor="pi-followup">Ask about this record</label>
-            <input id="pi-followup" value={input} maxLength={16000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record" disabled={chat.busy || !chat.turns.length} autoComplete="off" />
-            <ModeMenu compact /><button type="submit" className="pi-detail-send" aria-label="Send follow-up" disabled={chat.busy || !chat.turns.length || !input.trim()}><ArrowUp size={17} /></button>
+            <textarea ref={textarea} id="pi-followup" value={input} rows={1} maxLength={16000} onChange={event => setInput(event.target.value)} placeholder="Ask about this record…" aria-describedby="pi-followup-hint" autoComplete="off"
+                onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chat.busy && chat.turns.length && input.trim()) event.currentTarget.form?.requestSubmit(); } }} />
+            <div className="pi-detail-composer-toolbar"><ModeMenu compact /><div className="pi-detail-composer-actions">
+                {chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFullAnswer}>Show full answer</button>}
+                <span id="pi-followup-hint" className="sr-only">Enter to send. Shift and Enter for a new line.</span>
+                <button type="submit" className="pi-detail-send" aria-label="Send follow-up" disabled={chat.busy || !chat.turns.length || !input.trim()}><ArrowUp size={17} /></button>
+            </div></div>
         </form></div></div>
     </section>;
 }

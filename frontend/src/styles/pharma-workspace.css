@@ -171,7 +171,7 @@
 .pi-view-toggle button[aria-pressed=true] { background: #292b30; color: var(--color-text-primary); }
 .pi-record-list.pi-layout-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 18px; }
 .pi-record-list > li { padding: 0; min-width: 0; }
-.pi-layout-cards > li { overflow: hidden; border: 1px solid var(--color-border); border-radius: 9px; background: #0e0f11; align-self: start; }
+.pi-layout-cards > li { overflow: hidden; border: 1px solid var(--color-border); border-radius: 9px; background: #0e0f11; align-self: stretch; }
 .pi-layout-cards > li + li { border-top: 1px solid var(--color-border); }
 .pi-record-body { padding: 18px; }
 .pi-record-list h4 { font-size: 13px; line-height: 1.65; }
@@ -234,3 +234,28 @@
 .pi-thumbnail-link { display: block; border-radius: 12px 12px 0 0; }
 .pi-thumbnail-link:focus-visible { outline: 2px solid var(--color-text-secondary); outline-offset: -3px; }
 .pi-highlight-body > div > a { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+
+/* Record previews keep the same reading rhythm regardless of source-text length. */
+.pi-layout-cards > li { display: flex; flex-direction: column; transition: border-color 160ms ease; }
+.pi-layout-cards > li:hover { border-color: #4b515d; }
+.pi-record-body { min-width: 0; display: flex; flex-direction: column; flex: 1; padding: 20px; }
+.pi-record-summary { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 10px; }
+.pi-record-list h4 { line-height: 1.65; }
+.pi-record-footer { padding-top: 16px; margin-top: auto; }
+.pi-record-footer > span { width: 100%; font-size: 10px; line-height: 1.7; color: var(--color-text-secondary); }
+.pi-record-open { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; font-size: 12px; margin-right: auto; }
+.pi-record-open:hover { text-decoration: underline; text-underline-offset: 4px; }
+.pi-record-list .pi-thumbnail { height: 110px; background: #141c27; }
+.pi-record-list .pi-thumbnail-trials { background: #13211f; }
+.pi-record-list .pi-thumbnail-company { background: #1a1c28; }
+.pi-record-list .pi-thumbnail-news { background: #221e29; }
+.pi-thumb-art { opacity: .18; right: -48px; }
+.pi-thumb-overline { font-size: 9px; letter-spacing: .06em; text-transform: none; top: 15px; }
+.pi-thumb-asset { position: absolute; top: 39px; left: 18px; right: 18px; font-size: 17px; font-weight: 500; line-height: 1.5; letter-spacing: -.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pi-thumb-id { bottom: 13px; font-size: 10px; font-family: var(--font-family-mono); letter-spacing: 0; color: #b2bfd1; }
+.pi-thumbnail-featured .pi-thumb-asset { top: 42px; left: 12px; right: 12px; font-size: 13px; }
+.pi-thumbnail-featured .pi-thumb-id { font-size: 9px; bottom: 18px; }
+.pi-layout-list .pi-thumb-asset { font-size: 12px; }
+.pi-source-panel { align-self: start; }
+@media (max-width: 680px) { .pi-record-body { padding: 18px; } }
+@media (prefers-reduced-motion: reduce) { .pi-layout-cards > li { transition: none; } }
