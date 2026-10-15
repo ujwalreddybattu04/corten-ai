@@ -192,6 +192,21 @@ async def test_failed_entailment_gets_one_repair_then_is_removed_not_published()
     assert 'definitively establishes' not in report['markdown']
 
 @pytest.mark.asyncio
+async def test_temporary_evidence_review_failure_gets_one_metered_retry_and_bounded_batches():
+    async def save(*args):pass
+    requests=[]
+    async def model(messages,*args):
+        payload=json.loads(messages[-1]['content']);requests.append(payload)
+        if len(requests)==1:raise LLMProviderError('The analysis service is busy. Please retry shortly.')
+        assert len(payload)<=5
+        return {'text':json.dumps({'approved':[row['id'] for row in payload]})}
+    r=DeepResearch(job(),save,invoke=model)
+    r.state['quotes']=[{'id':'Qstatus','text':'The registered study status is COMPLETED.','source':1}]
+    claims=[{'id':'finding:'+str(i),'text':'The registered study status is COMPLETED.','quote_ids':['Qstatus']} for i in range(7)]
+    assert len(await r.entailment(claims))==7 and len(requests)==3 and r.state['model_calls']==3
+    assert any(e['title']=='Retrying evidence review' for e in r.activity)
+
+@pytest.mark.asyncio
 async def test_budget_exhaustion_returns_source_evidence_without_unreviewed_model_text():
     search=AsyncMock(return_value={'status':'available','records':[record()],'coverage':'Registry sample.'})
     async def persist(*args):pass

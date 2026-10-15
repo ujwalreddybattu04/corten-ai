@@ -229,13 +229,19 @@ class DeepResearch:
         prompt+=' Reject true but irrelevant findings that do not help answer the research question. Carefully distinguish brand formulations, routes, intervention arms, historical tentative actions and current approval status. If a quotation mentions intravenous evidence supporting a subcutaneous formulation, it does not establish intravenous administration of that formulation.'
         batches=[];batch=[]
         for row in rows:
-            if batch and len(json.dumps([*batch,row],ensure_ascii=False).encode())>48000:batches.append(batch);batch=[]
+            if batch and (len(batch)>=5 or len(json.dumps([*batch,row],ensure_ascii=False).encode())>48000):batches.append(batch);batch=[]
             batch.append(row)
         if batch:batches.append(batch)
         for batch in batches:
-            result=await self.model([{'role':'system','content':prompt},{'role':'user','content':json.dumps(batch,ensure_ascii=False)}],tokens=512)
-            accepted=json_result(result['text']).get('approved',[])
-            if not isinstance(accepted,list) or any(not isinstance(v,str) for v in accepted):raise ValueError('Invalid evidence review')
+            for attempt in range(2):
+                try:
+                    result=await self.model([{'role':'system','content':prompt+' Return only the JSON object, no rationale and no repeated claims or quotations.'},{'role':'user','content':json.dumps(batch,ensure_ascii=False)}],tokens=1024)
+                    accepted=json_result(result['text']).get('approved',[])
+                    if not isinstance(accepted,list) or any(not isinstance(v,str) for v in accepted):raise ValueError('Invalid evidence review')
+                    break
+                except (LLMProviderError,ValueError):
+                    if attempt:raise
+                    await self.event('verify','Retrying evidence review','One bounded retry after a temporary or unreadable review response.','running')
             accepted=set(accepted)&{c['id'] for c in batch};approved.update(accepted)
             for row in batch:reviews[keys[row['id']]]=row['id'] in accepted
             await self.persist()
@@ -254,6 +260,8 @@ class DeepResearch:
         except ResearchBudget as exc:
             self.state['limits'].append(str(exc));approved=set();review_unavailable=True
         except (LLMProviderError,ValueError):approved=set();review_unavailable=True
+        if review_unavailable:
+            approved={c['id'] for c in candidates if self.state['claim_reviews'].get(fingerprint({'text':c['text'],'quotes':c['quote_ids']})) is True}
         for claim in candidates:
             if claim['id'] not in approved:failed.append((claim['id'].rsplit(':',1)[0],claim,'The evidence review was unavailable; this finding was withheld.' if review_unavailable else 'The cited passages did not establish the draft claim.'))
         valid={c['id']:c for c in candidates if c['id'] in approved}
