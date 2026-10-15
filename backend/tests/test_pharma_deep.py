@@ -71,6 +71,27 @@ def test_source_rendered_tables_copy_results_and_preserve_estimated_milestones()
     assert '2027-01-20 (estimated)' in study['rows'][0]
     assert '12.4' in outcome['rows'][0] and 'Treatment' in outcome['rows'][0]
 
+def test_formulation_route_and_current_authorisation_cannot_be_inferred_from_other_product_or_old_action():
+    rows=[{**record(kind='fda_application',facts={'marketing_authorised':True,'products':[{'brand':'Example SC','route':'SUBCUTANEOUS'}]}),'citation':1}]
+    quotes=[{'id':'Qroute','source':1,'text':'Example SC was supported by intravenous comparator evidence. A historical tentative action was recorded.'}]
+    for text in ['Example SC is available for intravenous use.','Example SC has a tentative submission but it is not yet marketing authorised.']:
+        with pytest.raises(ValueError):verified_claim({'text':text,'quote_ids':['Qroute']},quotes,rows,{'fda'})
+
+def test_head_to_head_and_safety_publication_queries_match_the_question_intent():
+    direct=DeepPlan(question_type='head_to_head',subjects=['tirzepatide','semaglutide'],topics=['literature'])
+    queries=[c.query for _,c in search_calls(direct)]
+    assert len(queries)==1 and all(t in queries[0] for t in ['tirzepatide','semaglutide','head-to-head'])
+    safety=DeepPlan(question_type='safety',subjects=['KEYTRUDA'],topics=['literature'])
+    assert 'safety adverse events' in search_calls(safety)[0][1].query
+
+@pytest.mark.asyncio
+async def test_pdf_line_wrapping_does_not_turn_exact_passages_into_sentence_fragments(monkeypatch):
+    monkeypatch.setattr(documents,'pdf_text',AsyncMock(return_value={'text':'Example SC is for subcutaneous\nuse only. Intravenous comparator results\nare separate evidence.','truncated':False}))
+    client=httpx.AsyncClient(transport=httpx.MockTransport(lambda request:httpx.Response(200,headers={'content-type':'application/pdf'},content=b'%PDF')))
+    async with client:
+        result=await documents.read_document('https://www.fda.gov/label.pdf',client=client,resolve=AsyncMock())
+    assert 'Example SC is for subcutaneous use only.' in documents.relevant_quotes(result['text'],'Example SC subcutaneous')
+
 def test_evidence_prioritizes_clinical_content_over_publication_metadata_and_retains_identity():
     setup=DeepResearch(job(),AsyncMock()).state
     rows=[record(kind='publication',facts={'identifier':'1234','source':'MED','doi':'example','authors':'Example','journal':'Journal',

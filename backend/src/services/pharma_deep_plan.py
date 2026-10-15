@@ -86,6 +86,9 @@ def search_calls(plan:DeepPlan,round_number=1,gaps=None):
         if topic=='trials' and plan.question_type=='head_to_head':
             output.append((topic,ToolCall(tool='trials',query=plan.subjects[0],compare_with=plan.subjects[1],condition=plan.condition,phase=plan.phase)))
             continue
+        if topic=='literature' and plan.question_type=='head_to_head':
+            output.append((topic,ToolCall(tool='literature',query=(' '.join(plan.subjects)+' randomized head-to-head '+next((g.get('terms','') for g in gaps or [] if g['topic']==topic),''))[:240])))
+            continue
         for subject in plan.subjects:
             extra=next((g.get('terms','') for g in gaps or [] if g['topic']==topic),'')
             if topic in {'approvals','labels','patents','recalls','trials','literature'}:
@@ -93,7 +96,7 @@ def search_calls(plan:DeepPlan,round_number=1,gaps=None):
                 args={'search_by':'sponsor' if plan.question_type=='company_pipeline' else 'intervention','condition':plan.condition,'phase':plan.phase} if topic=='trials' else {}
                 # An exact NCT ID must not be filtered by a population or phase.
                 if topic=='trials' and re.fullmatch(r'NCT\d{8}',subject):args={}
-                query=subject+(' '+extra if topic=='literature' and extra else '')
+                query=subject+(' '+(extra or 'safety adverse events') if topic=='literature' and (extra or plan.question_type=='safety') else '')
                 output.append((topic,ToolCall(tool=tool,query=query[:240],**args)))
             else:
                 scope={'ema':'regulatory','company':'companies','sec':'commercial'}[topic]

@@ -125,6 +125,18 @@ def verified_claim(claim,quotes,records,tools):
     for identifier in re.findall(r'\b(?:NCT\d{8}|(?:ANDA|NDA|BLA)\d{5,8}|(?:EMEA|EMA)/H/C/\d+|VR/\d+)\b',text):
         if identifier not in quote_text:raise ValueError('An identifier is absent from the supporting quote')
     scoped=[r for r in records if r['citation'] in {q['source'] for q in selected}]
+    # Formulations sharing an ingredient must not inherit each other's administration route.
+    for row in scoped:
+        facts=row.get('facts') or {}
+        for product in facts.get('products',[]) if row['kind']=='fda_application' else []:
+            name=product.get('brand') or ''
+            routes=product.get('route') or ''
+            if isinstance(routes,list):routes=' '.join(routes)
+            if not name or not re.search(r'(?<!\w)'+re.escape(name)+r'(?!\w)',text,re.I):continue
+            asserted=re.findall(r'\bfor\s+(intravenous|subcutaneous|oral|intramuscular)\s+(?:use|administration)\b',text,re.I)
+            if routes and any(route.casefold() not in routes.casefold() for route in asserted):raise ValueError('The administration route contradicts the named FDA product')
+        if row['kind']=='fda_application' and facts.get('marketing_authorised') is True:
+            if re.search(r'\b(?:is|it is|but it is)\s+not\s+(?:yet\s+)?marketing\s+authori[sz]ed\b',text,re.I):raise ValueError('A historical tentative action does not negate current FDA authorisation')
     check_dates(text,scoped or evidence)  # Apply typed actual/estimated and primary/full-study qualifiers too.
     check_claims(text,scoped)
     check_absence(text,tools)

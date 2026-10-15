@@ -95,7 +95,7 @@ async def read_document(url,*,client=None,resolve=public_host):
                         if len(content)>MAX_BYTES:raise ValueError('Document exceeds download limit')
                 links=[];metadata={}
                 if mime=='application/pdf' or content.startswith(b'%PDF'):
-                    parsed=await pdf_text(bytes(content));text=parsed.pop('text');metadata=parsed
+                    parsed=await pdf_text(bytes(content));text=re.sub(r'\s+',' ',parsed.pop('text')).strip();metadata=parsed
                 else:
                     body=bytes(content).decode('utf-8',errors='replace')
                     if 'html' in mime:
