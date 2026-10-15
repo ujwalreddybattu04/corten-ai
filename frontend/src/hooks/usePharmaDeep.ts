@@ -53,7 +53,7 @@ export function usePharmaDeep(existingId: string) {
         finally { locked.current = false; if (current()) setOperation(''); }
     }, [current, refreshHistory]);
     return { job, history, options, error, operation, loading,
-        prepare: (query: string) => action('plan', () => prepareDeep(query)),
+        prepare: (query: string, allowSaved = false) => action('plan', () => prepareDeep(query, undefined, allowSaved)),
         start: (plan: DeepPlan) => job ? action('start', () => startDeep(job, plan)) : Promise.resolve(null),
         cancel: () => job ? action('cancel', () => actDeep(job, 'cancel')) : Promise.resolve(null),
         retry: () => job ? action('retry', () => actDeep(job, 'retry')) : Promise.resolve(null),

@@ -30,7 +30,7 @@ async def run_job(job,worker):
         logger.warning('Pharma Deep research failed (%s)',type(exc).__name__)
         state=research.state
         state['last_error']='Research was interrupted. Your plan and retrieved evidence are saved. You can retry this report once.'
-        research.activity.append({'id':len(research.activity)+1,'stage':research.stage,'title':'Research interrupted','detail':state['last_error'],'status':'failed','round':state['round'],'at':store.now().isoformat()})
+        research.activity.append({'id':max((entry['id'] for entry in research.activity),default=0)+1,'stage':research.stage,'title':'Research interrupted','detail':state['last_error'],'status':'failed','round':state['round'],'at':store.now().isoformat()})
         try:await store.save(job['id'],worker,state,research.activity,research.stage,status='failed')
         except InterruptedError:pass
     finally:

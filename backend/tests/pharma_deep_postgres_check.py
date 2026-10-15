@@ -30,11 +30,13 @@ async def main():
     started=[r for r in results if isinstance(r,dict)];blocked=[r for r in results if isinstance(r,HTTPException)]
     assert len(started)==1 and len(blocked)==1 and blocked[0].status_code==409
     first=started[0]
+    assert first['started_at'] is None,'Queue waiting must not consume the work time budget'
     duplicate=await store.start(first['id'],owners[0],plan,1)
     assert duplicate['id']==first['id'] and duplicate['status']=='queued'
     await store.start(other['id'],owners[1],plan,1);await store.start(third['id'],owners[2],plan,1)
     w1,w2,w3=[str(uuid.uuid4()) for _ in range(3)]
     claim1=await store.claim(w1);claim2=await store.claim(w2)
+    assert claim1['started_at'] is not None
     assert claim1 and claim2 and claim1['id']!=claim2['id'] and await store.claim(w3) is None
     await store.save(claim1['id'],w1,{'model_calls':2,'phase':'read'},[],'read')
     try:await store.save(claim1['id'],w3,{'model_calls':0},[],'search');raise AssertionError('Stale worker overwrote a job')

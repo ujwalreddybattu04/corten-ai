@@ -59,13 +59,13 @@ async def start(identifier,owner,plan,revision):
         if revision!=job.revision:raise HTTPException(409,'This plan was edited elsewhere. Reopen it before starting.')
         if await db.scalar(select(func.count()).select_from(Job).where(Job.owner_id==uuid.UUID(owner),Job.status.in_(ACTIVE))):
             raise HTTPException(409,'A research report is already running in your account. Open it or stop it before starting another.')
-        count=await db.scalar(select(func.count()).select_from(Job).where(Job.owner_id==uuid.UUID(owner),Job.started_at>now()-timedelta(days=1)))
+        count=await db.scalar(select(func.count()).select_from(Job).where(Job.owner_id==uuid.UUID(owner),Job.queued_at>now()-timedelta(days=1)))
         if count>=settings.PHARMA_DEEP_DAILY_REPORTS:raise HTTPException(429,'Your daily Deep research limit has been reached. Existing reports remain available.')
         # A transaction advisory lock makes the queue admission count exact across API processes.
         await db.execute(text('SELECT pg_advisory_xact_lock(43831729)'))
         count=await db.scalar(select(func.count()).select_from(Job).where(Job.status.in_(ACTIVE)))
         if count>=settings.PHARMA_DEEP_QUEUE_LIMIT:raise HTTPException(429,'Deep research is busy. Your plan is saved; please start it shortly.',headers={'Retry-After':'30'})
-        job.plan=plan;job.status='queued';job.started_at=now();job.revision+=1;job.updated_at=now()
+        job.plan=plan;job.status='queued';job.queued_at=now();job.revision+=1;job.updated_at=now()
         await db.commit();await db.refresh(job);return view(job)
 
 async def cancel(identifier,owner):
@@ -87,6 +87,7 @@ async def claim(worker):
         if job.status=='cancel_requested':
             job.status='cancelled';job.completed_at=now();await db.commit();return None
         job.status='running';job.lease_owner=worker;job.lease_until=now()+timedelta(seconds=75);job.updated_at=now();job.revision+=1
+        if job.started_at is None:job.started_at=now()
         await db.commit();return {'id':str(job.id),'query':job.query,'plan':copy.deepcopy(job.plan),'checkpoint':copy.deepcopy(job.checkpoint),'activity':copy.deepcopy(job.activity),'started_at':job.started_at}
 
 async def heartbeat(identifier,worker):

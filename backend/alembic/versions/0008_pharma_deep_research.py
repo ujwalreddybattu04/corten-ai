@@ -18,6 +18,7 @@ def upgrade():
         sa.Column('lease_owner',sa.String(36)),sa.Column('lease_until',sa.DateTime(timezone=True)),
         sa.Column('created_at',sa.DateTime(timezone=True),nullable=False,server_default=sa.func.now()),
         sa.Column('started_at',sa.DateTime(timezone=True)),sa.Column('completed_at',sa.DateTime(timezone=True)),
+        sa.Column('queued_at',sa.DateTime(timezone=True)),
         sa.Column('updated_at',sa.DateTime(timezone=True),nullable=False,server_default=sa.func.now()))
     op.create_index('ix_pharma_deep_owner_created','pharma_deep_research',['owner_id','created_at'])
     op.create_index('ix_pharma_deep_queue','pharma_deep_research',['status','lease_until','created_at'])

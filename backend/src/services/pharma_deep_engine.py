@@ -134,7 +134,7 @@ class DeepResearch:
             # A linked document has its own reference, rather than pretending that it is the original search page.
             if document['url']!=self.state['sources'][source-1]['url']:
                 from src.services.pharma_deep_evidence import source_id
-                source=source_id(self.state,{'url':document['url'],'title':title+' — source document','retrieved_at':document['retrieved_at']},topic)
+                source=source_id(self.state,{'url':document['url'],'title':title+' — source document','retrieved_at':document['retrieved_at'],'kind':'source_document'},topic)
                 if source is None:continue
             info={'url':document['url'],'requested_url':url,'source':source,'topic':topic,'title':title,
                 'sha256':document['sha256'],'read_method':document['read_method'],'retrieved_at':document['retrieved_at'],
@@ -281,6 +281,19 @@ class DeepResearch:
         await self.event('verify','Verification complete',str(count)+' findings verified; '+str(len(self.state['not_verified']))+' findings withheld.')
 
     async def run(self):
+        remaining=MAX_SECONDS
+        if self.job.get('started_at'):remaining=max(.01,MAX_SECONDS-(datetime.now(timezone.utc)-self.job['started_at']).total_seconds())
+        try:
+            async with asyncio.timeout(remaining):return await self._run()
+        except TimeoutError:
+            self.state['limits'].append('The research time budget was reached. Only saved, verified evidence is delivered.')
+            if not self.state['verification_complete']:
+                for section in self.state['sections']:section['claims']=[]
+            self.state['coverage']=coverage(self.state,self.plan.topics)
+            from src.services.pharma_deep_report import build_report
+            return build_report(self.job['query'],self.plan,self.state),'partial'
+
+    async def _run(self):
         try:
             if self.state['phase'] in ('search','read','gaps'):
                 while True:

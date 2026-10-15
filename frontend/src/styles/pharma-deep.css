@@ -79,6 +79,8 @@
 .pd-audit li strong { font-weight: 500; color: #c2ccce; }
 .pd-background-note, .pd-private-note, .pd-wait { font-size: 12px; color: var(--pd-muted); line-height: 1.9; margin-top: 25px; }
 .pd-stop { margin-top: 18px; }
+.pd-private-note label { display: flex; gap: 9px; align-items: center; margin-top: 12px; color: #cadbd5; }
+.pd-private-note input { accent-color: #b5cfca; }
 .pd-aside { flex: 0 0 235px; position: sticky; top: 98px; padding-top: 6px; }
 .pd-coverage { border-left: 1px solid var(--pd-line); padding-left: 24px; }
 .pd-coverage h2 { font-size: 12px; font-weight: 550; margin-bottom: 22px; }

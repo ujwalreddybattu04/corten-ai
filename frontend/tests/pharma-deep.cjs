@@ -3,8 +3,12 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const cache = new Map();
 let owner = 'owner-a';
+let privateMode = false;
+let lastPost;
+const validJob = { id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', query: 'Research a drug', status: 'draft', plan: { topics: [] }, revision: 1, activity: [] };
+cache.set(path.resolve('src/lib/api.ts'), { api: { post: async (url, body) => { lastPost = { url, body }; return validJob; } } });
 cache.set(path.resolve('src/lib/accountStorage.ts'), { getStorageAccount: () => owner });
-cache.set(path.resolve('src/lib/questionDrafts.ts'), { isPrivateChat: () => false });
+cache.set(path.resolve('src/lib/questionDrafts.ts'), { isPrivateChat: () => privateMode });
 const deep = require('./load-ts')('src/lib/pharmaDeep.ts', cache);
 
 test('Deep report sources accept forty explicit references and reject unsafe URLs', () => {
@@ -40,4 +44,14 @@ test('Only queued or running reports keep polling', () => {
 test('Malformed saved report responses fail with a readable reload action', () => {
     assert.throws(() => deep.checkDeepJob({ id: 'bad' }), /reload/);
     assert.throws(() => deep.checkDeepJob(null), /reload/);
+});
+
+test('Private research requires an explicit saved-report choice and preserves private chat mode', async () => {
+    privateMode = true;
+    await deep.prepareDeep('Investigate the trial evidence');
+    assert.equal(lastPost.body.private, true);
+    await deep.prepareDeep('Investigate the trial evidence', undefined, true);
+    assert.equal(lastPost.body.private, false);
+    assert.equal(privateMode, true);
+    privateMode = false;
 });

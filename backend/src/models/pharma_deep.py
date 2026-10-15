@@ -22,6 +22,7 @@ class PharmaDeepResearch(Base):
     lease_until=Column(DateTime(timezone=True),nullable=True)
     created_at=Column(DateTime(timezone=True),nullable=False,server_default=func.now())
     started_at=Column(DateTime(timezone=True),nullable=True)
+    queued_at=Column(DateTime(timezone=True),nullable=True)
     completed_at=Column(DateTime(timezone=True),nullable=True)
     updated_at=Column(DateTime(timezone=True),nullable=False,server_default=func.now())
     __table_args__=(Index('ix_pharma_deep_owner_created','owner_id','created_at'),Index('ix_pharma_deep_queue','status','lease_until','created_at'))

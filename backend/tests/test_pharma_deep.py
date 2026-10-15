@@ -158,17 +158,28 @@ async def test_rounds_are_bounded_and_original_scope_is_not_overwritten_by_gap_q
     assert engine.plan.subjects==['sildenafil']
 
 @pytest.mark.asyncio
-async def test_documents_have_real_exact_quotes_and_separate_provenance():
+@pytest.mark.parametrize('redirect',[False,True])
+async def test_documents_have_real_exact_quotes_and_separate_provenance(redirect):
     async def persist(*args):pass
     text='Sildenafil is discussed in this official assessment report. The assessment describes the registered primary endpoint.'
     row=record(kind='indexed_regulatory',facts={},url='https://www.ema.europa.eu/en/documents/report.pdf',excerpt=text)
     search=AsyncMock(return_value={'status':'available','records':[row],'coverage':'Indexed excerpts only.'})
-    reader=AsyncMock(return_value={'text':text,'url':row['url'],'read_method':'pdf_text','sha256':'a'*64,'retrieved_at':STAMP,'links':[],'truncated':False})
+    reader=AsyncMock(return_value={'text':text,'url':row['url'].replace('report.pdf','report-final.pdf') if redirect else row['url'],'read_method':'pdf_text','sha256':'a'*64,'retrieved_at':STAMP,'links':[],'truncated':False})
     setup=job(DeepPlan(subjects=['sildenafil'],topics=['ema'],max_rounds=1))
     engine=DeepResearch(setup,persist,search=search,reader=reader,invoke=AsyncMock(return_value={'text':'{"claims":[]}'}))
     report,_=await engine.run()
     passages=[q for q in report['quotes'] if q['method']=='document_passage']
-    assert passages and all(q['text'] in text for q in passages) and report['sources'][0]['read_status']=='document_read'
+    assert passages and all(q['text'] in text for q in passages) and any(s['read_status']=='document_read' for s in report['sources'])
+    assert len(report['sources'])==(2 if redirect else 1)
+
+@pytest.mark.asyncio
+async def test_work_time_budget_interrupts_a_slow_source_and_delivers_a_partial_report(monkeypatch):
+    from src.services import pharma_deep_engine as module
+    monkeypatch.setattr(module,'MAX_SECONDS',.05)
+    async def slow(call):await asyncio.sleep(5)
+    async def persist(*args):pass
+    report,status=await DeepResearch(job(),persist,search=slow).run()
+    assert status=='partial' and report['unknown'] and 'time budget' in report['unknown'][-2]['reason']
 
 @pytest.mark.parametrize('url',['http://www.fda.gov/a.pdf','https://fda.gov.evil.invalid/a','https://localhost/a','https://127.0.0.1/a','https://user:password@www.fda.gov/a','https://www.fda.gov:8443/a'])
 def test_unapproved_document_locations_are_rejected(url):assert not documents.document_url(url)

@@ -33,9 +33,9 @@ export function checkDeepJob(value: unknown): DeepJob {
     if (!job || !/^[a-f0-9-]{36}$/i.test(job.id) || typeof job.query !== 'string' || !job.plan || !Array.isArray(job.plan.topics) || !Array.isArray(job.activity) || !Number.isInteger(job.revision)) throw new Error('The research response could not be read. Please reload.');
     return job;
 }
-export async function prepareDeep(query: string, signal?: AbortSignal) { return checkDeepJob(await api.post('/api/v1/pharma/deep/plan', { query, private: isPrivateChat() }, { signal })); }
+export async function prepareDeep(query: string, signal?: AbortSignal, allowSaved = false) { return checkDeepJob(await api.post('/api/v1/pharma/deep/plan', { query, private: isPrivateChat() && !allowSaved }, { signal })); }
 export async function readDeep(id: string, signal?: AbortSignal) { return checkDeepJob(await api.get(`/api/v1/pharma/deep/${encodeURIComponent(id)}`, { signal })); }
-export async function startDeep(job: DeepJob, plan: DeepPlan) { return checkDeepJob(await api.post(`/api/v1/pharma/deep/${job.id}/start`, { plan, revision: job.revision, private: isPrivateChat() })); }
+export async function startDeep(job: DeepJob, plan: DeepPlan) { return checkDeepJob(await api.post(`/api/v1/pharma/deep/${job.id}/start`, { plan, revision: job.revision, private: false })); }
 export async function actDeep(job: DeepJob, action: 'cancel' | 'retry') { return checkDeepJob(await api.post(`/api/v1/pharma/deep/${job.id}/${action}`)); }
 const draftKey = () => `corten_deep_draft:${getStorageAccount() || 'guest'}`;
 export function rememberDeepDraft(query: string) { try { sessionStorage.setItem(draftKey(), query.slice(0, 4000)); } catch { /* The new research page remains available. */ } }

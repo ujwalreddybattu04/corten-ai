@@ -25,7 +25,7 @@ Migration `0008` adds `pharma_deep_research` with an account foreign key and que
 
 The initial limits are three rounds, 30 source lookups, 12 documents and 12 background model calls per report, with a 12-minute work budget. Planning can require one additional model call. The existing shared US$25 monthly Pharma model budget remains enforced by the host gateway. There is no new paid infrastructure or unbounded autonomous execution. Per-account daily report and queue limits are configurable. Exhaustion or unavailable sources result in explicit coverage gaps or a source-only partial report.
 
-Reports are private account records. Private chat mode does not start saved research. Account deletion cascades to these records. Generated exports are served through authenticated routes with no-store headers; source strings are never executed as Excel formulas.
+Reports are private account records. Private chat mode requires an explicit saved-research choice before a plan is created; other private chats remain private. Starting an existing saved plan is an explicit account-history action. Account deletion cascades to these records. Generated exports are served through authenticated routes with no-store headers; source strings are never executed as Excel formulas.
 
 Enable only after applying the additive migration and verifying the background worker:
 
