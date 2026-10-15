@@ -8,6 +8,8 @@ import { evidenceCsv, researchReport, type PharmaToolStep } from "@/lib/pharmaRe
 import { saveDownload } from "@/lib/interpolationDisplay";
 import { isPrivateChat } from "@/lib/questionDrafts";
 import PharmaAnswer from "./PharmaAnswer";
+import { rememberDeepDraft } from '@/lib/pharmaDeep';
+import { ScanSearch } from 'lucide-react';
 
 const EXAMPLES = [
     { icon: FlaskConical, title: "Clinical development", query: "Find recent phase 3 luspatercept studies and summarize their current status and primary endpoints." },
@@ -97,7 +99,7 @@ export default function PharmaResearch() {
             <textarea id="pharma-research-query" ref={textarea} rows={1} value={input} maxLength={8000} placeholder="Ask Pharma research…" onChange={event => setInput(event.target.value)} onKeyDown={event => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chat.busy) event.currentTarget.form?.requestSubmit(); }
             }} />
-            <div className="pr-composer-bar">{chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFull}>Show full answer</button>}
+            <div className="pr-composer-bar"><button type="button" className="pr-deep-mode" disabled={chat.busy} title="Prepare a Deep research plan" aria-label="Deep research" onClick={() => { rememberDeepDraft(input || last?.query || ''); router.push('/analyst-workspace/pharma/deep'); }}><ScanSearch size={14} /><span>Deep research</span></button>{chat.busy && chat.answer && <button type="button" className="pi-detail-show-full" onClick={chat.showFull}>Show full answer</button>}
                 {chat.busy ? <button type="button" className="pr-send" aria-label="Stop research" onClick={chat.stop}><Square size={14} /></button> : <button type="submit" className="pr-send" aria-label="Send question" disabled={!input.trim()}><ArrowUp size={18} /></button>}</div>
         </form></div>
         </div>

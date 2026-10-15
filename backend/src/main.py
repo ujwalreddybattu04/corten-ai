@@ -19,9 +19,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_start_app_handler(app)()
+    worker=None
+    if settings.PHARMA_INTELLIGENCE_ENABLED and settings.PHARMA_DEEP_RESEARCH_ENABLED:
+        from src.services.pharma_deep_worker import start_worker
+        worker=start_worker()
     try:
         yield
     finally:
+        if worker:
+            import asyncio
+            worker.cancel();await asyncio.gather(worker,return_exceptions=True)
         await create_stop_app_handler(app)()
 
 app = FastAPI(

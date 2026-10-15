@@ -15,7 +15,7 @@ if config.config_file_name is not None:
 
 # ── Import all models so autogenerate can detect them ─────────────────────────
 from src.db.base import Base  # noqa: F401
-from src.models import user, thread, message, source, space, collection, personal_record, password_reset, attachment, pharma  # noqa: F401
+from src.models import user, thread, message, source, space, collection, personal_record, password_reset, attachment, pharma, pharma_deep  # noqa: F401
 
 target_metadata = Base.metadata
 

@@ -7,7 +7,7 @@ from src.config.settings import settings
 from src.core.security import decode_token
 from src.db.redis import get_redis
 
-PATHS = {"/api/v1/search/stream", "/api/v1/search/title", "/api/v1/report/stream", "/api/v1/discover/article/summarize", "/api/v1/pharma/analysis/stream", "/api/v1/pharma/research/stream"}
+PATHS = {"/api/v1/search/stream", "/api/v1/search/title", "/api/v1/report/stream", "/api/v1/discover/article/summarize", "/api/v1/pharma/analysis/stream", "/api/v1/pharma/research/stream", "/api/v1/pharma/deep/plan"}
 LUA = """
 local minute = tonumber(redis.call('GET', KEYS[1]) or '0')
 local day = tonumber(redis.call('GET', KEYS[2]) or '0')
@@ -34,7 +34,8 @@ class GenerationLimits:
     def __init__(self, app): self.app = app
 
     async def __call__(self, scope, receive, send):
-        if settings.APP_ENV != "production" or scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") not in PATHS:
+        deep_start=scope.get('path','').startswith('/api/v1/pharma/deep/') and scope.get('path','').endswith(('/start','/retry'))
+        if settings.APP_ENV != "production" or scope["type"] != "http" or scope.get("method") != "POST" or (scope.get("path") not in PATHS and not deep_start):
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"").decode("utf-8", errors="ignore")

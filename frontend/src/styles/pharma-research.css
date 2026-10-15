@@ -54,6 +54,10 @@
 .pr-composer form:focus-within { border-color: #858d99; }
 .pr-composer textarea { display: block; flex: 1; min-width: 0; resize: none; width: 100%; min-height: 32px; max-height: 180px; padding: 4px 0; background: transparent; border: 0; outline: none; font-size: 15px; line-height: 1.65; color: inherit; }
 .pr-composer-bar { display: flex; align-items: center; gap: 12px; }
+.pr-deep-mode { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: #b6c8c5; padding: 7px 9px; border: 1px solid #384643; border-radius: 7px; white-space: nowrap; }
+.pr-deep-mode:hover { border-color: #8ca8a3; background: #1e2825; }
+.pr-deep-mode:disabled { opacity: .4; }
+@media (max-width: 600px) { .pr-deep-mode span { display: none; } .pr-deep-mode { padding: 8px; } }
 .pr-composer .pi-detail-show-full { position: absolute; right: 8px; top: -36px; background: var(--color-bg-primary); }
 .pr-send { border-radius: 50%; display: grid; place-items: center; width: 34px; height: 34px; background: #eee; color: #111; }
 .pr-send:disabled { opacity: .35; cursor: default; }

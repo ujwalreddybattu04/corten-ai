@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     GUARDIAN_API_KEY: str = ""
     OPENFDA_API_KEY: str = ""
     PHARMA_INTELLIGENCE_ENABLED: bool = False
+    PHARMA_DEEP_RESEARCH_ENABLED: bool = False
+    PHARMA_DEEP_DAILY_REPORTS: int = Field(default=3,ge=1,le=100)
+    PHARMA_DEEP_QUEUE_LIMIT: int = Field(default=40,ge=1,le=1000)
     PHARMA_BEDROCK_SOCKET: str = "/run/corten-bedrock/gateway.sock"
     PHARMA_BRIEF_MODEL: Literal["amazon.nova-pro-v1:0"] = "amazon.nova-pro-v1:0"
     PHARMA_QUESTION_MODEL: Literal["amazon.nova-pro-v1:0", "amazon.nova-lite-v1:0"] = "amazon.nova-pro-v1:0"
