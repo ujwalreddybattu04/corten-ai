@@ -64,11 +64,17 @@ def test_exact_document_match_stays_an_excerpt_not_a_claim_to_have_read_the_docu
     assert 'explicitly mention' in answer and 'full procedure documents have not been reviewed' in answer and '[2]' in answer
 
 
-def test_later_decision_does_not_prove_a_product_information_update():
+@pytest.mark.parametrize('draft',[
+    'This decision updates the product information for Revatio [1].',
+    'This decision updates the product information, but the specific changes are not detailed in this snapshot [1].',
+])
+def test_later_decision_does_not_prove_a_product_information_update(draft):
     with pytest.raises(LLMProviderError):
-        check_regulatory_history('This decision updates the product information for Revatio [1].',[selected()])
+        check_regulatory_history(draft,[selected()])
     valid='The procedure does not establish the exact changes to product information [1].'
     assert check_regulatory_history(valid,[selected()])==valid
+    qualified='It is unclear whether the decision updates product information [1].'
+    assert check_regulatory_history(qualified,[selected()])==qualified
 
 def test_failed_planner_never_pretends_an_external_lookup_was_a_local_summary():
     plan=research.fallback_plan('Find the latest competitor patent settlements.',[],selected())

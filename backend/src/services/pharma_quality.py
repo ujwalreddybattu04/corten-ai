@@ -155,10 +155,12 @@ def check_regulatory_history(text,evidence):
     # Unrelated search results do not supply a historic approved indication.
     if any((row.get('facts') or {}).get('indication_at_initial_authorisation') for row in evidence):return text
     for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
-        if re.search(r'\b(?:not|cannot|unclear|unknown|doesn.t|does not)\b',sentence,re.I):continue
         later_decision=any((row.get('facts') or {}).get('event',{}).get('kind')=='ema_post_authorisation_decision' for row in evidence if row.get('kind')=='selected_record')
-        if later_decision and re.search(r'\b(?:this|the)\s+(?:decision|procedure|variation)\s+(?:updates?|changes?|expands?|adds?)\b',sentence,re.I):
+        categorical=re.search(r'\b(?:this|the)\s+(?:decision|procedure|variation)\s+(?:updates?|changes?|expands?|adds?)\b',sentence,re.I)
+        qualified=categorical and re.search(r'\b(?:unclear|unknown|whether|not established|cannot confirm|does not establish)\b',sentence[:categorical.start()],re.I)
+        if later_decision and categorical and not qualified:
             raise LLMProviderError('The selected EMA snapshot identifies a later decision but does not establish its exact changes. Do not assert that it updates product information or expands an indication.')
+        if re.search(r'\b(?:not|cannot|unclear|unknown|doesn.t|does not)\b',sentence,re.I):continue
         historical=re.search(r'\b(?:initially (?:authori[sz]ed|approved)|(?:initial|original) (?:authori[sz]ation|approval))\b',sentence,re.I)
         projected=re.search(r'\bfor (?:the )?(?:treatment|use|patients|adults|children)\b|\bto treat\b|\bestablish\w*\b[^.;]{0,35}\b(?:use|indication|population)\b',sentence,re.I)
         if historical and projected:
