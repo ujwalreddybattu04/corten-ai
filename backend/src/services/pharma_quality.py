@@ -156,8 +156,11 @@ def check_regulatory_history(text,evidence):
     if any((row.get('facts') or {}).get('indication_at_initial_authorisation') for row in evidence):return text
     for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
         if re.search(r'\b(?:not|cannot|unclear|unknown|doesn.t|does not)\b',sentence,re.I):continue
-        historical=re.search(r'\b(?:initially authori[sz]ed|(?:initial|original) authori[sz]ation)\b',sentence,re.I)
-        projected=re.search(r'\bfor (?:the )?(?:treatment|use|patients|adults|children)\b|\bestablish\w*\b[^.;]{0,35}\b(?:use|indication|population)\b',sentence,re.I)
+        later_decision=any((row.get('facts') or {}).get('event',{}).get('kind')=='ema_post_authorisation_decision' for row in evidence if row.get('kind')=='selected_record')
+        if later_decision and re.search(r'\b(?:this|the)\s+(?:decision|procedure|variation)\s+(?:updates?|changes?|expands?|adds?)\b',sentence,re.I):
+            raise LLMProviderError('The selected EMA snapshot identifies a later decision but does not establish its exact changes. Do not assert that it updates product information or expands an indication.')
+        historical=re.search(r'\b(?:initially (?:authori[sz]ed|approved)|(?:initial|original) (?:authori[sz]ation|approval))\b',sentence,re.I)
+        projected=re.search(r'\bfor (?:the )?(?:treatment|use|patients|adults|children)\b|\bto treat\b|\bestablish\w*\b[^.;]{0,35}\b(?:use|indication|population)\b',sentence,re.I)
         if historical and projected:
             raise LLMProviderError('The current EMA indication does not establish the population approved at initial authorisation. Keep historical approval dates separate from current product information.')
     return text

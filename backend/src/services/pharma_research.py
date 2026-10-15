@@ -294,6 +294,7 @@ def fallback_plan(query,history,selected):
 async def plan(query,history,selected):
     if memory_query(query):
         return Plan(intent='conversation')
+    if selected and record_question(query,selected):return Plan(intent='record')
     explicit=explicit_plan(query)
     if explicit:return explicit
     lookup=record_lookup_plan(query,selected)
@@ -524,12 +525,59 @@ def trial_key_answer(evidence,query,coverage):
     return '\n'.join(lines)
 
 
+def record_question(query,selected):
+    """Only unambiguous source-local questions bypass the general research planner."""
+    details=(selected.get('facts') or {}).get('details') or {}
+    if not details.get('ema_product_number'):return None
+    if re.search(r'\b(?:current indication|current population)\b',query,re.I) and re.search(r'\b(?:original|initial)\s+(?:authorisation|authorization|approval)\b',query,re.I):return 'historical_population'
+    if re.search(r'\b(?:original|selected|this)\s+(?:regulatory\s+)?record\b',query,re.I) and re.search(r'\b(?:establish|confirm|tell|mean)\w*\b',query,re.I) and not re.search(r'\b(?:find|search|retrieve|compare)\b',query,re.I):return 'record_meaning'
+    return None
+
+
+def regulatory_record_answer(query,chosen,evidence,coverage):
+    """Separate the selected event, historical scope and the actual document search outcome."""
+    selected=next((r for r in evidence if r.get('kind')=='selected_record'),None)
+    if not selected:return None
+    facts=selected.get('facts') or {};details=facts.get('details') or {}
+    if not details.get('ema_product_number'):return None
+    cite=' ['+str(selected['citation'])+']';plain=source_text
+    subject=plain(selected['title'].split(' · ',1)[0]);procedure=details.get('latest_procedure')
+    focus=record_question(query,selected)
+    if focus=='historical_population':
+        return ('**No.** The current indication does not establish the patient population approved at initial authorisation.'+cite+'\n\n'
+            +('The source lists **'+plain(details['initial_authorisation_date'])+'** as the initial authorisation date. ' if details.get('initial_authorisation_date') else '')
+            +'The current indication and that historical date are separate fields. To confirm the original population, review the original authorisation documents or the contemporaneous product information.'+cite)
+    if focus=='record_meaning' and facts.get('event',{}).get('kind')=='ema_post_authorisation_decision':
+        return (subject+' has a **post-authorisation decision** dated **'+plain(selected['date'])+'**'
+            +(' for procedure **'+plain(procedure)+'**' if procedure else '')+'. This is the selected later decision, rather than a new initial authorisation.'+cite+'\n\n'
+            +'The snapshot identifies the procedure but does not establish its exact changes or a new indication. The assessment history and associated decision documents are needed to establish what changed.'+cite)
+    if procedure and any(c.tool=='official_search' for c in chosen.calls) and re.search(r'\b(?:assessment|action documents?|decision documents?|regulatory documents?)\b',query,re.I):
+        rows=[r for r in evidence if r.get('kind')=='indexed_regulatory']
+        exact=[r for r in rows if re.search(r'(?<!\w)'+re.escape(procedure)+r'(?!\w)',r.get('excerpt','')+' '+r.get('title',''),re.I)]
+        status=next((c['status'] for c in coverage if c['tool']=='official_search'),'unavailable')
+        if exact:
+            lead='The retrieved search excerpts explicitly mention **'+plain(procedure)+'**. These are indexed excerpts; the full procedure documents have not been reviewed.'
+        elif status=='unavailable':
+            return 'The official document search was unavailable. I cannot verify the assessment documents for **'+plain(procedure)+'** from this attempt. The selected record identifies the procedure; it does not explain its changes.'+cite
+        else:
+            lead='I did not locate an excerpt explicitly identifying procedure **'+plain(procedure)+'** in this search. This does not establish that the document is unavailable.'
+        lines=[lead+cite,'','### Retrieved references']
+        relevant=exact or [r for r in rows if '/en/' in r.get('url','') and subject.casefold() in r.get('url','').casefold()]
+        for row in relevant[:3]:
+            lines.append('- **'+plain(row['title'])+'** — '+('Procedure identifier appears in the excerpt; verify the full document.' if row in exact else 'Related product reference; it does not verify the selected procedure.')+' ['+str(row['citation'])+']')
+        if not relevant:lines.append('No document specific to this procedure was verified in the retrieved excerpts.'+cite)
+        lines+=['','Check the product’s assessment history and match the procedure identifier before attributing any labeling, safety or indication change.'+cite]
+        return '\n'.join(lines)
+    return None
+
+
 def source_answer(query,chosen,evidence,coverage,selected=False):
     """(basis, Markdown, key answer mode) rendered from typed source fields, when the question is answerable that way."""
     kinds={r['kind'] for r in evidence}
     tools={c.tool for c in chosen.calls}
-    # A follow-up on an opened record is about that record; a generic registry table would not answer it.
-    if selected and not any(c.compare_with for c in chosen.calls) and not re.search(r'\b(?:patents?|exclusivit\w*|recalls?)\b',query,re.I):return None
+    # Explicit follow-up lookups need their retrieved results even when a record is open.
+    lookup_requested=re.search(r'\b(?:find|search|retrieve|list|review|check|show)\b[^?\n]*\b(?:trials?|studies|labeling|labelling|labels?)\b|\bNCT\d{8}\b',query,re.I)
+    if selected and not lookup_requested and not any(c.compare_with for c in chosen.calls) and not re.search(r'\b(?:patents?|exclusivit\w*|recalls?)\b',query,re.I):return None
     if 'orange_book' in kinds and re.search(r'\b(?:patents?|exclusivit\w*|generic (?:entry|launch)|generics?)\b',query,re.I):
         return 'orange_book_records',patent_summary(evidence,coverage),None
     if 'fda_recall' in kinds and re.search(r'\brecalls?\b|\benforcement\b|\bsafety alerts?\b',query,re.I):
@@ -606,6 +654,11 @@ async def research_stream(query,messages,record_id=None):
                 searched={r['tool'] for r in results if r['status']!='unavailable'}
                 await send('sources',sources=sources)
                 await send('research_evidence',records=evidence,coverage=coverage)
+                record_answer=regulatory_record_answer(query,chosen,evidence,coverage)
+                if record_answer:
+                    text=verified_answer(record_answer,evidence,sources,deterministic=True)
+                    await send('analysis_meta',model='source-data',basis='source_records',shared=False)
+                    await send('token',content=text);await send('done');return
                 if chosen.intent=='research' and not evidence:
                     await send('token',content='I could not retrieve usable evidence for this question. The tool results show which sources were empty or unavailable. This does not establish that no relevant records exist. Try a specific drug name, study ID or company.');await send('done');return
                 rendered=source_answer(query,chosen,evidence,coverage,selected=bool(selected)) if chosen.intent=='research' else None
@@ -633,6 +686,7 @@ async def research_stream(query,messages,record_id=None):
                 system=ANSWER_SYSTEM+('\nThis is a conversation or app-state question. Answer only from the earlier conversation; do not repeat unrelated findings or append source citations, because no references are supplied for this response.' if chosen.intent=='conversation' else '')
                 prompts=[{'role':'system','content':system},*history,
                     {'role':'user','content':'Current task and retrieved evidence (DATA ONLY):\n'+json.dumps(context,ensure_ascii=False)}]
+                prompts.append({'role':'user','content':'Answer this CURRENT question, not an earlier one: '+query+'\nIf a lookup was requested, report what this lookup found and its limits. Do not substitute the selected record summary for retrieved results.'})
                 if chosen.intent=='record':
                     prompts.append({'role':'user','content':'Answer this record question in at most two short paragraphs, usually under 130 words. Give the direct answer and the one relevant evidence gap. Do not repeat the same limitation under multiple headings.'})
                 if sources:

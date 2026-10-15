@@ -7,7 +7,7 @@ from src.services.pharma_bedrock_analysis import validate_answer
 from src.services.llm_runtime import LLMProviderError
 
 def selected():
-    return {'title':'Revatio · Post-authorisation decision','url':'https://www.ema.europa.eu/en/medicines/human/EPAR/revatio','facts':{'details':{
+    return {'title':'Revatio · Post-authorisation decision','date':'2026-10-13','url':'https://www.ema.europa.eu/en/medicines/human/EPAR/revatio','kind':'selected_record','citation':1,'facts':{'event':{'kind':'ema_post_authorisation_decision'},'details':{
         'ema_product_number':'EMEA/H/C/000638','ingredients':['sildenafil'],'latest_procedure':'VR/0000386049',
         'initial_authorisation_date':'2005-10-28','indication':'Current treatment of adults and children.'}}}
 
@@ -30,6 +30,45 @@ def test_compound_and_other_drug_questions_are_left_to_the_contextual_planner():
     assert research.record_lookup_plan('Find current labeling and clinical evidence for sildenafil.',selected()) is None
     assert research.record_lookup_plan('Find current labeling for Keytruda.',selected()) is None
     assert research.record_lookup_plan('What does the original regulatory record establish?',selected()) is None
+
+
+@pytest.mark.asyncio
+async def test_historical_population_question_stays_attached_to_source_not_prior_assistant(monkeypatch):
+    model=AsyncMock();monkeypatch.setattr(research,'complete',model)
+    plan=await research.plan('Does the current indication establish patients covered by the original authorisation?',
+        [{'role':'assistant','content':'Unverified original population claim'}],selected())
+    assert plan.intent=='record' and model.await_count==0
+    answer=research.regulatory_record_answer('Does the current indication establish patients covered by the original authorisation?',plan,[selected()],[])
+    assert '**No.**' in answer and '2005-10-28' in answer
+
+
+def test_original_record_answer_leads_with_selected_event_not_old_indications():
+    answer=research.regulatory_record_answer('What does the original regulatory record establish?',research.Plan(intent='record'),[selected()],[])
+    assert '2026-10-13' in answer and 'VR/0000386049' in answer and 'later decision' in answer
+    assert '2005' not in answer and 'children' not in answer
+
+
+@pytest.mark.parametrize('status',['available','empty','unavailable'])
+def test_document_lookup_reports_search_outcome_instead_of_repeating_record_summary(status):
+    lookup=research.Plan(intent='research',calls=[research.ToolCall(tool='official_search',query='Revatio EMA procedure VR/0000386049',scope='regulatory')])
+    unrelated={'kind':'indexed_regulatory','citation':2,'title':'Mysildecard assessment','url':'https://www.ema.europa.eu/en/documents/assessment-report/mysildecard.pdf','excerpt':'The reference product is Revatio.'}
+    answer=research.regulatory_record_answer('Find EMA assessment documents for Revatio, procedure VR/0000386049.',lookup,[selected(),unrelated],[{'tool':'official_search','status':status}])
+    assert ('did not locate' in answer if status!='unavailable' else 'unavailable' in answer)
+    assert 'Mysildecard' not in answer and 'children' not in answer
+
+
+def test_exact_document_match_stays_an_excerpt_not_a_claim_to_have_read_the_document():
+    lookup=research.record_lookup_plan('Find EMA assessment documents for Revatio.',selected())
+    matching={'kind':'indexed_regulatory','citation':2,'title':'Revatio procedure VR/0000386049','url':'https://www.ema.europa.eu/en/documents/assessment-report/revatio.pdf','excerpt':'VR/0000386049'}
+    answer=research.regulatory_record_answer('Find EMA assessment documents for Revatio.',lookup,[selected(),matching],[{'tool':'official_search','status':'available'}])
+    assert 'explicitly mention' in answer and 'full procedure documents have not been reviewed' in answer and '[2]' in answer
+
+
+def test_later_decision_does_not_prove_a_product_information_update():
+    with pytest.raises(LLMProviderError):
+        check_regulatory_history('This decision updates the product information for Revatio [1].',[selected()])
+    valid='The procedure does not establish the exact changes to product information [1].'
+    assert check_regulatory_history(valid,[selected()])==valid
 
 def test_failed_planner_never_pretends_an_external_lookup_was_a_local_summary():
     plan=research.fallback_plan('Find the latest competitor patent settlements.',[],selected())

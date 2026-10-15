@@ -75,7 +75,7 @@ def evidence_messages(item,source,raw,query,history,kind,mode):
 
 def validate_answer(text,item,kind):
     text=citations(text)
-    check_regulatory_history(text,[{'kind':'selected_record','facts':{'details':item.get('details') or {}}}])
+    check_regulatory_history(text,[{'kind':'selected_record','facts':{'details':item.get('details') or {},'event':item.get('event') or {}}}])
     # Models occasionally append a duplicate bibliography; source pills own attribution.
     text=re.sub(r"\n\s*\[\d+\]\s+(?:https?://|[^\n]+,\s*https?://)[^\n]+\s*$","",text).rstrip()
     if not text.strip() or len(text)>16000:raise LLMProviderError("The analysis was incomplete. Please retry.")
@@ -128,10 +128,10 @@ async def stream_analysis(item,source,query,history,kind,mode,refresh=False):
             prompts=evidence_messages(item,source,raw,query,history,kind,mode)
             result=await complete(prompts,model)
             try:result["text"]=validate_answer(result["text"],item,kind)
-            except LLMProviderError:
+            except LLMProviderError as problem:
                 if kind!="brief":raise
                 result=await complete([*prompts,{'role':'assistant','content':result['text']},
-                    {'role':'user','content':'The draft failed validation. Copy drug names and identifiers exactly from the source. Preserve the supplied event, impact rating and requested headings; remove unsupported claims. Rewrite using only the supplied snapshot.'}],model)
+                    {'role':'user','content':'The draft failed validation ('+str(problem)+'). Copy drug names and identifiers exactly from the source. Preserve the supplied event, impact rating and requested headings; remove unsupported claims. Rewrite using only the supplied snapshot.'}],model)
                 try:result['text']=validate_answer(result['text'],item,kind)
                 except LLMProviderError:
                     result["text"]=source_summary(item)
