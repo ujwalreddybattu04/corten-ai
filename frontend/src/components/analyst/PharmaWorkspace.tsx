@@ -118,7 +118,6 @@ export default function PharmaWorkspace({ active }: { active: boolean }) {
       </div>
       <div className="pi-actions">
         <Link className="pi-button" href="/analyst-workspace/pharma/research"><Search size={15} aria-hidden="true" />Ask Pharma</Link>
-        <Link className="pi-button" href="/analyst-workspace/pharma/deep"><FlaskConical size={15} aria-hidden="true" />Deep research</Link>
         <button className="pi-button" onClick={() => void load()} disabled={busy}>
           <RefreshCw size={15} className={busy ? "pi-spinning" : ""} aria-hidden="true" />{busy ? "Checking…" : "Check updates"}
         </button>
