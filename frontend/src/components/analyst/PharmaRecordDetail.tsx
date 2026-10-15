@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, FileSearch, FlaskConical
 import { pharmaThumbnail, requestPharmaFeed } from "@/lib/pharmaFeed";
 import { pharmaFieldText, pharmaFilters, readPharmaRecord, recordProvider, rememberPharmaRecord, requestArchivedPharmaRecord, type PharmaRecord } from "@/lib/pharmaRecord";
 import { usePharmaAnalysis } from "@/hooks/usePharmaAnalysis";
+import { pharmaFollowUps } from "@/lib/pharmaFollowUps";
 import PharmaAnswer, { PharmaRelated } from "./PharmaAnswer";
 import { RecordThumbnail } from "./PharmaWorkspace";
 import { PharmaToolProgress } from "./PharmaResearch";
@@ -165,11 +166,7 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
         following.current = true; setInput(""); void chat.ask(value);
         requestAnimationFrame(() => start.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }));
     };
-    const subject = record.item.drugs?.slice(0, 2).map(drug => drug.name).join(" and ")
-        || record.item.details?.ingredients?.slice(0, 2).join(" and ") || record.item.details?.interventions?.slice(0, 2).join(" and ") || "this development";
-    const suggestions = record.item.source === "trials" ? [`What endpoints and completion dates are registered for this study?`, `Find other clinical trials involving ${subject}.`]
-        : record.item.source === "fda" || record.item.source === "ema" ? [`What does the original regulatory record establish?`, `Find current labeling and clinical evidence for ${subject}.`]
-        : [`Find the original evidence behind this announcement.`, `What other recent developments involve ${subject}?`];
+    const suggestions = pharmaFollowUps(record, chat.turns);
     return <section className="pi-detail-conversation" aria-labelledby="pi-analysis-title">
         <div className="pi-detail-analysis-heading"><h2 id="pi-analysis-title">Overview</h2><div className="pi-detail-analysis-actions">{chat.threadId && <Link className="pi-detail-refresh" href={`/search?focus=all&id=${chat.threadId}`}>Continue in Search<ArrowUpRight size={13} aria-hidden="true" /></Link>}<button className="pi-detail-refresh" onClick={chat.refresh} disabled={chat.busy || !chat.turns.length} title="Refresh this brief" aria-label="Refresh this brief"><RefreshCw size={15} aria-hidden="true" /></button></div></div>
         {chat.turns.map((turn, i) => <div className="pi-detail-turn" key={i}>
@@ -185,7 +182,7 @@ function RecordConversation({ record }: { record: PharmaRecord }) {
             </>}
             {chat.error && <div className="pi-detail-analysis-error" role="alert"><p>{chat.error}</p><button className="pi-button" onClick={chat.retry}>Retry analysis</button></div>}
         </div>
-        {!chat.busy && chat.turns.length > 0 && <PharmaRelated questions={chat.related.length ? chat.related : suggestions} onSelect={submit} />}
+        {!chat.busy && chat.turns.length > 0 && <PharmaRelated questions={suggestions} onSelect={submit} />}
         <div ref={end} className="pi-detail-end" />
         <div ref={composer} className="pi-detail-followup"><div className="pi-detail-followup-inner"><form onSubmit={event => { event.preventDefault(); submit(input); }}>
             <Microscope className="pi-composer-icon" size={18} aria-hidden="true" />

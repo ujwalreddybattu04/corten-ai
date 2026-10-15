@@ -147,8 +147,25 @@ ADVICE=re.compile(r'\b(?:clinicians?|physicians?|doctors?|prescribers?|healthcar
 ATTRIBUTED=re.compile(r'\b(?:label(?:ing)?|prescribing information|according to|per the|the trial|this trial|the study|this study|protocol|arms?|randomi[sz]ed|participants|enrolled)\b',re.I)
 
 
+def check_regulatory_history(text,evidence):
+    """A present-day EMA indication cannot substantiate the original approved population."""
+    selected=[row.get('facts',{}).get('details',{}) for row in evidence if row.get('kind')=='selected_record']
+    current_only=any(d.get('ema_product_number') and d.get('initial_authorisation_date') and d.get('indication') for d in selected)
+    if not current_only:return text
+    # Unrelated search results do not supply a historic approved indication.
+    if any((row.get('facts') or {}).get('indication_at_initial_authorisation') for row in evidence):return text
+    for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
+        if re.search(r'\b(?:not|cannot|unclear|unknown|doesn.t|does not)\b',sentence,re.I):continue
+        historical=re.search(r'\b(?:initially authori[sz]ed|(?:initial|original) authori[sz]ation)\b',sentence,re.I)
+        projected=re.search(r'\bfor (?:the )?(?:treatment|use|patients|adults|children)\b|\bestablish\w*\b[^.;]{0,35}\b(?:use|indication|population)\b',sentence,re.I)
+        if historical and projected:
+            raise LLMProviderError('The current EMA indication does not establish the population approved at initial authorisation. Keep historical approval dates separate from current product information.')
+    return text
+
+
 def check_claims(text,evidence):
     """Conservative vetoes supplement citations; they are not a general truth oracle."""
+    check_regulatory_history(text,evidence)
     labels=[r['facts'] for r in evidence if r.get('kind')=='drug_label']
     for sentence in re.split(r'(?<=[.!?])\s+|\n',text):
         # Label instructions and trial design are facts; recommendations to treat are not analyst research.

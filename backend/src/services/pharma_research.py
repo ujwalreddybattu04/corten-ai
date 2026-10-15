@@ -45,6 +45,8 @@ Distinguish confirmed facts, interpretation and unresolved gaps. Cite every sour
 Copy every date, decimal number and percentage exactly from the evidence; never compute differences, ratios or percentages yourself. When primary_results are supplied for a trial, report the posted values with their groups, units, time frame and analysis (estimate, confidence interval, p-value) exactly as given. Use date_timing to describe whether a registry date has passed: never call an ACTUAL date estimated and never describe a date that has passed as a future event.
 FDA: use the exact submission classification when supplied. If it says Labeling, explain that this is a labeling supplement rather than guessing that it might be one. A supplemental approval does not prove a new indication. A product whose marketing status says Tentative Approval cannot yet be marketed. ANDAs do not establish first generic, launch, exclusivity expiry or revenue. FDA action dates need no irrelevant trial-date disclaimer. FDA-submitted labeling records are not proof of FDA approval.
 EMA: distinguish initial authorisation, later variations and positive opinions. The latest Commission decision date does not make an old medicine newly approved. The current indication does not establish what the latest procedure changed.
+For an opened record, answer the selected event first: its event type, date meaning and procedure or application when supplied. "Original record" means the selected source, not original marketing authorisation. Do not lead with an old authorisation date unless the question asks for history. A current EMA indication cannot establish which populations were approved at the initial authorisation; never project current adults/children indications backwards in time.
+Use the recent conversation to advance the answer. Do not repeat the previous summary as new analysis. If the user repeats a question about the same unchanged snapshot, briefly identify what is already established and the unresolved point; do not imply new research occurred. If asked for documents, updated labeling, trials or publications, distinguish actual retrieval from a summary of the selected record.
 Trials: a current status is not an observed transition; record updates are not clinical milestones. Posted results do not mean positive results. Preserve actual/estimated completion qualifiers and partial dates. Quote supplied stop reasons accurately. Enrollment shortfalls do not establish efficacy failure or market demand. Distinguish a dated archive change from a current registry snapshot. A trial is a direct head-to-head comparison only when comparison_design.direct_comparison is true; combination or add-on arms are not.
 Never state that no studies exist or that only one study is registered based on a search sample. Say "No matching studies were returned in this search" or "The retrieved sample contains..." and preserve the total-match count separately. Do not infer a different development strategy from missing matches. Preserve mixed phases such as Phase 2/3. Distinguish primary completion from full study completion, and an estimated date in the past from an actual completion event. An estimated study date does not establish a regulatory submission or launch schedule.
 Publications: identify abstract excerpts versus full-text review and retain study limitations; no invented efficacy comparisons or causal conclusions. Patent listings do not establish enforceability, freedom to operate or launch timing. Commercial statements must retain publisher, dates, currency, period and assumptions; do not invent licensed sales/market share. Research is not patient-specific diagnosis or prescribing.
@@ -279,6 +281,10 @@ def parse_plan(text):
 
 def fallback_plan(query,history,selected):
     """Safe default when the planner cannot produce a valid plan twice."""
+    lookup=record_lookup_plan(query,selected)
+    if lookup:return lookup
+    if selected and re.search(r'\b(?:find|search|retrieve|look up|check for|check whether)\b',query,re.I):
+        return Plan(intent='clarify',clarification='Please name the drug, study or source document to retrieve. This record alone cannot establish current external evidence.')
     if history and re.search(r'\b(?:those|these|them|that|it|its|which of|above|previous|earlier|the first|the second|the last|same)\b',query,re.I):
         return Plan(intent='conversation')
     if selected:return Plan(intent='record')
@@ -290,6 +296,8 @@ async def plan(query,history,selected):
         return Plan(intent='conversation')
     explicit=explicit_plan(query)
     if explicit:return explicit
+    lookup=record_lookup_plan(query,selected)
+    if lookup:return lookup
     identifiers=sorted(set(re.findall(r'\b(?:NCT\d{8}|(?:ANDA|NDA|BLA)\d{6})\b',' '.join(m['content'] for m in history))))[:12]
     payload={'query':query,'recent_conversation':history,'identifiers_in_conversation':identifiers,'required_response_schema':Plan.model_json_schema(),
         'selected_record':{k:selected[k] for k in ('title','url','facts')} if selected else None,
@@ -305,6 +313,46 @@ async def plan(query,history,selected):
             return refine_plan(query,parse_plan(retry['text']))
         except ValueError:
             return fallback_plan(query,history,selected)
+
+
+def record_lookup_plan(query,selected):
+    """Route clear record follow-ups to real tools, without another planner call."""
+    if not selected:return None
+    facts=selected.get('facts') or {};details=facts.get('details') or {}
+    title=selected.get('title','').split(' · ',1)[0].strip()[:90]
+    ingredients=details.get('ingredients') or details.get('interventions') or []
+    if isinstance(ingredients,str):ingredients=[ingredients]
+    subject=next((v.strip()[:120] for v in ingredients if isinstance(v,str) and v.strip()),title)
+    study=details.get('study_id','');application=details.get('application','')
+    names=[v for v in (title,subject,study,application,details.get('ema_product_number')) if isinstance(v,str) and len(v)>1]
+    anchored=any(re.search(r'(?<!\w)'+re.escape(v)+r'(?!\w)',query,re.I) for v in names) or re.search(r'\b(?:this|that|the selected|the original)\s+(?:record|medicine|drug|product|trial|study|procedure|event|report|announcement)\b',query,re.I)
+    if not anchored:return None
+    domains=[r'\blabel(?:ing|ling)?\b|\bproduct information\b|\bprescribing information\b|\bassessment\b|\baction documents?\b',
+        r'\bpublished\b|\bpublications?\b|\bliterature\b|\bclinical evidence\b',r'\bclinical trials?\b',r'\btimeline\b|\bregulatory history\b']
+    if sum(bool(re.search(pattern,query,re.I)) for pattern in domains)>1:return None
+    if re.search(r'\b(?:timeline|regulatory history)\b',query,re.I) and len(subject)>1:
+        return Plan(intent='research',calls=[ToolCall(tool='drug_history',query=subject)])
+    if re.fullmatch(r'NCT\d{8}',study) and re.search(r'\b(?:results?|endpoints?|population|milestones?|estimated|actual)\b',query,re.I):
+        return Plan(intent='research',calls=[ToolCall(tool='trials',query=study)])
+    retrieve=re.search(r'\b(?:find|search|retrieve|look up|review|check|show)\b',query,re.I)
+    if not retrieve:return None
+    ema=bool(re.search(r'\bEMA\b',query,re.I) or details.get('ema_product_number') and not re.search(r'\bFDA\b',query,re.I))
+    if re.search(r'\b(?:assessment|action documents?|approval letter|regulatory documents?|decision documents?|product information|prescribing information|label(?:ing|ling)?)\b',query,re.I):
+        if ema:
+            procedure=details.get('latest_procedure','') if re.search(r'\b(?:assessment|procedure|decision|document)\b',query,re.I) else ''
+            terms=(title+' EMA '+('assessment procedure '+str(procedure) if procedure else 'current product information'))[:240]
+            return Plan(intent='research',calls=[ToolCall(tool='official_search',query=terms,scope='regulatory')])
+        if re.search(r'\blabel(?:ing|ling)?\b|\bprescribing information\b',query,re.I) and len(subject)>1:
+            return Plan(intent='research',calls=[ToolCall(tool='labels',query=subject)])
+        if re.fullmatch(r'(?:ANDA|NDA|BLA)\d{6}',application):
+            return Plan(intent='research',calls=[ToolCall(tool='fda',query=application),ToolCall(tool='official_search',query=application+' FDA action approval documents',scope='regulatory')])
+    if re.search(r'\b(?:published|publications?|literature|scientific evidence|clinical evidence)\b',query,re.I) and len(subject)>1:
+        return Plan(intent='research',calls=[ToolCall(tool='literature',query=subject)])
+    if re.search(r'\b(?:clinical trials?|registered studies)\b',query,re.I) and len(subject)>1:
+        return Plan(intent='research',calls=[ToolCall(tool='trials',query=subject,search_by='intervention')])
+    if re.search(r'\b(?:primary|original)\s+(?:announcement|evidence|source)|\b(?:FDA )?safety notice\b',query,re.I):
+        return Plan(intent='research',calls=[ToolCall(tool='official_search',query=selected.get('title','')[:220],scope='safety' if re.search(r'safety|recall',query,re.I) else 'companies')])
+    return None
 
 
 def drug_pair(query):
