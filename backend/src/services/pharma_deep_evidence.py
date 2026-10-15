@@ -125,6 +125,11 @@ def verified_claim(claim,quotes,records,tools):
     for identifier in re.findall(r'\b(?:NCT\d{8}|(?:ANDA|NDA|BLA)\d{5,8}|(?:EMEA|EMA)/H/C/\d+|VR/\d+)\b',text):
         if identifier not in quote_text:raise ValueError('An identifier is absent from the supporting quote')
     scoped=[r for r in records if r['citation'] in {q['source'] for q in selected}]
+    approval_assertion=re.search(r'\b(?:is|was|has been|received|granted)\b[^.;]{0,35}\b(?:accelerated approval|approved under accelerated)\b|\bFDA granted accelerated approval\b',text,re.I)
+    if approval_assertion:
+        if not re.search(r'\bfor\b',text,re.I):raise ValueError('Accelerated approval must identify the specific indication, not the whole product')
+        primary_action=any(r['kind']=='fda_application' or (urlsplit(r['url']).hostname or '').endswith('fda.gov') and r['kind']!='drug_label' for r in scoped)
+        if not primary_action and not re.search(r'\b(?:publication|paper|article|authors|company)\b.{0,40}\b(?:reports?|states?|describes?|reported)\b',text,re.I):raise ValueError('An unqualified accelerated-approval conclusion needs a primary FDA action source')
     # Formulations sharing an ingredient must not inherit each other's administration route.
     for row in scoped:
         facts=row.get('facts') or {}

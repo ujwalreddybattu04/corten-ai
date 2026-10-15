@@ -77,6 +77,13 @@ def test_formulation_route_and_current_authorisation_cannot_be_inferred_from_oth
     for text in ['Example SC is available for intravenous use.','Example SC has a tentative submission but it is not yet marketing authorised.']:
         with pytest.raises(ValueError):verified_claim({'text':text,'quote_ids':['Qroute']},quotes,rows,{'fda'})
 
+def test_accelerated_approval_needs_indication_scope_and_primary_action_not_an_unqualified_label_inference():
+    rows=[{**record(kind='drug_label',facts={'brand_names':['Example']}),'citation':1}]
+    quotes=[{'id':'Qindication','source':1,'text':'This indication is approved under accelerated approval based on response rate.'}]
+    for text in ['Example is approved under accelerated approval based on response rate.',
+                 'The FDA granted accelerated approval for Example for lung cancer based on response rate.']:
+        with pytest.raises(ValueError):verified_claim({'text':text,'quote_ids':['Qindication']},quotes,rows,{'labels'})
+
 def test_head_to_head_and_safety_publication_queries_match_the_question_intent():
     direct=DeepPlan(question_type='head_to_head',subjects=['tirzepatide','semaglutide'],topics=['literature'])
     queries=[c.query for _,c in search_calls(direct)]
