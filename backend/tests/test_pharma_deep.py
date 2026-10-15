@@ -71,6 +71,32 @@ def test_source_rendered_tables_copy_results_and_preserve_estimated_milestones()
     assert '2027-01-20 (estimated)' in study['rows'][0]
     assert '12.4' in outcome['rows'][0] and 'Treatment' in outcome['rows'][0]
 
+def test_evidence_prioritizes_clinical_content_over_publication_metadata_and_retains_identity():
+    setup=DeepResearch(job(),AsyncMock()).state
+    rows=[record(kind='publication',facts={'identifier':'1234','source':'MED','doi':'example','authors':'Example','journal':'Journal',
+        'publication_types':['Journal Article'],'abstract':'The study reported a primary endpoint difference of 12.4 points.'})]
+    add_records(setup,{'records':rows},'literature','primary endpoint')
+    assert setup['quotes'][0]['field']=='abstract'
+    assert not any(q['field'] in {'authors','identifier','journal'} for q in setup['quotes'])
+    add_records(setup,{'records':[record()]},'trials','sildenafil results')
+    outcome=next(q for q in setup['quotes'] if q['field']=='primary_results')
+    assert 'NCT01234567' in outcome['text'] and '12.4' in outcome['text']
+
+@pytest.mark.asyncio
+async def test_writer_gets_meaningful_abstracts_section_tasks_and_bounded_citation_rules():
+    p=DeepPlan(subjects=['sildenafil'],topics=['literature'],max_rounds=1)
+    r=DeepResearch(job(p),AsyncMock())
+    add_records(r.state,{'records':[record(kind='publication',facts={'identifier':'1234','authors':'Example','journal':'Journal',
+        'abstract':'The randomized study reported a primary endpoint difference of 12.4 points.'})]},'literature','sildenafil')
+    payloads=[]
+    async def model(messages,*args,**kwargs):
+        payloads.append(json.loads(messages[-1]['content']));return {'text':'{"claims":[]}'}
+    r.invoke=model
+    await r.write()
+    assert all('ONE to THREE' in p['output_rules'] for p in payloads)
+    clinical=next(p for p in payloads if p['section']=='Clinical evidence')
+    assert clinical['quotes'][0]['field']=='abstract' and 'study design' in clinical['section_task']
+
 def test_deep_claim_preserves_estimated_date_and_does_not_invent_an_earliest_trial():
     rows=[{**record(),'citation':1}]
     quotes=[{'id':'Qdate','text':'NCT01234567: completion date 2027-01-20 (ESTIMATED).','source':1}]

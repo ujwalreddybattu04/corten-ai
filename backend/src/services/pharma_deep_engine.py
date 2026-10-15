@@ -178,7 +178,7 @@ class DeepResearch:
         return valid[:6]
 
     def outline(self):
-        groups=[('Regulatory findings',['approvals','ema','labels']),('Clinical evidence',['trials','literature']),('Safety findings',['recalls']),('Commercial evidence',['patents','company','sec'])]
+        groups=[('Regulatory findings',['approvals','ema']),('Clinical evidence',['trials','literature']),('Safety findings',['labels','recalls']),('Commercial evidence',['patents','company','sec'])]
         return [{'heading':'Key answer','topics':self.plan.topics},*[{'heading':h,'topics':[t for t in ts if t in self.plan.topics]} for h,ts in groups if any(t in self.plan.topics for t in ts)]]
 
     async def write(self):
@@ -188,7 +188,8 @@ class DeepResearch:
             if any(s['heading']==section['heading'] for s in self.state['sections']):continue
             quotes=[q for q in self.state['quotes'] if q['topic'] in section['topics']]
             # Prefer source records/full-document passages over search excerpts; keep source diversity.
-            quotes.sort(key=lambda q:(q['method']=='search_excerpt',q['source']))
+            clinical_fields={'primary_results','comparison_design','warnings_and_cautions','contraindications','boxed_warning_present','boxed_warning','approved_submissions','tentative_submissions','patents','exclusivity','abstract','reason'}
+            quotes.sort(key=lambda q:(q['method']=='search_excerpt',q.get('field') not in clinical_fields,q['source']))
             chosen=[];size=0;per_source={}
             for quote in quotes:
                 encoded=len(json.dumps(quote,ensure_ascii=False))
@@ -196,8 +197,14 @@ class DeepResearch:
                 chosen.append(quote);size+=encoded;per_source[quote['source']]=per_source.get(quote['source'],0)+1
             if not chosen:self.state['sections'].append({**section,'claims':[]});continue
             await self.event('write',section['heading'],'Writing from saved evidence.','running')
-            payload={'question':self.job['query'],'section':section['heading'],'quotes':chosen,
-                'sources':[{k:s.get(k) for k in ('id','title','read_status','date','date_meaning')} for s in self.state['sources']],
+            tasks={'Key answer':'Answer the user question directly with the most decision-relevant supported findings. Preserve populations, intervention doses, endpoints and regulatory scope.',
+                'Regulatory findings':'Describe the retrieved application actions and exact approval status; distinguish them from label content. Do not repeat the key answer.',
+                'Clinical evidence':'Describe only relevant study design, populations, endpoints and reported results from these study quotations. Do not answer a label or patent question using publication metadata.',
+                'Safety findings':'Describe concrete label warnings, precautions or contraindications, and any retrieved recall actions. A missing boxed warning does not mean no safety warnings. Do not repeat the key answer.',
+                'Commercial evidence':'Describe specific patent listings, exclusivity or attributed company/filing evidence. Do not infer launch timing or repeat earlier findings.'}
+            payload={'question':self.job['query'],'section':section['heading'],'section_task':tasks[section['heading']],
+                'output_rules':'Return zero to three distinct findings. Each finding cites only ONE to THREE quotation IDs actually supporting it. Never cite every supplied ID. Return an empty claims array if this section has no relevant additional evidence. Do not restate an earlier finding.', 'quotes':chosen,
+                'sources':[{k:s.get(k) for k in ('id','title','read_status','date','date_meaning')} for s in self.state['sources'] if s['id'] in {q['source'] for q in chosen}],
                 'earlier_findings':[c['text'] for s in self.state['sections'] for c in s['claims']],
                 'coverage':self.state['coverage'],'today_utc':datetime.now(timezone.utc).date().isoformat()}
             try:

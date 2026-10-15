@@ -35,18 +35,22 @@ def add_quote(state,source,topic,text,method,*,field=None,proof=None):
 def structured_quotes(state,row,topic,source,query):
     """Values are copied verbatim from the parsed API record; field names preserve their context."""
     facts=row.get('facts') or {}
-    priority=('study_id','acronym','primary_results','results_present','results_posted','comparison_design','primary_completion','completion','status','phases','boxed_warning_present','boxed_warning','indication_headings','indication_statements','indications_and_usage','application','patents','exclusivities')
+    priority=('primary_results','results_present','results_posted','comparison_design','primary_completion','completion','status','phases','boxed_warning_present','boxed_warning','warnings_and_cautions','contraindications','indication_headings','indication_statements','indications_and_usage','approved_submissions','tentative_submissions','patents','exclusivity','abstract','reason')
+    metadata={'identifier','source','doi','authors','journal','publication_types','abstract_complete','evidence_type','sections','label_version'}
+    context={key:facts[key] for key in ('study_id','acronym','brand_names','generic_names','application','sponsor') if facts.get(key)}
     ordered=sorted(facts,key=lambda k:priority.index(k) if k in priority else len(priority))
+    initial=len(state['quotes'])
     for key in ordered:
+        if key in metadata or len(state['quotes'])-initial>=8:continue
         value=facts[key]
         if value is None or value in ('',[],{}):continue
-        rendered=json.dumps({key:value},ensure_ascii=False,sort_keys=True)
+        rendered=json.dumps({**context,key:value},ensure_ascii=False,sort_keys=True)
         if len(rendered)<=1700:
             add_quote(state,source,topic,rendered,'api_record',field=key);continue
         # Never splice a number or JSON object. Split arrays at complete member boundaries.
         if isinstance(value,list):
             for element in value[:8]:
-                rendered=json.dumps({key:element},ensure_ascii=False,sort_keys=True)
+                rendered=json.dumps({**context,key:element},ensure_ascii=False,sort_keys=True)
                 if len(rendered)<=1700:add_quote(state,source,topic,rendered,'api_record',field=key)
         elif isinstance(value,str):
             from src.services.pharma_documents import relevant_quotes
