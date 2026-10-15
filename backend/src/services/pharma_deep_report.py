@@ -44,6 +44,13 @@ def tables_from(records):
     add('FDA application actions',['Application','Sponsor','Submission','Number','Classification','Action date','Status','Source'],approvals)
     add('Patent and exclusivity listings',['Application','Listing','Identifier / code','Listed expiry','Interpretation limit','Source'],patents)
     add('FDA recalls',['Recall','Firm','Classification','Initiated','Status','Reason','Source'],recalls)
+    label_rows=[]
+    for row in records:
+        if row['kind']!='drug_label':continue
+        facts=row['facts'];name=', '.join(facts.get('brand_names') or facts.get('generic_names') or [row['title']])
+        present=facts.get('boxed_warning_present')
+        label_rows.append([name,row.get('date'),'Present' if present is True else 'No boxed-warning section in this retrieved label' if present is False else 'Not established',facts.get('boxed_warning_title') or 'Not supplied',row['citation']])
+    add('Retrieved label warnings',['Medicine / label','Label effective date','Boxed-warning section','Boxed-warning title','Source'],label_rows)
     return tables
 
 def timeline_from(records):
@@ -85,7 +92,7 @@ def build_report(query,plan,state):
     report={'version':1,'title':'Pharma deep research','query':query,'generated_at':datetime.now(timezone.utc).isoformat(),
         'plan':plan.model_dump(),'sections':sections,'tables':tables,'timeline':timeline,'unknown':unknown,'next_checks':checks,
         'not_verified':state['not_verified'],'coverage':state['coverage'],'sources':state['sources'],'quotes':state['quotes'],
-        'records':state['records'],'metrics':{k:state.get(k,0) for k in ('round','search_count','documents_read','model_calls','verified_claims')},
+        'records':state['records'],'search_coverage':state['searches'],'metrics':{k:state.get(k,0) for k in ('round','search_count','documents_read','model_calls','verified_claims')},
         'limits':{'rounds':plan.max_rounds,'searches':30,'documents':12,'model_calls':12,'monthly_model_budget':'Existing shared Pharma budget; no increase'},
         'sample_notice':'This is a bounded research sample. Search excerpts, retrieved API fields and full-document passages are identified separately. Absence from this report is not proof that evidence does not exist.'}
     pieces=[]

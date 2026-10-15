@@ -23,6 +23,8 @@ def blocks(report):
     yield 'heading','Next checks'
     for check in report['next_checks']:yield 'paragraph',check
     yield 'paragraph',report['sample_notice']
+    yield 'heading','Search coverage'
+    for search in report.get('search_coverage',[]):yield 'paragraph',search['query']+' ('+search['status']+'): '+search['coverage']
     yield 'heading','Sources'
     for source in report['sources']:
         yield 'paragraph','['+str(source['id'])+'] '+source['title']+' · '+source['read_status']+'\n'+source['url']+'\nRetrieved '+source['retrieved_at']+(' · Source date '+str(source['date'])+' ('+str(source.get('date_meaning') or 'meaning not supplied')+')' if source.get('date') else '')
@@ -91,6 +93,7 @@ def excel(report):
     sheet('Evidence ledger',['Quote ID','Source','Topic','Exact passage / field value','Method','Field','Document SHA256'],[[q['id'],q['source'],q['topic'],q['text'],q['method'],q.get('field'),(q.get('proof') or {}).get('sha256')] for q in report['quotes']])
     sheet('Sources',['Source','Title','URL','Source date','Date meaning','Retrieved UTC','Read status'],[[s['id'],s['title'],s['url'],s.get('date'),s.get('date_meaning'),s['retrieved_at'],s['read_status']] for s in report['sources']])
     sheet('Coverage',['Topic','Status','Sources','Quotes','Limitations'],[[c['label'],c['status'],c['sources'],c['quotes'],c['detail']] for c in report['coverage']])
+    sheet('Search coverage',['Topic','Scientific query','Tool','Status','Coverage limitations','Round'],[[c['topic'],c['query'],c['tool'],c['status'],c['coverage'],c['round']] for c in report.get('search_coverage',[])])
     sheet('Not verified',['Section','Reason'],[[n['section'],n['reason']] for n in report['not_verified']])
     for index,table in enumerate(report['tables']):sheet(str(index+1)+' '+table['heading'],table['columns'],table['rows'])
     sheet('Timeline',['Date','Record / milestone','Date meaning','Source'],[[t['date'],t['event'],t['meaning'],t['source']] for t in report['timeline']])

@@ -79,6 +79,8 @@ def coverage(state,topics):
         sources={q['source'] for q in quotes}
         status='covered' if complete else 'partial' if quotes else 'unavailable' if calls and all(c['status']=='unavailable' for c in calls) else 'missing'
         detail='Usable API fields or document passages retrieved; coverage is limited to this sample.' if complete else 'Only indexed excerpts are available; the full source was not verified.' if quotes else 'No usable evidence retrieved for this checklist item; absence is not proof that none exists.'
+        limitations=list(dict.fromkeys(c.get('coverage','') for c in calls if c.get('coverage')))
+        if limitations:detail+=' '+' '.join(limitations)[:1000]
         rows.append({'topic':topic,'label':TOPICS[topic][0],'status':status,'sources':len(sources),'quotes':len(quotes),'detail':detail})
     return rows
 

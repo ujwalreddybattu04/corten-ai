@@ -9,6 +9,7 @@ from src.services.pharma_research_tools import DOMAINS
 HOSTS=tuple(sorted({host for hosts in DOMAINS.values() for host in hosts}|{'clinicaltrials.gov','ncbi.nlm.nih.gov','europepmc.org','ebi.ac.uk','dailymed.nlm.nih.gov'}))
 MAX_BYTES=8_000_000
 MAX_TEXT=120_000
+PDF_SLOTS=asyncio.Semaphore(1)
 
 def document_url(value):
     try:
@@ -46,7 +47,7 @@ import io,json,sys
 try:
  import resource
  resource.setrlimit(resource.RLIMIT_CPU,(8,8))
- resource.setrlimit(resource.RLIMIT_AS,(512*1024*1024,512*1024*1024))
+ resource.setrlimit(resource.RLIMIT_AS,(256*1024*1024,256*1024*1024))
 except ImportError:pass
 from pypdf import PdfReader
 reader=PdfReader(io.BytesIO(sys.stdin.buffer.read(8000001)),strict=False)
@@ -59,6 +60,9 @@ print(json.dumps({'text':'\n'.join(pages),'pages_read':len(pages),'total_pages':
 '''
 
 async def pdf_text(content):
+    async with PDF_SLOTS:return await _pdf_text(content)
+
+async def _pdf_text(content):
     process=await asyncio.create_subprocess_exec(sys.executable,'-I','-c',PDF_PROGRAM,
         stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
     try:

@@ -209,6 +209,12 @@ def test_word_pdf_and_excel_are_real_readable_exports_and_excel_never_executes_s
     assert book['Sources']['B2'].data_type=='s' and book['Sources']['B2'].value.startswith('=HYPERLINK')
     assert 'Evidence ledger' in book.sheetnames and 'Parsed API records' in book.sheetnames
 
+@pytest.mark.asyncio
+async def test_pdf_document_reader_extracts_real_text_in_a_separate_process():
+    content=exports.pdf(sample_report())
+    extracted=await documents.pdf_text(content)
+    assert 'Primary endpoint' in extracted['text'] and extracted['pages_read']>=1 and not extracted['truncated']
+
 def test_fda_timeline_sorts_calendar_dates_without_changing_their_source_values():
     rows=[{**record(),'citation':1,'date':'2026-11-02'},
         {**record(kind='fda_application',facts={'application':'NDA123456','approved_submissions':[{'date':'20261013','classification':'Labeling'}]}),'date':None,'citation':2}]
