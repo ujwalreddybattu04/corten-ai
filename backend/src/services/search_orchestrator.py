@@ -129,6 +129,12 @@ class SearchOrchestrator:
                 selected_tool_names = [name for name in selected_tool_names if name == "calculator" and query_type == "math"]
             # Only the answer step sees the guidance; routing and output detection use the question as asked.
             answer_query = query + hint
+            if space is None and query != asked and query_type != "company":
+                # A search rewrite supplies context; it must not replace the user's output requirements.
+                answer_query = (query + "\n\nOriginal user request (controls language, scope and format; "
+                                "the resolved topic above is context):\n" + asked + hint)
+            if space is None and len(asked) <= 16000 and len(answer_query) > 16000:
+                answer_query = asked  # Drop optional routing hints, never the user's actual words.
 
             # ── SPACE AGENT: a Space answers with its template's agent and tools ─
             # Kept on the standard path: files-only Spaces (no agent tools), Corten's own intents, memory recall,
@@ -186,6 +192,9 @@ class SearchOrchestrator:
             if files_only:
                 selected_tool_names = [name for name in selected_tool_names if name in ("calculator", "weather")]
 
+            if space is None and turn.mode == 'auto' and not context_question:
+                from src.services.search_answer_policy import needs_depth
+                if needs_depth(asked):complexity=max(complexity,4)
             profile = answer_modes.resolve(turn.mode, complexity=complexity, strategy=strategy,
                                            has_images=bool(turn.images),
                                            long_context=sum(len(doc["text"]) for doc in documents) > 30_000,
@@ -282,9 +291,12 @@ class SearchOrchestrator:
 
                                 # Let LLM enhance the tool result with explanation
                                 tool_context_str = f"TOOL RESULT ({result.tool_name}):\n{formatted}\n\nProvide a clear, helpful response incorporating this data. Be conversational. Start directly with the answer."
+                                if space is None:
+                                    tool_context_str = answer_query + "\n\n" + tool_context_str
                                 async for event in _relay(groq_llm_service.stream_answer(
                                     tool_context_str, [], messages, focus_mode, space_instructions=instructions,
                                     profile=profile, personal=turn.personal,
+                                    search_tuning=space is None,
                                 )):
                                     yield event
 
@@ -303,7 +315,7 @@ class SearchOrchestrator:
 
                 async for event in _relay(groq_llm_service.stream_answer(
                         answer_query, [], messages, focus_mode, space_instructions=instructions,
-                        profile=profile, personal=turn.personal, artifact=wants_artifact)):
+                        profile=profile, personal=turn.personal, artifact=wants_artifact, search_tuning=space is None)):
                     yield event
 
                 yield _sse("meta", {"model": profile.model, "mode": profile.label})
@@ -319,7 +331,7 @@ class SearchOrchestrator:
                 })
 
                 async for event in research_agent.run(
-                    query=query,
+                    query=answer_query if space is None else query,
                     sub_questions=sub_questions,
                     messages=messages,
                     focus_mode=focus_mode,
@@ -328,6 +340,7 @@ class SearchOrchestrator:
                     priority_domains=space.domains if space else None,
                     profile=profile,
                     personal=turn.personal,
+                    search_tuning=space is None,
                 ):
                     yield event
 
@@ -514,7 +527,7 @@ class SearchOrchestrator:
                                                               space_instructions=instructions,
                                                               profile=None if query_type == "company" else profile,
                                                               images=turn.images, personal=turn.personal,
-                                                              artifact=wants_artifact):
+                                                              artifact=wants_artifact, search_tuning=space is None):
                 if isinstance(chunk, ReasoningChunk):
                     yield _sse("reasoning", {"content": str(chunk)})
                     continue
