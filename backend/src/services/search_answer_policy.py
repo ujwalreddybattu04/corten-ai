@@ -7,6 +7,21 @@ from src.config.prompts import WRITING_TASK, ANSWER_STYLE
 MAX_QUESTION_CHARS = 16_000
 
 
+def explicit_subject(query: str) -> bool:
+    """A named opening subject is not made ambiguous by pronouns in later format instructions."""
+    match = re.match(r"\s*(?:explain|describe|define|compare|what (?:is|are)|how (?:does|do))\s+(.+)", query, re.I)
+    if not match:
+        return False
+    subject = re.split(r"[.!?;\n]|\b(?:in|to|with|for|when|how|why|which|that)\b", match.group(1), maxsplit=1, flags=re.I)[0]
+    words = re.findall(r"[\w-]+", subject.casefold())
+    if any(word in {'it', 'its', 'they', 'their', 'them', 'this', 'that', 'these', 'those', 'above', 'previous', 'earlier'} for word in words):
+        return False
+    generic = {'a', 'an', 'the', 'your', 'our', 'my', 'previous', 'earlier', 'above', 'answer', 'answers',
+               'response', 'responses', 'point', 'points', 'concept', 'topic', 'trade-off', 'tradeoff', 'tradeoffs',
+               'trade-offs', 'comparison', 'difference', 'differences', 'more', 'again', 'meaning', 'details', 'detail'}
+    return any(word not in generic for word in words)
+
+
 def task_guidance(query: str) -> str:
     """Choose an answer shape from the request; never replace the user's actual instructions."""
     if re.search(r"\b(?:exactly|only)\s+(?:\d+|one|two|three|four|five|six)\s+(?:numbered\s+)?(?:points?|sentences?|paragraphs?|bullets?|lines?)\b", query, re.I):

@@ -8,7 +8,7 @@ from src.services import answer_modes
 from src.services.chat_context import TurnContext
 from src.services.llm_runtime import LLMProviderError
 from src.services.llm_service import groq_llm_service
-from src.services.search_answer_policy import excerpt,format_search_evidence,task_guidance,needs_depth
+from src.services.search_answer_policy import excerpt,format_search_evidence,task_guidance,needs_depth,explicit_subject
 
 
 class FakeClient:
@@ -19,6 +19,28 @@ class FakeClient:
             yield NS(choices=[NS(delta=NS(content='Visible answer.',reasoning=None),finish_reason=None)])
             yield NS(choices=[NS(delta=NS(content=None,reasoning=None),finish_reason='length' if self.limited else 'stop')])
         return stream()
+
+
+@pytest.mark.parametrize('query,expected',[
+    ('Explain HTTP caching in plain English. Keep it under 150 words.',True),
+    ('Explain retrieval-augmented generation to a product manager. Show how it works.',True),
+    ('How does this work?',False),('Explain the trade-off in simpler words.',False),
+    ('What is its purpose?',False),('Describe PostgreSQL and how it handles transactions.',True),
+])
+def test_explicit_subject_is_not_lost_to_pronouns_in_format_instructions(query,expected):
+    assert explicit_subject(query) is expected
+
+
+@pytest.mark.asyncio
+async def test_search_router_does_not_clarify_a_named_subject_because_its_format_request_contains_it():
+    from src.services.agents.smart_router import SmartRouter
+    fake=NS(chat=NS(completions=NS(create=AsyncMock(return_value=NS(choices=[NS(message=NS(content=json.dumps({
+        'strategy':'direct','requires_search':False,'complexity':2,'query_type':'coding',
+        'standalone_query':'Explain HTTP caching.','context_entity':'HTTP caching','needs_clarification':False
+    })))])))))
+    with patch.object(groq_llm_service,'client',fake):
+        result=await SmartRouter().route('Explain HTTP caching in plain English. Keep it under 150 words.',search_tuning=True)
+    assert result['query_type']!='clarification'
 
 
 def test_later_sources_are_not_starved_by_one_long_document_and_citation_ids_stay_stable():

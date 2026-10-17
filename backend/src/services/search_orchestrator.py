@@ -98,7 +98,7 @@ class SearchOrchestrator:
             short_query = (query[:55] + "\u2026") if len(query) > 55 else query
             yield _sse("status", {"content": f"Understanding \"{short_query}\""})
 
-            route = await smart_router.route(query, focus_mode, messages)
+            route = await smart_router.route(query, focus_mode, messages, **({"search_tuning": True} if space is None else {}))
             asked = query  # as typed; the router may rewrite follow-ups into standalone questions
             query = route.get("resolved_query", query)
             strategy = route.get("strategy", STRATEGY_STANDARD)

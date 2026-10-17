@@ -115,7 +115,7 @@ class SmartRouter:
     Returns routing decision that the orchestrator uses to pick the right pipeline.
     """
 
-    async def route(self, query: str, focus_mode: str = "all", messages: list = None) -> Dict[str, Any]:
+    async def route(self, query: str, focus_mode: str = "all", messages: list = None, *, search_tuning: bool = False) -> Dict[str, Any]:
         """
         Analyze query and return routing decision.
 
@@ -138,8 +138,13 @@ class SmartRouter:
         memory_intent = conversation_intent(query)
         if memory_intent:
             return self._direct_route(query, focus_mode, memory_intent)
-        query = resolve_company_followup(query, messages, settings.COMPANY_NAME, settings.BRAND_NAME)
-        query = resolve_named_followup(query, messages)
+        named_subject = False
+        if search_tuning:
+            from src.services.search_answer_policy import explicit_subject
+            named_subject = explicit_subject(original_query)
+        if not named_subject:
+            query = resolve_company_followup(query, messages, settings.COMPANY_NAME, settings.BRAND_NAME)
+            query = resolve_named_followup(query, messages)
         intent = direct_intent(query, settings.BRAND_NAME, bool(messages))
         if intent:
             return self._direct_route(query, focus_mode, intent)
@@ -152,6 +157,8 @@ class SmartRouter:
             return company_route
 
         contextual = is_contextual(query)
+        if named_subject:
+            contextual = False
         from src.services.llm_service import groq_llm_service
 
         if not groq_llm_service.client:

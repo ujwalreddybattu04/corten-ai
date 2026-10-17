@@ -5,6 +5,7 @@ Normal Search now has a separate answer policy, applied to direct answers, tool 
 ## Behavior
 
 - The answer sees the complete question, including instructions after the old Fast-mode 1,000-character cutoff. A router rewrite supplies context without replacing the user's language, scope or output format.
+- A named opening subject is not treated as a missing conversational reference merely because a later instruction says "keep it short" or "show how it works". This correction is enabled only for Search.
 - Answers use a task-appropriate shape: a recommendation and comparison criteria, an ordered investigation, an explanation with an example, a short clarification, or the requested draft itself. Exact user formatting takes priority.
 - Auto can select the existing Pro model for multi-part explanations, decisions and diagnostic work. Explicit Fast, Pro and Extended thinking selections still use their existing resolution rules. Simple follow-ups do not trigger the added depth heuristic.
 - Evidence allowances are shared across sources. Relevant passages can come from the middle of a document. Source IDs stay stable; unnumbered tool output does not acquire fabricated citations. Source content is encoded as data, outside system instructions.
