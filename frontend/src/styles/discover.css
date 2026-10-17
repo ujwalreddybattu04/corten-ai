@@ -1208,6 +1208,17 @@
     }
 }
 
+@media (max-width: 768px) {
+    .discover-header {
+        padding-left: 60px;
+        padding-right: 16px;
+    }
+
+    .discover-title {
+        margin-right: 16px;
+    }
+}
+
 /* =============================================================================
    Article Detail Page — Perplexity-exact design
    ============================================================================= */
