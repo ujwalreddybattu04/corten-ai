@@ -23,3 +23,13 @@ Regression coverage includes long questions, rewritten questions, explicit modes
 A bounded live-provider review covers seven synthetic cases: explanation, comparison, diagnosis, email drafting, missing evidence, conversational simplification, and a long Spanish-format request. Compared with the initial responses, the format request is preserved, drafting avoids an invented availability commitment, and the explanation is shorter. The fixtures and raw outputs remain private local artifacts; they contain no customer conversations.
 
 These checks do not establish universal factual accuracy. Live responses can still overgeneralize technical properties, attach a citation to an inference, or add an unsupported illustrative detail. Source quality, retrieval coverage, model variability and provider capacity remain limitations. This release improves Search behavior; it does not claim a new verified-evidence engine or perfect answers.
+
+## Conversational follow-up repair
+
+The Search orchestrator now recognizes bounded operations on an earlier answer before calling the search router: requests for simpler wording, examples, a shorter answer, a different format, another language, or more explanation. Casual spellings such as `i didnt get u` use that path. A missing earlier answer produces a request for context, rather than a web search for the phrase.
+
+Generation receives the exact preceding answer as untrusted conversation data and an explicit transformation instruction. The latest bounded answer is retained up to the existing 6,000-character message limit, including its middle; ordinary answer context previously shortened assistant messages to 1,400 characters. A substantive topic anchor remains available across repeated clarification turns. Earlier source numbers are not reused as citations for a new, unsourced rewording.
+
+Requests for verification, evidence or current updates remain research operations, with their topic validated against the retained conversation. Quoted phrases and new topics do not become transformations. Space agents, attachment analysis, provider quotas and explicit answer-mode choices retain their existing paths.
+
+Regression coverage includes casual wording, multiple follow-up turns, absent and malformed history, middle-of-answer context, explicit modes, fresh-information overrides and concurrent conversation isolation. A live-provider review checks that the response discusses the earlier topic, performs the requested operation and avoids new external lookups. These are bounded regression checks, not a claim that every possible phrasing or generated claim is correct.

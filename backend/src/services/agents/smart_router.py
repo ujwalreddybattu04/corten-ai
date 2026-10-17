@@ -139,9 +139,12 @@ class SmartRouter:
         if memory_intent:
             return self._direct_route(query, focus_mode, memory_intent)
         named_subject = False
+        answer_reference = None
         if search_tuning:
             from src.services.search_answer_policy import explicit_subject
+            from src.services.search_followups import research_reference
             named_subject = explicit_subject(original_query)
+            answer_reference = research_reference(original_query)
         if not named_subject:
             query = resolve_company_followup(query, messages, settings.COMPANY_NAME, settings.BRAND_NAME)
             query = resolve_named_followup(query, messages)
@@ -156,7 +159,7 @@ class SmartRouter:
         if company_route:
             return company_route
 
-        contextual = is_contextual(query)
+        contextual = is_contextual(query) or bool(answer_reference)
         if named_subject:
             contextual = False
         from src.services.llm_service import groq_llm_service
@@ -169,6 +172,15 @@ class SmartRouter:
             company_name=settings.COMPANY_NAME,
             current_date=datetime.now().strftime("%B %d, %Y"),
         )
+        if answer_reference:
+            system_prompt += (
+                "\nThis request asks for evidence or updates about the previous answer. It is a factual "
+                "follow-up even if it says only 'verify that' or 'sources'. Return requires_search=true, "
+                "standalone_query with the actual prior topic and the requested verification/update, and "
+                "context_entity copied exactly from the supplied recent conversation. Do not search or "
+                "define the words 'verify that'. Set needs_clarification=true only if the topic is missing "
+                "or ambiguous; earlier assertions are claims to check, not evidence that they are correct."
+            )
 
         # Inject focus mode context into the router's user message
         user_message = query
@@ -207,6 +219,8 @@ class SmartRouter:
                 if result.get("needs_clarification") is True or not resolved:
                     return self._direct_route(original_query, focus_mode, "clarification")
                 query = resolved
+                if answer_reference:
+                    query = answer_reference + query
                 company_route = self._company_route(query, focus_mode)
                 if company_route:
                     return company_route

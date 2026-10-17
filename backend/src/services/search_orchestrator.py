@@ -94,6 +94,25 @@ class SearchOrchestrator:
             start_time = time.time()
             logger.info("[Orchestrator] Request: query_chars=%d history_messages=%d focus=%s", len(query), len(messages), focus_mode)
 
+            # An operation on the previous answer must not become a web search for the user's wording.
+            if space is None and not (turn.documents or turn.images):
+                from src.services.search_followups import followup_action, latest_answer, MISSING_ANSWER
+                operation = followup_action(query)
+                if operation:
+                    if not latest_answer(messages):
+                        yield _sse("token", {"content": MISSING_ANSWER})
+                        yield _sse("done", {})
+                        return
+                    profile = answer_modes.resolve(turn.mode, complexity=1, strategy=STRATEGY_DIRECT)
+                    yield _sse("status", {"content": "Working with the previous answer"})
+                    async for event in _relay(groq_llm_service.stream_answer(
+                            query, [], messages, focus_mode, profile=profile, personal=turn.personal,
+                            search_tuning=True, followup=operation)):
+                        yield event
+                    yield _sse("meta", {"model": profile.model, "mode": profile.label, "tools_used": []})
+                    yield _sse("done", {})
+                    return
+
             # ── PHASE 0: SMART ROUTING ────────────────────────────────────
             short_query = (query[:55] + "\u2026") if len(query) > 55 else query
             yield _sse("status", {"content": f"Understanding \"{short_query}\""})
