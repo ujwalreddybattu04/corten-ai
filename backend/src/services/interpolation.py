@@ -18,6 +18,11 @@ MAX_YEARS = 100
 MAX_COLUMNS = 20
 MAX_MONTHLY_VALUES = 12_000
 MAX_YEAR = 2**53 - 1
+# Year labels: 2025, 1, "Year 1", "Year1", "Yr 1", "FY2025", "Y25".
+YEAR_PREFIX = r"^(?:year|yr|fy|y)\s*"
+YEAR_LABEL = re.compile(r"(?:(?:year|yr|fy|y)\s*)?[+-]?\d+", re.IGNORECASE)
+MONTH_LABEL = re.compile(r"(?:month|mon|mo|m)\s*\d+", re.IGNORECASE)
+THOUSANDS = re.compile(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 
 
 class Mode(str, Enum):
@@ -47,12 +52,14 @@ class YearlyInput:
     encoding: str
     delimiter: str
     sorted_input: bool
+    transposed: bool = False
 
     def preview(self):
         return {"columns": list(self.columns), "units": list(self.units),
                 "yearly": [{"year": y, "values": list(v)} for y, v in zip(self.years, self.values)],
                 "input_digest": self.input_digest, "encoding": self.encoding,
-                "delimiter": self.delimiter, "sorted_input": self.sorted_input}
+                "delimiter": self.delimiter, "sorted_input": self.sorted_input,
+                "transposed": self.transposed}
 
 
 def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
@@ -88,28 +95,64 @@ def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
             delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t").delimiter
         except csv.Error:
             delimiter = ","
+    # Sideways files carry years across the header, so either dimension may reach MAX_YEARS
+    # while reading; the exact year and column limits are applied once the layout is known.
+    max_fields = max(MAX_COLUMNS, MAX_YEARS) + 1
     try:
         records = []
         for record in csv.reader(StringIO(text, newline=""), delimiter=delimiter, strict=True):
-            if not record or all(not item.strip() for item in record):
+            # Spreadsheet exports pad rows with trailing empty cells (",,,,") and append
+            # empty rows. Neither carries data, so both are ignored.
+            end = len(record)
+            while end and not record[end - 1].strip():
+                end -= 1
+            if not end:
                 continue
-            if not records and len(record) > MAX_COLUMNS + 1:
-                raise InputLimitError(f"CSV supports at most {MAX_COLUMNS} value columns.")
-            records.append(record)
-            if len(records) > MAX_YEARS + 1:
+            if end > max_fields:
+                raise InputLimitError(f"CSV supports at most {MAX_COLUMNS} value columns and {MAX_YEARS} years.")
+            records.append(record[:end])
+            if len(records) > max_fields:
                 raise InputLimitError(f"CSV supports at most {MAX_YEARS} yearly rows.")
     except csv.Error:
         raise ValueError("CSV contains a malformed quoted field. Export a new CSV from your spreadsheet.") from None
     if len(records) < 2:
         raise ValueError("CSV must contain a header and at least one yearly data row.")
+    # Rows trimmed of trailing padding are re-aligned; a short row then reports its empty cell.
+    # Interior columns with no header and no values (blank spreadsheet columns) are dropped.
+    full_width = max(len(record) for record in records)
+    records = [record + [""] * (full_width - len(record)) for record in records]
+    kept = [i for i in range(full_width) if any(record[i].strip() for record in records)]
+    records = [[record[i] for i in kept] for record in records]
+    header = [name.strip() for name in records[0]]
+    # Years across the first row with one series per row (e.g. ",Y23,Y24" then "Erosion 1,5%,6%")
+    # is transposed. Only a file that would otherwise be unreadable is detected this way.
+    sideways = (len(header) >= 2 and all(YEAR_LABEL.fullmatch(name) for name in header[1:])
+                and not all(YEAR_LABEL.fullmatch(record[0].strip()) for record in records[1:]))
+    if sideways:
+        for row_number, record in enumerate(records[1:], 2):
+            if not record[0].strip():
+                raise ValueError(f"Row {row_number}: add a series name in the first column.")
+        records = [["year", *(record[0] for record in records[1:])],
+                   *([records[0][j], *(record[j] for record in records[1:])] for j in range(1, len(header)))]
+    if len(records[0]) > MAX_COLUMNS + 1:
+        raise InputLimitError(f"CSV supports at most {MAX_COLUMNS} value columns.")
+    if len(records) > MAX_YEARS + 1:
+        raise InputLimitError(f"CSV supports at most {MAX_YEARS} years.")
     names = [name.strip() for name in records[0]]
     keys = [unicodedata.normalize("NFC", name).casefold() for name in names]
-    if any(not name for name in names):
-        raise ValueError("Column names must not be empty.")
+    for index, name in enumerate(names):
+        if not name:
+            row_number = next(n for n, record in enumerate(records[1:], 2) if record[index].strip())
+            raise ValueError(f"Column {index + 1} has values (first in row {row_number}) but no name. "
+                             "Add a column name or delete those values.")
     if len(set(keys)) != len(keys):
         raise ValueError("Duplicate column names are not allowed (case-insensitive).")
+    if "year" not in keys and len(names) >= 2 and all(MONTH_LABEL.fullmatch(name) for name in names[1:]):
+        raise ValueError(f"This file already has monthly columns ({names[1]}, {names[2] if len(names) > 2 else '…'} …). "
+                         "Upload yearly values instead: one row per year, or years across the first row.")
     if "year" not in keys or len(names) < 2:
-        raise ValueError("Include a 'year' column and at least one numeric value column.")
+        raise ValueError("Include a 'year' column and at least one numeric value column, "
+                         "or put the years across the first row (for example 2023, 2024 or Y23, Y24).")
     for name in names:
         if len(name) > 200 or any(unicodedata.category(ch) in {"Cc", "Cf"} for ch in name):
             raise ValueError("Column names must be at most 200 characters and contain no control or formatting characters.")
@@ -118,8 +161,6 @@ def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
     if "month" in keys:
         raise ValueError("Rename the value column 'month'; it is reserved for monthly output.")
     width = len(names)
-    if any(len(record) != width for record in records[1:]):
-        raise ValueError("Every CSV row must have the same number of fields as its header.")
     if (len(records) - 1) * 12 * (width - 1) > MAX_MONTHLY_VALUES:
         raise InputLimitError(f"Request exceeds {MAX_MONTHLY_VALUES:,} monthly values. Use fewer columns while retaining all years.")
     year_index = keys.index("year")
@@ -127,21 +168,32 @@ def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
     units = ["%" if "%" in names[i] else "" for i in indices]
     rows = []
     for row_number, record in enumerate(records[1:], 2):
-        year_text = record[year_index].strip()
-        year_text = re.sub(r"^year\s*", "", year_text, flags=re.IGNORECASE)
+        label = record[year_index].strip()
+        # Errors name the year for sideways files, whose rows are now the original columns.
+        place = f"Year '{label}'" if sideways else f"Row {row_number}"
+        year_text = re.sub(YEAR_PREFIX, "", label, flags=re.IGNORECASE)
         try:
             number = Decimal(year_text)
             if not number.is_finite() or number != number.to_integral_value() or number.copy_abs() > MAX_YEAR:
                 raise ValueError
             year = int(number)
         except (ValueError, InvalidOperation, OverflowError):
-            raise ValueError(f"Row {row_number}: year must be an integer within the browser's exact integer range.") from None
+            raise ValueError(f"{place}: year must be a whole number such as 2025, 1, Year 1 or Y25.") from None
         values = []
         for position, index in enumerate(indices):
             raw = record[index].strip()
+            if not raw:
+                raise ValueError(f"{place}, '{names[index]}': value is empty. Enter a number; "
+                                 "missing values are never filled automatically.")
+            if raw.startswith("#"):
+                raise ValueError(f"{place}, '{names[index]}': the spreadsheet shows the error {raw}. "
+                                 "Fix that cell in Excel and export the CSV again.")
             if raw.endswith("%"):
                 units[position] = "%"
                 raw = raw[:-1].strip()
+            # In comma-separated files a quoted "1,234" can only be a thousands separator.
+            if delimiter == "," and THOUSANDS.fullmatch(raw):
+                raw = raw.replace(",", "")
             try:
                 # Decimal rejects bad fields before float conversion; floats must
                 # remain finite and nonzero targets must not underflow to zero.
@@ -157,7 +209,7 @@ def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
                         if abs(Decimal.from_float(value) - decimal) / decimal.copy_abs() > Decimal("1e-12"):
                             raise ValueError
             except (ValueError, InvalidOperation, OverflowError):
-                raise ValueError(f"Row {row_number}, '{names[index]}': enter a finite number, optionally ending in %. Value is invalid, overflowing or too small to represent.") from None
+                raise ValueError(f"{place}, '{names[index]}': enter a finite number, optionally ending in %. Value is invalid, overflowing or too small to represent.") from None
             values.append(value)
         rows.append((year, tuple(values)))
     years = [row[0] for row in rows]
@@ -168,7 +220,7 @@ def read_csv(content: bytes, encoding: Encoding = Encoding.auto) -> YearlyInput:
         raise ValueError("Years must be consecutive. Include missing years explicitly; they are never filled automatically.")
     return YearlyInput(tuple(names[i] for i in indices), tuple(units),
                        tuple(row[0] for row in ordered), tuple(row[1] for row in ordered),
-                       hashlib.sha256(content).hexdigest(), codec, delimiter, ordered != rows)
+                       hashlib.sha256(content).hexdigest(), codec, delimiter, ordered != rows, sideways)
 
 
 @lru_cache(maxsize=1)

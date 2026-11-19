@@ -71,10 +71,60 @@ class InputTests(unittest.TestCase):
             with self.subTest(content=content[:40]), self.assertRaises(ValueError):
                 read_csv(content)
 
+    def test_excel_padding_columns_and_rows_are_ignored(self):
+        # Excel "Save as CSV" can pad every row with empty cells and append empty rows.
+        padded = ("year,Erosion 1,Erosion 2" + "," * 11 + "\r\n"
+                  + "".join(f"{y},{80 - y}%,10%" + "," * 11 + "\r\n" for y in range(1, 11))
+                  + ("," * 13 + "\r\n") * 18).encode("utf-8-sig")
+        data = read_csv(padded)
+        self.assertEqual(data.columns, ("Erosion 1", "Erosion 2"))
+        self.assertEqual(data.years, tuple(range(1, 11)))
+        self.assertEqual(data.values[0], (79., 10.))
+        self.assertFalse(data.transposed)
+        # Uneven trailing commas and a blank interior column are also spreadsheet padding.
+        ragged = read_csv(b"year,,A,B,,\n1,,1,2\n2,,3,4,,,\n")
+        self.assertEqual((ragged.columns, ragged.values), (("A", "B"), ((1., 2.), (3., 4.))))
+
+    def test_sideways_years_across_header_are_transposed(self):
+        source = b",Y23,Y24,Y25\nErosion 1,79%,14%,6%\nErosion 2,60%,45%,39%,,\n,,,\n"
+        data = read_csv(source)
+        self.assertTrue(data.transposed)
+        self.assertEqual(data.columns, ("Erosion 1", "Erosion 2"))
+        self.assertEqual(data.years, (23, 24, 25))
+        self.assertEqual(data.values, ((79., 60.), (14., 45.), (6., 39.)))
+        self.assertEqual(data.units, ("%", "%"))
+        self.assertEqual(read_csv(b"Series,2023,2024\nA,1,2\n").years, (2023, 2024))
+        self.assertEqual(read_csv(b"Year,FY2025,FY2026\nA,1,2\n").columns, ("A",))
+        # Normal files whose value columns happen to be numeric names are not transposed.
+        normal = read_csv(b"year,2030\n1,5\n2,6\n")
+        self.assertFalse(normal.transposed)
+        self.assertEqual(normal.columns, ("2030",))
+
+    def test_year_labels_and_thousands_separators(self):
+        data = read_csv(b'year,Patients\nY25,"1,234"\nY26,"12,345.5"\nYr 27,7\n')
+        self.assertEqual(data.years, (25, 26, 27))
+        self.assertEqual(data.values, ((1234.,), (12345.5,), (7.,)))
+        # With semicolons, "1,5" may be a decimal comma and is never guessed.
+        with self.assertRaises(ValueError):
+            read_csv(b"year;V\n1;1,234\n")
+
+    def test_spreadsheet_problems_get_specific_messages(self):
+        cases = {b"Series,M24,M25,M26\nA,0.6,0.7,0.8\n": "already has monthly columns",
+                 b"year,V\n1,#DIV/0!\n": "#DIV/0!",
+                 b"year,V,W\n1,1,\n2,1,2\n": "value is empty",
+                 b"year,V\n1,1,2\n": "no name",
+                 b",Y23,Y24\nA,1,2\n,3,4\n": "series name",
+                 b"Series,Q1,Q2\nA,1,2\n": "years across the first row"}
+        for content, message in cases.items():
+            with self.subTest(content=content[:30]), self.assertRaisesRegex(ValueError, message):
+                read_csv(content)
+
     def test_resource_limits_precede_solver_allocation(self):
         cases = [b"x" * (MAX_UPLOAD_BYTES + 1),
                  ("year," + ",".join(f"v{i}" for i in range(21)) + "\n1," + ",".join("1" for _ in range(21))).encode(),
                  ("year,V\n" + "\n".join(f"{i},1" for i in range(101))).encode(),
+                 ("Series," + ",".join(str(i) for i in range(101)) + "\nA," + ",".join("1" for _ in range(101))).encode(),
+                 ("Series," + ",".join(str(i) for i in range(2)) + "\n" + "\n".join(f"S{i},1,1" for i in range(21))).encode(),
                  ("year," + ",".join(f"v{i}" for i in range(20)) + "\n" + "\n".join(str(i) + "," + ",".join("1" for _ in range(20)) for i in range(51))).encode()]
         for content in cases:
             with self.subTest(size=len(content)), self.assertRaises(InputLimitError):

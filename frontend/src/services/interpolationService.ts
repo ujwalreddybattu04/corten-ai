@@ -12,6 +12,7 @@ export type InputPreview = {
   encoding: string;
   delimiter: string;
   sorted_input: boolean;
+  transposed?: boolean;
 };
 export type InterpolationResult = InputPreview & {
   mode: InterpolationMode;

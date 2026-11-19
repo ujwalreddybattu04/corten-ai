@@ -45,7 +45,19 @@ normalization is numerical scaling, not a business-value boundary.
 ## CSV support and validation
 
 - A case-insensitive `year` column and 1–20 independent value columns.
-- Calendar integers or relative integer years; `Year 1`/`Year1` labels also work.
+- Sideways tables are also accepted: years across the first row (`2023`, `Y23`,
+  `FY2025`) and one series per row, named in the first column. They are detected
+  only when the file would otherwise be unreadable, transposed without changing
+  values, and the preview states that this happened.
+- Spreadsheet padding is ignored: trailing empty cells (`,,,,`), empty rows and
+  columns with neither a header nor values. A column that has values but no name,
+  or a blank cell inside the data, is still an error naming the row and column.
+- Calendar integers or relative integer years; `Year 1`/`Year1`, `Yr 1`, `Y25`
+  and `FY2025` labels also work.
+- Comma-separated files accept thousands separators such as `"1,234"`. In
+  semicolon or tab files a comma is never guessed to be a separator.
+- Clear messages for files that are already monthly (`M24`, `M25` … headers) and
+  for spreadsheet error cells such as `#DIV/0!`.
 - Consecutive years, sorted when necessary. Duplicate or missing years are errors.
 - Numbers with optional `%`: `25%` and `25` mean the same numeric value, 25.
 - UTF-8/BOM, UTF-16/BOM and Windows-1252, plus explicitly selectable GB18030.

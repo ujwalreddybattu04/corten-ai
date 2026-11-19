@@ -510,6 +510,9 @@ export default function YearlyMonthlyWorkspace() {
                       </button>
                     </div>
                   )}
+                  {preview.transposed && (
+                    <p>Years were read from the first row and each row became a series; values are unchanged.</p>
+                  )}
                   {preview.sorted_input && (
                     <p>Rows have been sorted by year; values are unchanged.</p>
                   )}
